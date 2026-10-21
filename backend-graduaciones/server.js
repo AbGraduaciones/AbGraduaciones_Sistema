@@ -7,6 +7,10 @@ const pagoController = require('../controllers/pagoController.js');
 // Inicializar la aplicación Express
 const app = express();
 
+// Servir archivos estáticos de la carpeta public (HTML, CSS, JS)
+app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, '../public'))); // Soporte si public está en la raíz
+
 // Verificar variables críticas en .env
 console.log('--- DIAGNÓSTICO DE INICIO ---');
 if (!process.env.STRIPE_SECRET_KEY) {
@@ -35,6 +39,20 @@ app.post(
 // Middleware para procesar JSON en el resto de la aplicación
 app.use(express.json());
 
+// RUTA RAÍZ GET /
+app.get('/', (req, res) => {
+    // Si tienes un index.html dentro de public, lo envía; de lo contrario, responde el estado de la API
+    const indexPath = path.join(__dirname, 'public', 'index.html');
+    res.sendFile(indexPath, (err) => {
+        if (err) {
+            res.json({
+                status: 'online',
+                mensaje: 'Sistema AbGraduaciones funcionando correctamente en Render'
+            });
+        }
+    });
+});
+
 // ENDPOINT: Crear sesión de Checkout
 app.post('/api/crear-checkout', async (req, res) => {
     console.log('---> Petición recibida en /api/crear-checkout');
@@ -48,6 +66,9 @@ app.post('/api/crear-checkout', async (req, res) => {
             console.error('Monto inválido recibido:', monto);
             return res.status(400).json({ error: 'El monto especificado no es válido.' });
         }
+
+        // Determinar URL base dinámica (producción en Render o local)
+        const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
 
         const session = await stripe.checkout.sessions.create({
             line_items: [
@@ -68,8 +89,8 @@ app.post('/api/crear-checkout', async (req, res) => {
                 cuentaId: cuentaId || '',
                 clienteId: clienteId || ''
             },
-            success_url: 'http://127.0.0.1:5500/public/success.html',
-            cancel_url: 'http://127.0.0.1:5500/public/cancel.html',
+            success_url: `${baseUrl}/success.html`,
+            cancel_url: `${baseUrl}/cancel.html`,
         });
 
         console.log('Sesión de Stripe creada con éxito. ID:', session.id);
