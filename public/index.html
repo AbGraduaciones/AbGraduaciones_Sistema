@@ -1,0 +1,1853 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ab Graduaciones - Sistema Integral y Portal de Alumnos</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Librerías para generación de PDF y captura visual -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <style>
+    .page-break {
+      page-break-before: always;
+      break-before: page;
+    }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 flex min-h-screen font-sans">
+
+  <!-- BARRA LATERAL -->
+  <aside id="barraLateral" class="w-64 bg-slate-900 text-white p-6 flex flex-col justify-between shrink-0 shadow-xl relative z-10 border-r border-slate-800">
+    <div>
+      <!-- LOGO Y TÍTULO DE LA EMPRESA -->
+      <div class="mb-8 flex flex-col items-start gap-2">
+        <div id="contenedorLogo" class="w-full flex items-center justify-start h-24 p-1">
+          <img 
+            id="imgLogo" 
+            src="" 
+            alt="Logo Ab Graduaciones" 
+            class="max-h-full max-w-[210px] object-contain hidden"
+          />
+          <h1 id="textoTituloLogo" class="text-2xl font-black tracking-wider text-white drop-shadow-[0_0_10px_rgba(59,130,246,0.5)]">
+            Ab Graduaciones
+          </h1>
+        </div>
+
+        <label id="lblSubirLogo" class="text-[11px] font-semibold text-blue-400 hover:text-blue-300 cursor-pointer flex items-center gap-1 transition-colors mt-1">
+          📷 <span id="txtSubirLogo">Subir / Cambiar Logo</span>
+          <input type="file" id="inputSubirLogo" accept="image/*" onchange="subirLogoLocal(event)" class="hidden" />
+        </label>
+      </div>
+
+      <!-- NAVEGACIÓN ADMINISTRADOR -->
+      <nav id="navAdmin" class="space-y-2">
+        <a href="#" onclick="cargarContenido('dashboard')" class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 hover:bg-blue-900/40 hover:text-blue-200 text-slate-300 font-medium">
+          Dashboard
+        </a>
+        <a href="#" onclick="cargarContenido('alumnos')" class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 hover:bg-blue-900/40 hover:text-blue-200 text-slate-300 font-medium">
+          Alumnos
+        </a>
+        <a href="#" onclick="cargarContenido('saldos')" class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 hover:bg-blue-900/40 hover:text-blue-200 text-slate-300 font-medium">
+          Saldos y Productos
+        </a>
+        <a href="#" onclick="cargarContenido('pagos')" class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 hover:bg-blue-900/40 hover:text-blue-200 text-slate-300 font-medium">
+          Historial de Pagos
+        </a>
+      </nav>
+
+      <!-- NAVEGACIÓN ALUMNO -->
+      <nav id="navAlumno" class="space-y-2 hidden">
+        <a href="#" onclick="cargarContenido('portal_alumno')" class="flex items-center gap-3 px-4 py-3 bg-blue-600 text-white rounded-xl font-medium shadow-md">
+          🎓 Mi Estado de Cuenta
+        </a>
+      </nav>
+    </div>
+
+    <!-- SELECTOR DE PERFIL / MODO -->
+    <div class="pt-6 border-t border-slate-800">
+      <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">Modo de Vista</p>
+      <select id="selectorModo" onchange="cambiarModoVista(this.value)" class="w-full bg-slate-800 border border-slate-700 text-white text-xs font-semibold rounded-xl p-2.5 outline-none focus:border-blue-500">
+        <option value="admin">👨‍💼 Administrador</option>
+        <option value="alumno">🎓 Portal del Alumno</option>
+      </select>
+    </div>
+  </aside>
+
+  <!-- CONTENIDO PRINCIPAL -->
+  <main class="flex-1 p-8 relative overflow-x-auto">
+    <!-- ENCABEZADO SUPERIOR -->
+    <div class="flex justify-between items-center mb-8 pb-4 border-b border-slate-200">
+      <div>
+        <h2 id="tituloSeccion" class="text-3xl font-extrabold text-slate-900 tracking-tight">Saldos y Productos</h2>
+      </div>
+      <div id="btnContenedor" style="display: block;">
+        <button id="btnAccion" onclick="abrirModal()" class="bg-blue-700 hover:bg-blue-800 text-white px-5 py-2.5 rounded-xl font-semibold shadow-lg shadow-blue-600/30 transition-all duration-200 flex items-center gap-2 hover:scale-[1.02]">
+          <span id="iconoBtn" class="text-xl leading-none">+</span> <span id="textoBtn">Nuevo Saldo</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- FILTROS ADMINISTRACIÓN -->
+    <div id="contenedorFiltros" class="flex flex-wrap gap-4 mb-6">
+      <input 
+        type="text" 
+        id="inputBuscar" 
+        onkeyup="filtrarTabla()" 
+        placeholder="Buscar alumno, paquete, universidad..." 
+        class="flex-1 min-w-[200px] p-3.5 bg-white border border-slate-300 rounded-xl text-slate-800 placeholder-slate-400 shadow-sm focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-600/20 transition-all"
+      >
+      <select 
+        id="filtroEscuela" 
+        onchange="filtrarTabla()" 
+        class="p-3.5 bg-white border border-slate-300 rounded-xl text-slate-700 shadow-sm focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-600/20 transition-all hidden"
+      >
+        <option value="">Todas las Facultades/Carreras</option>
+      </select>
+
+      <select 
+        id="filtroPaquete" 
+        onchange="filtrarTabla()" 
+        class="p-3.5 bg-white border border-slate-300 rounded-xl text-slate-700 shadow-sm focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-600/20 transition-all hidden"
+      >
+        <option value="">Todos los Paquetes</option>
+      </select>
+    </div>
+
+    <!-- TABLA DE DATOS PARA ADMINISTRADOR -->
+    <div id="contenedorTabla" class="overflow-x-auto bg-white rounded-2xl border border-slate-200 shadow-sm" style="display: block;">
+      <table class="w-full text-left border-collapse min-w-[1200px]">
+        <thead id="encabezadoTabla" class="bg-slate-100/80 border-b border-slate-200 text-slate-600 uppercase text-xs tracking-wider font-bold"></thead>
+        <tbody id="cuerpoTabla" class="divide-y divide-slate-100 text-sm"></tbody>
+      </table>
+    </div>
+
+    <!-- VISTA DINÁMICA DE PORTAL / DASHBOARD -->
+    <div id="contenidoDinamico" class="space-y-6" style="display: none;"></div>
+  </main>
+
+  <!-- MODAL AGREGAR / EDITAR SALDO, ALUMNO O PAGO -->
+  <div id="modalFormulario" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center hidden z-50 overflow-y-auto p-4">
+    <div class="bg-white p-8 rounded-2xl w-full max-w-2xl border border-slate-100 shadow-2xl transform transition-all my-8 max-h-[90vh] overflow-y-auto">
+      <h3 id="modalTitulo" class="text-2xl font-bold mb-4 text-slate-900">Agregar Nuevo</h3>
+      
+      <div id="alertaError" class="hidden mb-4 p-3.5 bg-red-50 border border-red-200 text-red-700 rounded-xl text-sm font-medium"></div>
+
+      <form id="formAgregar" onsubmit="guardarRegistro(event)">
+        <div id="camposFormulario" class="space-y-4"></div>
+        <div class="flex justify-end space-x-3 mt-8 pt-4 border-t border-slate-100">
+          <button type="button" onclick="cerrarModal()" class="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl transition-all">Cancelar</button>
+          <button type="submit" id="btnGuardarModal" class="px-5 py-2.5 bg-blue-700 hover:bg-blue-800 text-white font-semibold rounded-xl shadow-md shadow-blue-600/20 transition-all flex items-center gap-2">
+            <span>Guardar</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL PASARELA DE PAGO ALUMNO -->
+  <div id="modalPasarelaPago" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center hidden z-50 overflow-y-auto p-4">
+    <div class="bg-white p-8 rounded-2xl w-full max-w-md border border-slate-100 shadow-2xl">
+      <div class="flex justify-between items-center mb-6">
+        <h3 class="text-xl font-bold text-slate-900">💳 Abono en Línea</h3>
+        <button onclick="cerrarModalPasarela()" class="text-slate-400 hover:text-slate-600 font-bold">✕</button>
+      </div>
+
+      <div class="space-y-4">
+        <div class="p-4 bg-slate-50 border border-slate-200 rounded-xl">
+          <p class="text-xs font-bold text-slate-500 uppercase">Concepto de Pago</p>
+          <p id="pasarelaConcepto" class="text-base font-bold text-slate-900">-</p>
+          <p class="text-xs font-bold text-slate-500 uppercase mt-2">Monto a Pagar</p>
+          <div class="flex items-center gap-2 mt-1">
+            <span class="text-lg font-bold text-slate-400">$</span>
+            <input type="number" id="pasarelaMontoInput" class="w-full text-2xl font-extrabold text-blue-700 bg-white border border-slate-300 rounded-lg p-2 outline-none focus:border-blue-600" min="1">
+          </div>
+          <p id="pasarelaAvisoMax" class="text-[11px] text-slate-500 mt-1 font-medium"></p>
+        </div>
+
+        <div class="pt-2">
+          <button onclick="procesarPagoAlumnoSimulado()" class="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-lg shadow-emerald-600/30 transition-all flex justify-center items-center gap-2">
+            🔒 Pagar Ahora con Seguridad (Stripe)
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL GESTOR DE ENTREGAS Y MATERIALES (ADMINISTRADOR) -->
+  <div id="modalEntregas" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center hidden z-50 overflow-y-auto p-4">
+    <div class="bg-white p-8 rounded-2xl w-full max-w-xl border border-slate-100 shadow-2xl transform transition-all my-8">
+      <div class="flex justify-between items-start mb-4">
+        <div>
+          <h3 class="text-xl font-bold text-slate-900">📦 Control de Entregas y Regalías</h3>
+          <p id="entregasSubtitulo" class="text-xs font-semibold text-blue-600 mt-0.5">Alumno: -</p>
+        </div>
+        <button onclick="cerrarModalEntregas()" class="text-slate-400 hover:text-slate-600 font-bold text-lg">✕</button>
+      </div>
+
+      <!-- SELECCIÓN MANUAL DE REGALÍA POR EL ADMINISTRADOR -->
+      <div class="bg-blue-50/70 p-4 rounded-xl border border-blue-200 mb-4">
+        <label class="block text-xs font-bold uppercase text-blue-900 mb-1">✨ Asignar / Cambiar Elección de Regalía</label>
+        <select id="selectEleccionAdmin" onchange="cambiarEleccionAdmin(this.value)" class="w-full p-2.5 bg-white border border-blue-300 text-slate-800 text-sm font-semibold rounded-lg outline-none focus:border-blue-600">
+          <option value="">Pendiente de elección por el alumno</option>
+          <option value="Anillo de Plata 925">💍 Anillo de Plata 925</option>
+          <option value="Personalizador">✒️ Personalizador</option>
+        </select>
+        <p class="text-[11px] text-blue-700 mt-1">Si el alumno le hace la petición, puede seleccionar o cambiar la regalía aquí. El PDF se actualizará en automático.</p>
+      </div>
+
+      <div id="listaMaterialesEntregas" class="space-y-3 my-4 max-h-[50vh] overflow-y-auto pr-1"></div>
+
+      <div class="flex justify-end space-x-3 pt-4 border-t border-slate-100">
+        <button onclick="cerrarModalEntregas()" class="px-5 py-2.5 bg-blue-700 hover:bg-blue-800 text-white font-semibold rounded-xl transition-all">
+          Aceptar y Guardar
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <datalist id="listaAlumnosRegistrados"></datalist>
+
+  <!-- CONTENEDOR OCULTO PARA IMPRESIÓN DE PDF -->
+  <div style="position: absolute; left: -9999px; top: 0; width: 700px;">
+    <div id="reciboPdfPlantilla" style="background-color: #ffffff; color: #0f172a; font-family: Arial, Helvetica, sans-serif; width: 700px; padding: 24px; box-sizing: border-box; border: 1px solid #e2e8f0;">
+      
+      <!-- PÁGINA 1 -->
+      <table style="width: 100%; border-bottom: 3px solid #2563eb; padding-bottom: 14px; margin-bottom: 18px; border-collapse: collapse;">
+        <tr>
+          <td style="vertical-align: middle; text-align: left; width: 52%;">
+            <div id="pdfLogoContenedor">
+              <img id="pdfLogoImg" src="" style="max-height: 55px; max-width: 200px; object-fit: contain; display: none;" alt="Logo" />
+              <div id="pdfLogoTexto" style="display: block;">
+                <div style="color: #1e3a8a; font-size: 24px; font-weight: 900; line-height: 1; letter-spacing: 1px;">AB</div>
+                <div style="color: #2563eb; font-size: 16px; font-weight: 700; line-height: 1; letter-spacing: 0.5px; text-transform: uppercase; margin-top: 2px;">GRADUACIONES</div>
+              </div>
+            </div>
+            <div style="color: #3b82f6; font-size: 11px; font-weight: bold; margin-top: 5px;">Comprobante Oficial de Pago</div>
+          </td>
+          <td style="vertical-align: middle; text-align: right; width: 48%; white-space: nowrap;">
+            <span style="display: inline-block; padding: 5px 12px; background-color: #2563eb; color: #ffffff; border-radius: 6px; font-size: 11px; font-weight: bold; text-transform: uppercase;">Recibo Digital</span>
+            <div style="font-size: 12px; color: #475569; margin-top: 8px;">Folio Último Pago: <span id="pdfFolio" style="font-weight: bold; color: #0f172a;">PAG-000</span></div>
+            <div style="font-size: 12px; color: #475569; margin-top: 4px;">Fecha Emisión: <span id="pdfFecha" style="font-weight: bold; color: #0f172a;">2026-10-15</span></div>
+          </td>
+        </tr>
+      </table>
+
+      <table style="width: 100%; margin-bottom: 18px; background-color: #f0f9ff; border: 1px solid #bae6fd; border-radius: 10px; border-collapse: collapse;">
+        <tr>
+          <td style="vertical-align: top; width: 50%; padding: 14px;">
+            <div style="font-size: 10px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.05em; color: #0284c7; margin-bottom: 4px;">Datos del Alumno</div>
+            <div style="font-size: 16px; font-weight: bold; color: #0f172a;" id="pdfAlumnoNombre">Alumno</div>
+            <div style="font-size: 11px; color: #334155; margin-top: 4px;" id="pdfAlumnoUniversidad">Universidad: N/A</div>
+            <div style="font-size: 11px; color: #334155; margin-top: 2px;" id="pdfAlumnoCarrera">Carrera/Facultad: N/A</div>
+          </td>
+          <td style="vertical-align: top; width: 50%; padding: 14px; border-left: 1px solid #cbd5e1;">
+            <div style="font-size: 10px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.05em; color: #0284c7; margin-bottom: 4px;">Información del Paquete</div>
+            <div style="font-size: 14px; font-weight: bold; color: #1e3a8a;" id="pdfPaqueteNombre">Línea Basic - Modelo Bandera</div>
+            <div style="font-size: 11px; color: #334155; margin-top: 4px;">Monto Total Contratado: <span id="pdfMontoTotalHeader" style="font-weight: bold; color: #0f172a;">$0.00</span></div>
+          </td>
+        </tr>
+      </table>
+
+      <div style="margin-bottom: 18px;">
+        <div style="font-size: 11px; font-weight: bold; text-transform: uppercase; color: #1e3a8a; margin-bottom: 6px;">Historial de Abonos Realizados</div>
+        <table style="width: 100%; text-align: left; border-collapse: collapse;">
+          <thead>
+            <tr style="border-bottom: 2px solid #93c5fd; font-size: 11px; font-weight: bold; color: #1e3a8a; text-transform: uppercase; background-color: #dbeafe;">
+              <th style="padding: 8px 10px;">Concepto</th>
+              <th style="padding: 8px 10px;">Fecha</th>
+              <th style="padding: 8px 10px;">Método</th>
+              <th style="padding: 8px 10px; text-align: right;">Monto Abonado</th>
+            </tr>
+          </thead>
+          <tbody id="pdfCuerpoTablaPagos" style="background-color: #ffffff; font-size: 12px;"></tbody>
+        </table>
+      </div>
+
+      <div style="padding: 14px; background-color: #f8fafc; border-radius: 10px; border: 1px solid #e2e8f0; font-size: 12px; margin-bottom: 20px;">
+        <table style="width: 100%; border-collapse: collapse;">
+          <tr>
+            <td style="color: #475569; padding: 3px 0;">Monto Total del Paquete:</td>
+            <td style="text-align: right; font-weight: 600; color: #0f172a;" id="pdfMontoTotal">$0.00</td>
+          </tr>
+          <tr>
+            <td style="color: #475569; padding: 3px 0;">Total Acumulado Pagado:</td>
+            <td style="text-align: right; font-weight: 700; color: #0284c7;" id="pdfTotalPagado">$0.00</td>
+          </tr>
+          <tr style="border-top: 1px solid #cbd5e1;">
+            <td style="color: #0f172a; font-weight: bold; padding-top: 6px; font-size: 13px;">Nuevo Saldo Pendiente:</td>
+            <td style="text-align: right; font-weight: bold; color: #d97706; padding-top: 6px; font-size: 15px;" id="pdfSaldoPendiente">$0.00</td>
+          </tr>
+        </table>
+      </div>
+
+      <div style="text-align: center; border-top: 1px dashed #cbd5e1; padding-top: 12px; margin-bottom: 30px;">
+        <p style="font-size: 11px; color: #64748b; margin: 0;">Gracias por tu pago. Conserva este recibo para cualquier aclaración.</p>
+        <p style="font-size: 10px; color: #2563eb; font-weight: bold; margin-top: 3px;">Ab Graduaciones - Página 1 de 2</p>
+      </div>
+
+      <!-- PÁGINA 2 -->
+      <div class="page-break" style="padding-top: 15px;"></div>
+
+      <table style="width: 100%; border-bottom: 3px solid #2563eb; padding-bottom: 14px; margin-bottom: 18px; border-collapse: collapse;">
+        <tr>
+          <td style="vertical-align: middle; text-align: left; width: 65%;">
+            <div style="color: #1e3a8a; font-size: 20px; font-weight: 900; letter-spacing: 0.5px;">AB GRADUACIONES</div>
+            <div style="color: #2563eb; font-size: 12px; font-weight: bold; margin-top: 2px;">Reporte Oficial de Entregas y Regalías</div>
+          </td>
+          <td style="vertical-align: middle; text-align: right; width: 35%;">
+            <span style="display: inline-block; padding: 5px 12px; background-color: #0f172a; color: #ffffff; border-radius: 6px; font-size: 10px; font-weight: bold; text-transform: uppercase;">Anexo de Materiales</span>
+          </td>
+        </tr>
+      </table>
+
+      <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px; margin-bottom: 18px; font-size: 11px;">
+        <strong style="color: #0f172a;">Alumno:</strong> <span id="pdfPag2Alumno">-</span> | 
+        <strong style="color: #0f172a; margin-left: 10px;">Paquete:</strong> <span id="pdfPag2Paquete">-</span>
+      </div>
+
+      <div style="margin-bottom: 20px;">
+        <div style="font-size: 12px; font-weight: bold; color: #166534; text-transform: uppercase; background-color: #dcfce7; padding: 6px 10px; border-radius: 6px; border-left: 4px solid #22c55e; margin-bottom: 8px;">
+          ✅ Artículos Entregados / Recibidos de Conformidad
+        </div>
+        <div id="pdfListaEntregados" style="padding-left: 6px; font-size: 11px; color: #334155;"></div>
+      </div>
+
+      <div style="margin-bottom: 25px;">
+        <div style="font-size: 12px; font-weight: bold; color: #9a3412; text-transform: uppercase; background-color: #ffedd5; padding: 6px 10px; border-radius: 6px; border-left: 4px solid #f97316; margin-bottom: 8px;">
+          ⏳ Artículos Pendientes de Elaboración / Entrega
+        </div>
+        <div id="pdfListaPendientes" style="padding-left: 6px; font-size: 11px; color: #334155;"></div>
+      </div>
+
+      <div style="margin-top: 40px; border: 1px solid #cbd5e1; border-radius: 10px; padding: 16px; background-color: #ffffff;">
+        <div style="font-size: 10px; font-weight: bold; text-transform: uppercase; color: #475569; text-align: center; margin-bottom: 40px;">
+          Firma de Conformidad y Recepción de Materiales
+        </div>
+        <table style="width: 100%; border-collapse: collapse;">
+          <tr>
+            <td style="width: 50%; text-align: center; vertical-align: bottom;">
+              <div style="border-top: 1px solid #0f172a; width: 80%; margin: 0 auto; padding-top: 5px; font-size: 10px; font-weight: bold; color: #0f172a;" id="pdfFirmaNombreAlumno">
+                Nombre y Firma del Alumno
+              </div>
+            </td>
+            <td style="width: 50%; text-align: center; vertical-align: bottom;">
+              <div style="border-top: 1px solid #0f172a; width: 80%; margin: 0 auto; padding-top: 5px; font-size: 10px; font-weight: bold; color: #0f172a;">
+                Sello / Firma Ab Graduaciones
+              </div>
+            </td>
+          </tr>
+        </table>
+      </div>
+
+      <div style="text-align: center; border-top: 1px dashed #cbd5e1; padding-top: 12px; margin-top: 30px;">
+        <p style="font-size: 10px; color: #2563eb; font-weight: bold; margin: 0;">Ab Graduaciones - Página 2 de 2</p>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    let modoAcceso = 'admin';
+    let alumnoSesionActual = null;
+    let alumnoTempLogin = null;
+    let codigoOtpGenerado = null;
+    let pasoLoginPortal = 1;
+
+    let vistaActual = 'saldos';
+    let indiceEdicion = null;
+    let indiceSaldoEntregaActual = null;
+    let pagoPendientePasarela = null;
+
+    const MATERIALES_ENTREGAS_COMPLETO = [
+      "Panorámica con marco",
+      "Diploma con marco",
+      "Foto agradecimiento con marco",
+      "Familiar enmarcada",
+      "Primera foto a elección (solo foto)",
+      "Segunda foto a elección (solo foto)",
+      "Playera de colores (opcional)",
+      "Camisa personalizada",
+      "Galería digital",
+      "Anillo de Plata 925",
+      "Personalizador"
+    ];
+
+    const PAQUETES_CATALOGO = {
+      "Línea Basic": [
+        { modelo: "Bandera", precio: 8000 },
+        { modelo: "Bandera Vino", precio: 8100 },
+        { modelo: "Líneas", precio: 8300 },
+        { modelo: "Cuatro Banderas", precio: 8300 },
+        { modelo: "Bicolor", precio: 8400 },
+        { modelo: "Líneas D", precio: 8400 }
+      ],
+      "Línea Deluxe": [
+        { modelo: "Rayas", precio: 11900 },
+        { modelo: "Jirafa", precio: 11900 },
+        { modelo: "Roma Puntos", precio: 11950 },
+        { modelo: "Cocodrilo", precio: 12000 },
+        { modelo: "Azteca", precio: 12100 },
+        { modelo: "Frida", precio: 12200 },
+        { modelo: "Ramas", precio: 12300 }
+      ],
+      "Línea Prime": [
+        { modelo: "Espejo", precio: 12600 },
+        { modelo: "Cedro", precio: 12700 },
+        { modelo: "Olimpia", precio: 12750 },
+        { modelo: "Espejo Vino", precio: 12800 },
+        { modelo: "Pirámide V", precio: 12800 },
+        { modelo: "Eslovenia", precio: 12800 },
+        { modelo: "Negativo", precio: 12800 },
+        { modelo: "California", precio: 12850 },
+        { modelo: "Robótico Vino", precio: 12850 },
+        { modelo: "Jirafa Estrella", precio: 12850 },
+        { modelo: "Mercurio", precio: 12850 }
+      ],
+      "Línea Elite": [
+        { modelo: "Jirafa Espejo", precio: 12900 },
+        { modelo: "Estrella Espejo", precio: 12900 },
+        { modelo: "Robótico Chapetones", precio: 12950 },
+        { modelo: "Glass Viena", precio: 13000 },
+        { modelo: "Dublin", precio: 13000 },
+        { modelo: "Oxford", precio: 13000 }
+      ]
+    };
+
+    const alumnosIniciales = [
+      { id: "ALU-001", nombre: "Ciro Izzo", email: "ciro@example.com", telefono: "+52 5551234567", universidad: "UNAM", escuela: "Ingeniería" },
+      { id: "ALU-002", nombre: "Torres", email: "torres@example.com", telefono: "+52 5559876543", universidad: "IPN", escuela: "Derecho" },
+      { id: "ALU-003", nombre: "Juana de Arco", email: "juana@example.com", telefono: "+52 5555555555", universidad: "ITESM", escuela: "Medicina" },
+      { id: "ALU-004", nombre: "samuel", email: "samuel@example.com", telefono: "+52 5554443322", universidad: "ITO", escuela: "Ciencias" }
+    ];
+
+    const saldosIniciales = [
+      { alumno: "Ciro Izzo", paquete: "Línea Basic - Bandera", monto: 8000, pagos: [800, 800, 0, 0, 0, 0, 0, 0, 0, 0], entregas: { "Panorámica con marco": true, "Camisa personalizada": true }, eleccionEspecial: "Anillo de Plata 925" },
+      { alumno: "Torres", paquete: "Línea Prime - Espejo", monto: 12600, pagos: [1260, 0, 0, 0, 0, 0, 0, 0, 0, 0], entregas: {}, eleccionEspecial: "" },
+      { alumno: "samuel", paquete: "Línea Deluxe - Cocodrilo", monto: 12000, pagos: [1200, 1200, 1200, 0, 0, 0, 0, 0, 0, 0], entregas: {}, eleccionEspecial: "" }
+    ];
+
+    const pagosIniciales = [
+      { id: "PAG-001", alumno: "Torres", concepto: "Pago 1", monto: 1260, fecha: "2026-09-20", metodo: "Efectivo", estado: "Completado" },
+      { id: "PAG-002", alumno: "Ciro Izzo", concepto: "Pago 1", monto: 800, fecha: "2026-09-21", metodo: "Transferencia", estado: "Completado" },
+      { id: "PAG-003", alumno: "Ciro Izzo", concepto: "Pago 2", monto: 800, fecha: "2026-10-01", metodo: "Efectivo", estado: "Completado" },
+      { id: "PAG-004", alumno: "samuel", concepto: "Pago 1", monto: 1200, fecha: "2026-10-08", metodo: "Efectivo", estado: "Completado" },
+      { id: "PAG-005", alumno: "samuel", concepto: "Pago 2", monto: 1200, fecha: "2026-10-10", metodo: "Efectivo", estado: "Completado" },
+      { id: "PAG-006", alumno: "samuel", concepto: "Pago 3", monto: 1200, fecha: "2026-10-12", metodo: "Efectivo", estado: "Completado" }
+    ];
+
+    let alumnos = JSON.parse(localStorage.getItem('app_alumnos_10p')) || alumnosIniciales;
+    let saldos = JSON.parse(localStorage.getItem('app_saldos_10p')) || saldosIniciales;
+    let pagos = JSON.parse(localStorage.getItem('app_pagos_historial')) || pagosIniciales;
+
+    document.addEventListener('DOMContentLoaded', () => {
+      cargarLogoGuardado();
+      actualizarDatalistAlumnos();
+      actualizarOpcionesFiltroEscuelas();
+      cargarContenido('saldos');
+
+      // --- CAPTURA Y RESPUESTA AL RETORNO DE STRIPE ---
+      const urlParams = new URLSearchParams(window.location.search);
+      const estadoPago = urlParams.get('pago');
+
+      if (estadoPago === 'exito') {
+        alert('🎉 ¡Pago procesado con éxito en Stripe! La transacción ha sido registrada.');
+        window.history.replaceState({}, document.title, window.location.pathname);
+      } else if (estadoPago === 'cancelado') {
+        alert('❌ El proceso de pago fue cancelado o interrumptido.');
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
+    });
+
+    function cambiarModoVista(nuevoModo) {
+      modoAcceso = nuevoModo;
+      const navAdmin = document.getElementById('navAdmin');
+      const navAlumno = document.getElementById('navAlumno');
+
+      if (modoAcceso === 'admin') {
+        navAdmin.classList.remove('hidden');
+        navAlumno.classList.add('hidden');
+        cargarContenido('saldos');
+      } else {
+        navAdmin.classList.add('hidden');
+        navAlumno.classList.remove('hidden');
+        cargarContenido('portal_alumno');
+      }
+    }
+
+    function cargarLogoGuardado() {
+      const logoData = localStorage.getItem('app_logo_empresa');
+      const imgLogo = document.getElementById('imgLogo');
+      const textoTitulo = document.getElementById('textoTituloLogo');
+
+      if (logoData) {
+        imgLogo.src = logoData;
+        imgLogo.classList.remove('hidden');
+        textoTitulo.classList.add('hidden');
+      } else {
+        imgLogo.classList.add('hidden');
+        textoTitulo.classList.remove('hidden');
+      }
+    }
+
+    function subirLogoLocal(event) {
+      const archivo = event.target.files[0];
+      if (!archivo) return;
+
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        const logoBase64 = e.target.result;
+        localStorage.setItem('app_logo_empresa', logoBase64);
+        cargarLogoGuardado();
+      };
+      reader.readAsDataURL(archivo);
+    }
+
+    function guardarEnLocalStorage() {
+      localStorage.setItem('app_alumnos_10p', JSON.stringify(alumnos));
+      localStorage.setItem('app_saldos_10p', JSON.stringify(saldos));
+      localStorage.setItem('app_pagos_historial', JSON.stringify(pagos));
+    }
+
+    function calcularTotalPagado(pagosArray) {
+      if (!Array.isArray(pagosArray)) return 0;
+      return pagosArray.reduce((acc, p) => acc + (parseFloat(p) || 0), 0);
+    }
+
+    function agregarNuevoAbonoArreglo(arregloPagosActuales, nuevoMonto) {
+      const nuevoArreglo = [...(arregloPagosActuales || [0,0,0,0,0,0,0,0,0,0])];
+      let asignado = false;
+      for (let i = 0; i < 10; i++) {
+        if (!nuevoArreglo[i] || nuevoArreglo[i] === 0) {
+          nuevoArreglo[i] = nuevoMonto;
+          asignado = true;
+          break;
+        }
+      }
+      if (!asignado) {
+        nuevoArreglo[9] = (parseFloat(nuevoArreglo[9]) || 0) + nuevoMonto;
+      }
+      return nuevoArreglo;
+    }
+
+    function generarNuevoIdAlumno() {
+      if (alumnos.length === 0) return "ALU-001";
+      const numeros = alumnos.map(a => parseInt(a.id.replace('ALU-', ''), 10)).filter(n => !isNaN(n));
+      const max = Math.max(...numeros, 0);
+      return "ALU-" + String(max + 1).padStart(3, '0');
+    }
+
+    function generarNuevoIdPago() {
+      if (pagos.length === 0) return "PAG-001";
+      const numeros = pagos.map(p => parseInt((p.id || "PAG-0").replace('PAG-', ''), 10)).filter(n => !isNaN(n));
+      const max = Math.max(...numeros, 0);
+      return "PAG-" + String(max + 1).padStart(3, '0');
+    }
+
+    function actualizarDatalistAlumnos() {
+      const datalist = document.getElementById('listaAlumnosRegistrados');
+      datalist.innerHTML = '';
+      alumnos.forEach(a => {
+        datalist.innerHTML += `<option value="${a.nombre}">`;
+      });
+    }
+
+    function actualizarOpcionesFiltroEscuelas() {
+      const selectEscuela = document.getElementById('filtroEscuela');
+      const seleccionActual = selectEscuela.value;
+
+      const opcionesSet = new Set();
+      alumnos.forEach(a => {
+        if (a.escuela && a.escuela.trim() !== '') opcionesSet.add(a.escuela.trim());
+        if (a.universidad && a.universidad.trim() !== '') opcionesSet.add(a.universidad.trim());
+      });
+
+      const opcionesOrdenadas = Array.from(opcionesSet).sort();
+
+      selectEscuela.innerHTML = '<option value="">Todas las Facultades / Universidades</option>';
+      opcionesOrdenadas.forEach(op => {
+        const optEl = document.createElement('option');
+        optEl.value = op;
+        optEl.textContent = op;
+        selectEscuela.appendChild(optEl);
+      });
+
+      if (opcionesSet.has(seleccionActual)) {
+        selectEscuela.value = seleccionActual;
+      }
+    }
+
+    function actualizarOpcionesFiltroPaquetes() {
+      const selectPaquete = document.getElementById('filtroPaquete');
+      const paqueteSeleccionado = selectPaquete.value;
+      const paquetesUnicos = Object.keys(PAQUETES_CATALOGO);
+      
+      selectPaquete.innerHTML = '<option value="">Todas las Líneas</option>';
+      paquetesUnicos.forEach(p => {
+        selectPaquete.innerHTML += `<option value="${p}">${p}</option>`;
+      });
+
+      if (paquetesUnicos.includes(paqueteSeleccionado)) {
+        selectPaquete.value = paqueteSeleccionado;
+      }
+    }
+
+    function cargarContenido(vista) {
+      vistaActual = vista;
+      const titulo = document.getElementById('tituloSeccion');
+      const btnContenedor = document.getElementById('btnContenedor');
+      const textoBtn = document.getElementById('textoBtn');
+      const tabla = document.getElementById('contenedorTabla');
+      const dinamic = document.getElementById('contenidoDinamico');
+      const filtroEscuela = document.getElementById('filtroEscuela');
+      const filtroPaquete = document.getElementById('filtroPaquete');
+      const contenedorFiltros = document.getElementById('contenedorFiltros');
+
+      tabla.style.display = "none";
+      dinamic.style.display = "none";
+      btnContenedor.style.display = "none";
+      contenedorFiltros.style.display = "flex";
+
+      if (vista === 'saldos') {
+        titulo.innerText = "Saldos y Productos";
+        textoBtn.innerText = "Nuevo Saldo";
+        btnContenedor.style.display = "block";
+        filtroEscuela.classList.add('hidden');
+        filtroPaquete.classList.remove('hidden');
+        tabla.style.display = "block";
+        actualizarOpcionesFiltroPaquetes();
+        renderizarTablaSaldos(saldos);
+      } else if (vista === 'alumnos') {
+        titulo.innerText = "Alumnos";
+        textoBtn.innerText = "Nuevo Alumno";
+        btnContenedor.style.display = "block";
+        filtroEscuela.classList.remove('hidden');
+        filtroPaquete.classList.add('hidden');
+        tabla.style.display = "block";
+        actualizarOpcionesFiltroEscuelas();
+        renderizarTablaAlumnos(alumnos);
+      } else if (vista === 'dashboard') {
+        titulo.innerText = "Dashboard General y por Paquetes";
+        contenedorFiltros.style.display = "none";
+        dinamic.style.display = "block";
+        
+        const totalSaldos = saldos.length;
+        const totalMonto = saldos.reduce((acc, s) => acc + (s.monto || 0), 0);
+        const totalRecaudado = saldos.reduce((acc, s) => acc + calcularTotalPagado(s.pagos), 0);
+        const totalPendiente = totalMonto - totalRecaudado;
+
+        const desglosePaquetes = {};
+        saldos.forEach(s => {
+          const paqCompleto = s.paquete || 'Sin Paquete';
+          const linea = paqCompleto.split(' - ')[0] || 'Sin Paquete';
+          if (!desglosePaquetes[linea]) {
+            desglosePaquetes[linea] = { cantidad: 0, montoTotal: 0, cobrado: 0 };
+          }
+          desglosePaquetes[linea].cantidad += 1;
+          desglosePaquetes[linea].montoTotal += (s.monto || 0);
+          desglosePaquetes[linea].cobrado += calcularTotalPagado(s.pagos);
+        });
+
+        let htmlTarjetasPaquetes = '';
+        Object.keys(desglosePaquetes).forEach(lineaNombre => {
+          const pData = desglosePaquetes[lineaNombre];
+          const pPendiente = pData.montoTotal - pData.cobrado;
+          const porcentajeCobrado = pData.montoTotal > 0 ? Math.round((pData.cobrado / pData.montoTotal) * 100) : 0;
+
+          htmlTarjetasPaquetes += `
+            <div class="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between">
+              <div>
+                <div class="flex justify-between items-start mb-2">
+                  <h4 class="font-bold text-slate-800 text-lg">${lineaNombre}</h4>
+                  <span class="bg-blue-100 text-blue-800 text-xs font-bold px-2.5 py-1 rounded-full">${pData.cantidad} vendid${pData.cantidad === 1 ? 'o' : 'os'}</span>
+                </div>
+                <div class="space-y-1 mt-4 text-sm">
+                  <div class="flex justify-between text-slate-600">
+                    <span>Monto Total:</span>
+                    <span class="font-bold text-slate-800">$${pData.montoTotal.toLocaleString()}</span>
+                  </div>
+                  <div class="flex justify-between text-emerald-600 font-semibold">
+                    <span>Recaudado:</span>
+                    <span>$${pData.cobrado.toLocaleString()}</span>
+                  </div>
+                  <div class="flex justify-between text-amber-600 font-semibold">
+                    <span>Pendiente:</span>
+                    <span>$${pPendiente.toLocaleString()}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="mt-4 pt-3 border-t border-slate-100">
+                <div class="flex justify-between text-xs font-bold text-slate-500 mb-1">
+                  <span>Avance de Cobro</span>
+                  <span>${porcentajeCobrado}%</span>
+                </div>
+                <div class="w-full bg-slate-100 rounded-full h-2">
+                  <div class="bg-blue-600 h-2 rounded-full" style="width: ${porcentajeCobrado}%"></div>
+                </div>
+              </div>
+            </div>
+          `;
+        });
+
+        dinamic.innerHTML = `
+          <div>
+            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">Métricas Globales (Gran Total)</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <div class="bg-slate-900 text-white p-6 rounded-2xl shadow-md">
+                <p class="text-slate-400 text-xs font-bold uppercase tracking-wider">Total Cuentas</p>
+                <h3 class="text-4xl font-extrabold mt-3">${totalSaldos}</h3>
+              </div>
+              <div class="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm">
+                <p class="text-slate-500 text-xs font-bold uppercase tracking-wider">Monto Total Contratado</p>
+                <h3 class="text-4xl font-extrabold mt-3 text-blue-700">$${totalMonto.toLocaleString()}</h3>
+              </div>
+              <div class="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm">
+                <p class="text-slate-500 text-xs font-bold uppercase tracking-wider">Total Cobrado</p>
+                <h3 class="text-4xl font-extrabold mt-3 text-emerald-600">$${totalRecaudado.toLocaleString()}</h3>
+              </div>
+              <div class="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm">
+                <p class="text-slate-500 text-xs font-bold uppercase tracking-wider">Saldo Pendiente Total</p>
+                <h3 class="text-4xl font-extrabold mt-3 text-amber-500">$${totalPendiente.toLocaleString()}</h3>
+              </div>
+            </div>
+          </div>
+
+          <div class="pt-6">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">Desglose por Paquetes</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              ${htmlTarjetasPaquetes || '<p class="text-slate-400 italic">No hay paquetes registrados aún.</p>'}
+            </div>
+          </div>
+        `;
+      } else if (vista === 'pagos') {
+        titulo.innerText = "Historial de Pagos";
+        textoBtn.innerText = "Registrar Pago";
+        btnContenedor.style.display = "block";
+        filtroEscuela.classList.add('hidden');
+        filtroPaquete.classList.add('hidden');
+        tabla.style.display = "block";
+        renderizarTablaPagos(pagos);
+      } else if (vista === 'portal_alumno') {
+        titulo.innerText = "Portal del Alumno";
+        contenedorFiltros.style.display = "none";
+        dinamic.style.display = "block";
+        renderizarPortalAlumno();
+      }
+    }
+
+    function renderizarPortalAlumno() {
+      const dinamic = document.getElementById('contenidoDinamico');
+
+      if (!alumnoSesionActual) {
+        if (pasoLoginPortal === 1) {
+          dinamic.innerHTML = `
+            <div class="max-w-md mx-auto bg-white p-8 rounded-2xl border border-slate-200 shadow-xl text-center">
+              <div class="text-4xl mb-3">🎓</div>
+              <h3 class="text-2xl font-bold text-slate-900 mb-2">Consulta tu Estado de Cuenta</h3>
+              <p class="text-xs text-slate-500 mb-6">Ingresa tu ID de Alumno o Teléfono (con LADA, ej: +52...) para recibir tu código de acceso seguro.</p>
+
+              <form onsubmit="solicitarCodigoSeguridad(event)" class="space-y-4">
+                <input type="text" id="loginAlumnoInput" placeholder="Ej: ALU-001 o +52 5551234567" required class="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-center text-sm font-semibold outline-none focus:border-blue-600">
+                <button type="submit" class="w-full py-3.5 bg-blue-700 hover:bg-blue-800 text-white font-bold rounded-xl shadow-lg shadow-blue-600/30 transition-all">
+                  Enviar Código al Correo
+                </button>
+              </form>
+            </div>
+          `;
+        } else if (pasoLoginPortal === 2 && alumnoTempLogin) {
+          const emailOculto = alumnoTempLogin.email ? alumnoTempLogin.email.replace(/(.{2})(.*)(?=@)/, (gp1, gp2, gp3) => gp2 + "*".repeat(gp3.length)) : 'tu correo registrado';
+          
+          dinamic.innerHTML = `
+            <div class="max-w-md mx-auto bg-white p-8 rounded-2xl border border-slate-200 shadow-xl text-center">
+              <div class="text-4xl mb-3">📩</div>
+              <h3 class="text-2xl font-bold text-slate-900 mb-2">Código de Seguridad Enviado</h3>
+              <p class="text-xs text-slate-500 mb-4">Hemos enviado un PIN de 6 dígitos al correo: <strong class="text-blue-600">${emailOculto}</strong></p>
+
+              <form onsubmit="verificarCodigoSeguridad(event)" class="space-y-4">
+                <input type="text" id="inputCodigoOtp" placeholder="000000" maxlength="6" required class="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-center text-2xl font-mono tracking-widest font-bold outline-none focus:border-blue-600">
+                
+                <button type="submit" class="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-lg shadow-emerald-600/30 transition-all">
+                  Verificar y Entrar
+                </button>
+
+                <button type="button" onclick="cancelarLoginOtp()" class="text-xs text-slate-400 hover:text-slate-600 font-semibold underline mt-2">
+                  Volver / Cambiar ID
+                </button>
+              </form>
+            </div>
+          `;
+        }
+        return;
+      }
+
+      const saldoObj = saldos.find(s => s.alumno.toLowerCase() === alumnoSesionActual.nombre.toLowerCase()) || { monto: 0, pagos: [0,0,0,0,0,0,0,0,0,0], entregas: {}, paquete: 'Sin Paquete', eleccionEspecial: '' };
+      const totalPagado = calcularTotalPagado(saldoObj.pagos);
+      const saldoPendiente = Math.max(0, saldoObj.monto - totalPagado);
+      const porcentajeAvance = saldoObj.monto > 0 ? Math.min(100, Math.round((totalPagado / saldoObj.monto) * 100)) : 0;
+      const estaLiquidado = saldoPendiente <= 0;
+
+      const eleccionActual = saldoObj.eleccionEspecial || '';
+      const tieneEleccionDefinitiva = !!eleccionActual;
+
+      let abonosCardsHtml = '';
+      for (let i = 0; i < 10; i++) {
+        const montoAbonado = saldoObj.pagos[i] || 0;
+        const estaPagado = montoAbonado > 0;
+
+        abonosCardsHtml += `
+          <div class="p-4 rounded-xl border ${estaPagado ? 'bg-emerald-50/50 border-emerald-200' : 'bg-white border-slate-200'} flex justify-between items-center">
+            <div>
+              <p class="text-xs font-bold ${estaPagado ? 'text-emerald-700' : 'text-slate-500'}">Pago ${i + 1}</p>
+              <p class="text-base font-extrabold ${estaPagado ? 'text-emerald-800' : 'text-slate-800'}">
+                $${estaPagado ? montoAbonado.toLocaleString() : '0.00'}
+              </p>
+            </div>
+            <div>
+              ${estaPagado 
+                ? '<span class="text-xs bg-emerald-100 text-emerald-800 font-bold px-3 py-1 rounded-full">✅ Abonado</span>' 
+                : (estaLiquidado 
+                    ? '<span class="text-xs bg-slate-100 text-slate-400 font-bold px-2.5 py-1 rounded-full">Liquidado</span>' 
+                    : `<button onclick="abrirPasarelaPago(${i + 1}, ${saldoPendiente})" class="text-xs bg-blue-700 hover:bg-blue-800 text-white font-bold px-3 py-1.5 rounded-lg transition shadow-md">Pagar Ahora</button>`)}
+            </div>
+          </div>
+        `;
+      }
+
+      let entregasChecklistHtml = '';
+      MATERIALES_ENTREGAS_COMPLETO.forEach(mat => {
+        const esEspecial = mat === "Anillo de Plata 925" || mat === "Personalizador";
+        
+        if (esEspecial && !eleccionActual) {
+          if (mat === "Anillo de Plata 925") {
+            entregasChecklistHtml += `
+              <div class="p-3 bg-amber-50/80 rounded-xl border border-amber-200 flex justify-between items-center text-sm">
+                <span class="font-semibold text-amber-900">✨ Regalía Especial</span>
+                <span class="text-xs font-bold text-amber-700">⏳ Pendiente de elección</span>
+              </div>
+            `;
+          }
+          return;
+        }
+
+        if (esEspecial && eleccionActual && eleccionActual !== mat) return;
+
+        const estaEntregado = !!(saldoObj.entregas && saldoObj.entregas[mat]);
+        entregasChecklistHtml += `
+          <div class="p-3 bg-slate-50 rounded-xl border border-slate-200 flex justify-between items-center text-sm">
+            <span class="font-semibold text-slate-800">${esEspecial ? '✨ ' : ''}${mat}</span>
+            <span class="text-xs font-bold ${estaEntregado ? 'text-emerald-600' : 'text-amber-600'}">
+              ${estaEntregado ? '✅ Entregado' : '⏳ En Elaboración'}
+            </span>
+          </div>
+        `;
+      });
+
+      dinamic.innerHTML = `
+        <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm mb-6 flex flex-wrap justify-between items-center gap-4">
+          <div>
+            <h3 class="text-2xl font-black text-slate-900">¡Hola, ${alumnoSesionActual.nombre}! 👋</h3>
+            <p class="text-xs font-semibold text-slate-500">${alumnoSesionActual.universidad} | ${alumnoSesionActual.escuela}</p>
+            <p class="text-xs font-bold text-blue-600 mt-1">Paquete Contratado: ${saldoObj.paquete}</p>
+          </div>
+          <button onclick="cerrarSesionAlumnoPortal()" class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold px-3 py-2 rounded-xl transition">
+            🔒 Cerrar Sesión
+          </button>
+        </div>
+
+        <div class="bg-gradient-to-r from-blue-900 to-indigo-900 text-white p-6 rounded-2xl shadow-md mb-8">
+          <div class="flex items-center gap-2 mb-2">
+            <span class="text-2xl">✨</span>
+            <h4 class="text-lg font-extrabold">Elección de Regalía Especial (1 Opción Incluida)</h4>
+          </div>
+
+          <div class="bg-amber-500/20 border border-amber-400/40 p-3 rounded-xl mb-4 flex items-center gap-2 text-amber-200 text-xs font-semibold">
+            <span>⚠️</span>
+            <span><strong>Advertencia de Selección:</strong> Una vez realizada tu elección o confirmada tu petición con el administrador, no se permitirán cambios posteriores ni modificaciones. Por favor, asegúrate de tu decisión antes de guardar.</span>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div onclick="${tieneEleccionDefinitiva ? '' : "guardarEleccionAlumno('Anillo de Plata 925')"}" class="p-4 rounded-xl border-2 ${tieneEleccionDefinitiva ? 'cursor-not-allowed opacity-90' : 'cursor-pointer hover:bg-white/20'} transition-all ${eleccionActual === 'Anillo de Plata 925' ? 'bg-white text-slate-900 border-emerald-400 font-bold shadow-lg' : 'bg-white/10 text-white border-white/20'} flex items-center justify-between">
+              <div>
+                <p class="text-sm font-bold">💍 Anillo de Plata 925</p>
+                <p class="text-[11px] ${eleccionActual === 'Anillo de Plata 925' ? 'text-emerald-700' : 'text-blue-200'}">Anillo conmemorativo grabado</p>
+              </div>
+              <span class="text-xs font-bold px-3 py-1 rounded-full ${eleccionActual === 'Anillo de Plata 925' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-800 text-slate-300'}">
+                ${eleccionActual === 'Anillo de Plata 925' ? '🔒 Seleccionado' : (tieneEleccionDefinitiva ? 'No Elegido' : 'Elegir')}
+              </span>
+            </div>
+
+            <div onclick="${tieneEleccionDefinitiva ? '' : "guardarEleccionAlumno('Personalizador')"}" class="p-4 rounded-xl border-2 ${tieneEleccionDefinitiva ? 'cursor-not-allowed opacity-90' : 'cursor-pointer hover:bg-white/20'} transition-all ${eleccionActual === 'Personalizador' ? 'bg-white text-slate-900 border-emerald-400 font-bold shadow-lg' : 'bg-white/10 text-white border-white/20'} flex items-center justify-between">
+              <div>
+                <p class="text-sm font-bold">✒️ Personalizador</p>
+                <p class="text-[11px] ${eleccionActual === 'Personalizador' ? 'text-emerald-700' : 'text-blue-200'}">Pluma o accesorio grabado</p>
+              </div>
+              <span class="text-xs font-bold px-3 py-1 rounded-full ${eleccionActual === 'Personalizador' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-800 text-slate-300'}">
+                ${eleccionActual === 'Personalizador' ? '🔒 Seleccionado' : (tieneEleccionDefinitiva ? 'No Elegido' : 'Elegir')}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+          <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+            <p class="text-xs font-bold text-slate-400 uppercase">Costo Total del Paquete</p>
+            <h4 class="text-3xl font-extrabold text-slate-900 mt-2">$${saldoObj.monto.toLocaleString()}</h4>
+          </div>
+          <div class="bg-emerald-50 p-6 rounded-2xl border border-emerald-200 shadow-sm">
+            <p class="text-xs font-bold text-emerald-700 uppercase">Total Abonado</p>
+            <h4 class="text-3xl font-extrabold text-emerald-800 mt-2">$${totalPagado.toLocaleString()}</h4>
+          </div>
+          <div class="${estaLiquidado ? 'bg-emerald-100 border-emerald-300' : 'bg-amber-50 border-amber-200'} p-6 rounded-2xl border shadow-sm">
+            <p class="text-xs font-bold ${estaLiquidado ? 'text-emerald-800' : 'text-amber-700'} uppercase">Saldo Pendiente</p>
+            <h4 class="text-3xl font-extrabold ${estaLiquidado ? 'text-emerald-900' : 'text-amber-800'} mt-2">
+              $${saldoPendiente.toLocaleString()}
+            </h4>
+            ${estaLiquidado ? '<p class="text-xs font-bold text-emerald-700 mt-1">🎉 ¡Cuenta Completamente Liquidada!</p>' : ''}
+          </div>
+        </div>
+
+        <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm mb-8">
+          <div class="flex justify-between text-xs font-bold text-slate-600 mb-2">
+            <span>Progreso de Finiquito</span>
+            <span>${porcentajeAvance}%</span>
+          </div>
+          <div class="w-full bg-slate-100 rounded-full h-3">
+            <div class="bg-emerald-500 h-3 rounded-full transition-all duration-500" style="width: ${porcentajeAvance}%"></div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+            <div class="flex justify-between items-center mb-4">
+              <h4 class="text-lg font-bold text-slate-900">💳 Plan de Abonos y Liquidación</h4>
+              ${!estaLiquidado ? `<button onclick="abrirPasarelaPago('Liquidación Anticipada', ${saldoPendiente})" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-3 py-1.5 rounded-lg shadow transition">Liquidar Todo ($${saldoPendiente.toLocaleString()})</button>` : ''}
+            </div>
+            <div class="space-y-3">
+              ${abonosCardsHtml}
+            </div>
+          </div>
+
+          <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+            <h4 class="text-lg font-bold text-slate-900 mb-4">📦 Estado de Artículos y Regalías</h4>
+            <div class="space-y-2 max-h-[500px] overflow-y-auto pr-1">
+              ${entregasChecklistHtml}
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function guardarEleccionAlumno(opcionElegida) {
+      if (!alumnoSesionActual) return;
+
+      const saldoObj = saldos.find(s => s.alumno.toLowerCase() === alumnoSesionActual.nombre.toLowerCase());
+      if (!saldoObj) return;
+
+      if (saldoObj.eleccionEspecial) {
+        alert('🔒 Tu elección de regalía ya ha sido guardada previamente y no se permiten cambios posteriores.');
+        return;
+      }
+
+      const confirmar = confirm(`⚠️ ADVERTENCIA DE SELECCIÓN DEFINITIVA:\n\n¿Estás completamente seguro/a de elegir "${opcionElegida}"?\n\nUna vez confirmada o solicitada, esta elección no se podrá modificar posteriormente.`);
+
+      if (confirmar) {
+        saldoObj.eleccionEspecial = opcionElegida;
+        guardarEnLocalStorage();
+        alert(`✅ ¡Elección guardada con éxito! Tu regalía registrada es: ${opcionElegida}.`);
+        renderizarPortalAlumno();
+      }
+    }
+
+    function solicitarCodigoSeguridad(e) {
+      e.preventDefault();
+      const val = document.getElementById('loginAlumnoInput').value.trim().toLowerCase();
+      
+      const encontrado = alumnos.find(a => 
+        a.id.toLowerCase() === val || 
+        a.telefono.replace(/\D/g, '') === val.replace(/\D/g, '') ||
+        a.nombre.toLowerCase().includes(val)
+      );
+
+      if (encontrado) {
+        alumnoTempLogin = encontrado;
+        codigoOtpGenerado = Math.floor(100000 + Math.random() * 900000).toString();
+        pasoLoginPortal = 2;
+
+        alert(`🔑 CÓDIGO DE SEGURIDAD SIMULADO ENVIADO A: ${encontrado.email}\n\nTu código de verificación es: ${codigoOtpGenerado}`);
+        renderizarPortalAlumno();
+      } else {
+        alert('No se encontró ningún alumno con esos datos.');
+      }
+    }
+
+    function verificarCodigoSeguridad(e) {
+      e.preventDefault();
+      const codigoIngresado = document.getElementById('inputCodigoOtp').value.trim();
+
+      if (codigoIngresado === codigoOtpGenerado) {
+        alumnoSesionActual = alumnoTempLogin;
+        alumnoTempLogin = null;
+        codigoOtpGenerado = null;
+        pasoLoginPortal = 1;
+        renderizarPortalAlumno();
+      } else {
+        alert('El código de seguridad ingresado es incorrecto. Intenta de nuevo.');
+      }
+    }
+
+    function cancelarLoginOtp() {
+      alumnoTempLogin = null;
+      codigoOtpGenerado = null;
+      pasoLoginPortal = 1;
+      renderizarPortalAlumno();
+    }
+
+    function cerrarSesionAlumnoPortal() {
+      alumnoSesionActual = null;
+      alumnoTempLogin = null;
+      codigoOtpGenerado = null;
+      pasoLoginPortal = 1;
+      renderizarPortalAlumno();
+    }
+
+    function abrirPasarelaPago(conceptoTag, monto) {
+      if (!alumnoSesionActual) return;
+      
+      const saldoObj = saldos.find(s => s.alumno.toLowerCase() === alumnoSesionActual.nombre.toLowerCase());
+      const totalPagado = calcularTotalPagado(saldoObj ? saldoObj.pagos : []);
+      const maxPendiente = Math.max(0, (saldoObj ? saldoObj.monto : 0) - totalPagado);
+
+      if (maxPendiente <= 0) {
+        alert('Esta cuenta ya está totalmente liquidada. No se requieren más pagos.');
+        return;
+      }
+
+      const montoSugerido = Math.min(monto, maxPendiente);
+
+      pagoPendientePasarela = { conceptoTag, maxPendiente };
+      document.getElementById('pasarelaConcepto').innerText = typeof conceptoTag === 'number' ? `Pago ${conceptoTag} - ${alumnoSesionActual.nombre}` : `${conceptoTag} - ${alumnoSesionActual.nombre}`;
+      
+      const inputMonto = document.getElementById('pasarelaMontoInput');
+      inputMonto.value = montoSugerido;
+      inputMonto.max = maxPendiente;
+      document.getElementById('pasarelaAvisoMax').innerText = `Saldo máximo a liquidar: $${maxPendiente.toLocaleString()}`;
+
+      document.getElementById('modalPasarelaPago').classList.remove('hidden');
+    }
+
+    function cerrarModalPasarela() {
+      document.getElementById('modalPasarelaPago').classList.add('hidden');
+      pagoPendientePasarela = null;
+    }
+
+    // --- FUNCIÓN CONECTADA AL BACKEND LOCAL EN NODE.JS + STRIPE ---
+    async function procesarPagoAlumnoSimulado() {
+      if (!pagoPendientePasarela || !alumnoSesionActual) return;
+
+      const montoAbonar = parseFloat(document.getElementById('pasarelaMontoInput').value) || 0;
+
+      if (montoAbonar <= 0) {
+        alert('Por favor ingresa un monto válido mayor a 0.');
+        return;
+      }
+
+      const saldoObj = saldos.find(s => s.alumno.toLowerCase() === alumnoSesionActual.nombre.toLowerCase());
+      const totalPagadoActual = calcularTotalPagado(saldoObj ? saldoObj.pagos : []);
+      const saldoPendiente = Math.max(0, (saldoObj ? saldoObj.monto : 0) - totalPagadoActual);
+
+      if (montoAbonar > saldoPendiente) {
+        alert(`El monto ingresado ($${montoAbonar.toLocaleString()}) supera el saldo pendiente de $${saldoPendiente.toLocaleString()}. Ajusta el valor.`);
+        return;
+      }
+
+      try {
+        // Petición a tu servidor local Express
+        const respuesta = await fetch('http://localhost:3000/api/crear-checkout', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            alumnoId: alumnoSesionActual.id || 'ALU-000',
+            nombreAlumno: alumnoSesionActual.nombre,
+            concepto: typeof pagoPendientePasarela.conceptoTag === 'number' 
+              ? `Pago ${pagoPendientePasarela.conceptoTag}` 
+              : pagoPendientePasarela.conceptoTag,
+            monto: montoAbonar
+          })
+        });
+
+        const data = await respuesta.json();
+        console.log(data);
+        if (data.url) {
+          cerrarModalPasarela();
+          window.location.href = data.url; // Redirige a la pantalla oficial de Stripe
+        } else {
+          alert('Error al generar la pasarela de pago. Revisa la consola del servidor.');
+        }
+      } catch (error) {
+        console.error('Error de conexión con el servidor:', error);
+        alert('No se pudo conectar con tu servidor local en http://localhost:3000. Asegúrate de tener encendido tu servidor ejecutando "node server.js".');
+      }
+    }
+
+    function abrirModalEntregas(indexSaldo) {
+      indiceSaldoEntregaActual = indexSaldo;
+      const saldoObj = saldos[indexSaldo];
+      if (!saldoObj) return;
+
+      if (!saldoObj.entregas) saldoObj.entregas = {};
+
+      document.getElementById('selectEleccionAdmin').value = saldoObj.eleccionEspecial || "";
+
+      document.getElementById('entregasSubtitulo').innerText = `Alumno: ${saldoObj.alumno} | ${saldoObj.paquete}`;
+      renderizarItemsModalEntregas(saldoObj);
+
+      document.getElementById('modalEntregas').classList.remove('hidden');
+    }
+
+    function cambiarEleccionAdmin(nuevaOpcion) {
+      if (indiceSaldoEntregaActual === null) return;
+      const saldoObj = saldos[indiceSaldoEntregaActual];
+      saldoObj.eleccionEspecial = nuevaOpcion;
+
+      guardarEnLocalStorage();
+      renderizarItemsModalEntregas(saldoObj);
+      renderizarTablaSaldos(saldos);
+    }
+
+    function renderizarItemsModalEntregas(saldoObj) {
+      const contenedor = document.getElementById('listaMaterialesEntregas');
+      contenedor.innerHTML = '';
+
+      MATERIALES_ENTREGAS_COMPLETO.forEach((mat) => {
+        const estaEntregado = !!saldoObj.entregas[mat];
+        const esEspecial = mat === "Anillo de Plata 925" || mat === "Personalizador";
+        const esLaSeleccionada = saldoObj.eleccionEspecial === mat;
+        const esLaDescartada = esEspecial && saldoObj.eleccionEspecial && !esLaSeleccionada;
+
+        let claseEstilo = 'bg-slate-50 border-slate-200';
+        let textoEtiqueta = estaEntregado ? 'Entregado' : 'Pendiente';
+
+        if (esEspecial) {
+          if (!saldoObj.eleccionEspecial) {
+            claseEstilo = 'bg-amber-50 border-amber-200 font-medium';
+            textoEtiqueta = '(Pendiente de elección por alumno)';
+          } else if (esLaSeleccionada) {
+            claseEstilo = 'bg-emerald-50 border-emerald-300 font-bold';
+            textoEtiqueta += ' (Regalía Seleccionada ✅)';
+          } else if (esLaDescartada) {
+            claseEstilo = 'bg-slate-100 border-slate-200 opacity-50';
+            textoEtiqueta = '(Opción Descartada)';
+          }
+        }
+
+        contenedor.innerHTML += `
+          <div class="p-3 ${claseEstilo} border rounded-xl flex items-center justify-between">
+            <label class="flex items-center gap-3 ${esLaDescartada ? 'cursor-not-allowed' : 'cursor-pointer'}">
+              <input type="checkbox" onchange="toggleEntregaItem('${mat}', this.checked)" ${estaEntregado ? 'checked' : ''} ${esLaDescartada ? 'disabled' : ''} class="w-5 h-5 text-blue-600 rounded focus:ring-blue-500">
+              <span class="font-semibold ${esEspecial ? 'text-blue-900 font-bold' : 'text-slate-800'} text-sm">
+                ${esEspecial ? '✨ ' : ''}${mat}
+              </span>
+            </label>
+            <span class="text-xs font-bold ${estaEntregado ? 'text-emerald-600' : 'text-slate-500'}">
+              ${textoEtiqueta}
+            </span>
+          </div>
+        `;
+      });
+    }
+
+    function toggleEntregaItem(nombreMat, checked) {
+      if (indiceSaldoEntregaActual === null) return;
+      const saldoObj = saldos[indiceSaldoEntregaActual];
+      if (!saldoObj.entregas) saldoObj.entregas = {};
+
+      saldoObj.entregas[nombreMat] = checked;
+
+      guardarEnLocalStorage();
+      renderizarItemsModalEntregas(saldoObj);
+      renderizarTablaSaldos(saldos);
+    }
+
+    function cerrarModalEntregas() {
+      document.getElementById('modalEntregas').classList.add('hidden');
+      indiceSaldoEntregaActual = null;
+    }
+
+    function renderizarTablaSaldos(data) {
+      let encabezados = `
+        <tr>
+          <th class="p-3 sticky left-0 bg-slate-100 z-10 border-r border-slate-200">Alumno</th>
+          <th class="p-3">Paquete</th>
+          <th class="p-3">Monto Total</th>`;
+      
+      for (let i = 1; i <= 10; i++) {
+        encabezados += `<th class="p-3 text-center bg-blue-50/50">Pago ${i}</th>`;
+      }
+
+      encabezados += `
+          <th class="p-3">Saldo Pendiente</th>
+          <th class="p-3 text-center">Entregas y Regalías</th>
+          <th class="p-3">Estado</th>
+          <th class="p-3 text-center">Acciones</th>
+        </tr>`;
+
+      document.getElementById('encabezadoTabla').innerHTML = encabezados;
+      const tbody = document.getElementById('cuerpoTabla');
+      tbody.innerHTML = '';
+
+      data.forEach((item) => {
+        const indexReal = saldos.indexOf(item);
+        const totalPagado = calcularTotalPagado(item.pagos);
+        const saldoPendiente = Math.max(0, item.monto - totalPagado);
+        const estaPagado = saldoPendiente <= 0;
+
+        const estadoTexto = estaPagado ? 'Liquidado' : 'Pendiente';
+        const estadoClase = estaPagado 
+          ? 'bg-emerald-100 text-emerald-800 border border-emerald-200 font-semibold' 
+          : 'bg-amber-100 text-amber-800 border border-amber-200 font-semibold';
+
+        const entregasObj = item.entregas || {};
+        const totalEntregados = Object.values(entregasObj).filter(Boolean).length;
+        const totalMateriales = MATERIALES_ENTREGAS_COMPLETO.length;
+
+        let fila = `<tr class="hover:bg-slate-50 transition-colors">
+          <td class="p-3 font-bold text-slate-800 sticky left-0 bg-white z-10 border-r border-slate-100">${item.alumno}</td>
+          <td class="p-3 text-slate-600 font-medium">${item.paquete}</td>
+          <td class="p-3 font-extrabold text-slate-900">$${parseFloat(item.monto).toLocaleString()}</td>`;
+
+        for (let i = 0; i < 10; i++) {
+          const pagoVal = item.pagos[i] || 0;
+          fila += `<td class="p-3 text-center text-slate-600 font-mono ${pagoVal > 0 ? 'bg-blue-50/30 font-bold text-blue-700' : ''}">${pagoVal > 0 ? '$' + parseFloat(pagoVal).toLocaleString() : '-'}</td>`;
+        }
+
+        fila += `
+          <td class="p-3 font-bold ${estaPagado ? 'text-emerald-600 font-black' : 'text-amber-600'}">$${saldoPendiente.toLocaleString()}</td>
+          <td class="p-3 text-center">
+            <button onclick="abrirModalEntregas(${indexReal})" class="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded-lg border border-blue-200 text-xs transition inline-flex items-center gap-1">
+              📦 ${totalEntregados}/${totalMateriales}
+            </button>
+          </td>
+          <td class="p-3"><span class="px-2.5 py-1 rounded-full text-xs ${estadoClase}">${estadoTexto}</span></td>
+          <td class="p-3 text-center">
+            <button onclick="editarRegistro(${indexReal})" class="text-blue-600 hover:text-blue-800 font-bold text-xs mr-2">Editar</button>
+            <button onclick="eliminarRegistro(${indexReal})" class="text-red-500 hover:text-red-700 font-bold text-xs">Eliminar</button>
+          </td>
+        </tr>`;
+
+        tbody.innerHTML += fila;
+      });
+    }
+
+    function renderizarTablaAlumnos(data) {
+      let encabezados = `
+        <tr>
+          <th class="p-4">ID</th>
+          <th class="p-4">Nombre Completo</th>
+          <th class="p-4">Correo Electrónico</th>
+          <th class="p-4">Teléfono y Acciones</th>
+          <th class="p-4">Universidad</th>
+          <th class="p-4">Facultad / Carrera</th>
+          <th class="p-4 text-center">Acciones</th>
+        </tr>`;
+
+      document.getElementById('encabezadoTabla').innerHTML = encabezados;
+      const tbody = document.getElementById('cuerpoTabla');
+      tbody.innerHTML = '';
+
+      data.forEach((item) => {
+        const indexReal = alumnos.indexOf(item);
+        const telLimpio = (item.telefono || '').replace(/\D/g, '');
+
+        tbody.innerHTML += `
+          <tr class="hover:bg-slate-50 transition-colors">
+            <td class="p-4 font-mono text-xs text-slate-400 font-semibold">${item.id}</td>
+            <td class="p-4 font-bold text-slate-900">${item.nombre}</td>
+            <td class="p-4 text-slate-600">${item.email}</td>
+            <td class="p-4 font-mono text-slate-700">
+              <div class="flex items-center gap-2">
+                <span class="font-bold text-blue-900">${item.telefono}</span>
+                ${telLimpio ? `
+                  <div class="flex items-center gap-1 ml-1">
+                    <a href="tel:${telLimpio}" title="Llamar" class="p-1 bg-slate-100 hover:bg-blue-100 text-blue-600 rounded-lg transition-colors text-xs">📞</a>
+                    <a href="https://wa.me/${telLimpio}" target="_blank" title="Enviar WhatsApp" class="p-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 rounded-lg transition-colors text-xs">💬</a>
+                    <a href="sms:${telLimpio}" title="Enviar SMS" class="p-1 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg transition-colors text-xs">✉️</a>
+                  </div>
+                ` : ''}
+              </div>
+            </td>
+            <td class="p-4 font-medium text-slate-700">${item.universidad}</td>
+            <td class="p-4 text-slate-600">${item.escuela}</td>
+            <td class="p-4 text-center">
+              <button onclick="editarRegistro(${indexReal})" class="text-blue-600 hover:text-blue-800 font-bold text-xs mr-2">Editar</button>
+              <button onclick="eliminarRegistro(${indexReal})" class="text-red-500 hover:text-red-700 font-bold text-xs">Eliminar</button>
+            </td>
+          </tr>`;
+      });
+    }
+
+    function renderizarTablaPagos(data) {
+      let encabezados = `
+        <tr>
+          <th class="p-4">Folio</th>
+          <th class="p-4">Alumno</th>
+          <th class="p-4">Concepto</th>
+          <th class="p-4">Monto Abonado</th>
+          <th class="p-4">Fecha</th>
+          <th class="p-4">Método</th>
+          <th class="p-4">Estado</th>
+          <th class="p-4 text-center">Acciones</th>
+        </tr>`;
+
+      document.getElementById('encabezadoTabla').innerHTML = encabezados;
+      const tbody = document.getElementById('cuerpoTabla');
+      tbody.innerHTML = '';
+
+      data.forEach((item) => {
+        const indexReal = pagos.indexOf(item);
+        tbody.innerHTML += `
+          <tr class="hover:bg-slate-50 transition-colors">
+            <td class="p-4 font-mono text-xs text-slate-400 font-semibold">${item.id || 'PAG-000'}</td>
+            <td class="p-4 font-bold text-slate-900">${item.alumno}</td>
+            <td class="p-4 text-slate-600 font-medium">${item.concepto}</td>
+            <td class="p-4 font-bold text-emerald-600">$${parseFloat(item.monto).toLocaleString()}</td>
+            <td class="p-4 text-slate-500 text-xs">${item.fecha}</td>
+            <td class="p-4 text-slate-600">${item.metodo}</td>
+            <td class="p-4"><span class="bg-emerald-100 text-emerald-800 text-xs px-2.5 py-1 rounded-full font-semibold border border-emerald-200">${item.estado}</span></td>
+            <td class="p-4 text-center flex justify-center items-center gap-2">
+              <button onclick="descargarReciboPDF(pagos[${indexReal}])" class="bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1 rounded text-xs font-bold transition">📄 PDF</button>
+              <button onclick="enviarWhatsappYPdf(pagos[${indexReal}])" class="bg-emerald-100 hover:bg-emerald-200 text-emerald-700 px-2 py-1 rounded text-xs font-bold transition">💬 WA</button>
+              <button onclick="enviarEmailYPdf(pagos[${indexReal}])" class="bg-blue-100 hover:bg-blue-200 text-blue-700 px-2 py-1 rounded text-xs font-bold transition">✉️ Email</button>
+              <button onclick="eliminarRegistro(${indexReal})" class="text-red-500 hover:text-red-700 font-bold text-xs ml-1">Eliminar</button>
+            </td>
+          </tr>`;
+      });
+    }
+
+    function filtrarTabla() {
+      const query = document.getElementById('inputBuscar').value.trim().toLowerCase();
+      const escuelaSel = document.getElementById('filtroEscuela').value.trim().toLowerCase();
+      const paqueteSel = document.getElementById('filtroPaquete').value.trim().toLowerCase();
+
+      if (vistaActual === 'saldos') {
+        const filtrados = saldos.filter(s => {
+          const coincideTexto = (s.alumno || '').toLowerCase().includes(query) || (s.paquete || '').toLowerCase().includes(query);
+          const coincidePaquete = !paqueteSel || (s.paquete || '').toLowerCase().startsWith(paqueteSel);
+          return coincideTexto && coincidePaquete;
+        });
+        renderizarTablaSaldos(filtrados);
+      } else if (vistaActual === 'alumnos') {
+        const filtrados = alumnos.filter(a => {
+          const coincideTexto = !query || a.id.toLowerCase().includes(query) || a.nombre.toLowerCase().includes(query) || a.telefono.includes(query);
+          const coincideEscuela = !escuelaSel || a.escuela.toLowerCase() === escuelaSel || a.universidad.toLowerCase() === escuelaSel;
+          return coincideTexto && coincideEscuela;
+        });
+        renderizarTablaAlumnos(filtrados);
+      } else if (vistaActual === 'pagos') {
+        const filtrados = pagos.filter(p => (p.alumno || '').toLowerCase().includes(query) || (p.concepto || '').toLowerCase().includes(query));
+        renderizarTablaPagos(filtrados);
+      }
+    }
+
+    function abrirModal() {
+      indiceEdicion = null;
+      document.getElementById('modalTitulo').innerText = vistaActual === 'saldos' ? "Nuevo Saldo" : (vistaActual === 'alumnos' ? "Nuevo Alumno" : "Registrar Pago");
+      document.getElementById('alertaError').classList.add('hidden');
+      construirCamposFormulario();
+      document.getElementById('modalFormulario').classList.remove('hidden');
+    }
+
+    function cerrarModal() {
+      document.getElementById('modalFormulario').classList.add('hidden');
+    }
+
+    function actualizarModelosModal() {
+      const lineaSel = document.getElementById('inputLineaModal').value;
+      const selectModelo = document.getElementById('inputModeloModal');
+      const inputMonto = document.getElementById('inputMontoModal');
+
+      selectModelo.innerHTML = '<option value="">Seleccionar Modelo...</option>';
+      if (inputMonto) inputMonto.value = '';
+
+      if (lineaSel && PAQUETES_CATALOGO[lineaSel]) {
+        selectModelo.disabled = false;
+        PAQUETES_CATALOGO[lineaSel].forEach(item => {
+          const opt = document.createElement('option');
+          opt.value = item.modelo;
+          opt.textContent = `${item.modelo} - $${item.precio.toLocaleString()}`;
+          opt.dataset.precio = item.precio;
+          selectModelo.appendChild(opt);
+        });
+      } else {
+        selectModelo.disabled = true;
+      }
+    }
+
+    function actualizarPrecioModeloModal() {
+      const selectModelo = document.getElementById('inputModeloModal');
+      const option = selectModelo.options[selectModelo.selectedIndex];
+      const inputMonto = document.getElementById('inputMontoModal');
+
+      if (option && option.dataset.precio && inputMonto) {
+        inputMonto.value = option.dataset.precio;
+      }
+    }
+
+    function construirCamposFormulario(datos = {}) {
+      const contenedor = document.getElementById('camposFormulario');
+      contenedor.innerHTML = '';
+
+      if (vistaActual === 'saldos') {
+        const lineaDef = datos.paquete ? datos.paquete.split(' - ')[0] : '';
+        const modeloDef = datos.paquete ? datos.paquete.split(' - ')[1] : '';
+        const pagosList = datos.pagos || [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+
+        let inputsPagosHtml = '';
+        for (let i = 0; i < 10; i++) {
+          inputsPagosHtml += `
+            <div>
+              <label class="block text-[11px] font-bold text-slate-500 mb-1">Pago ${i + 1} ($)</label>
+              <input type="number" id="fPagoItem_${i}" value="${pagosList[i] || 0}" min="0" class="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-center font-mono focus:outline-none focus:border-blue-600 focus:bg-white transition-all">
+            </div>
+          `;
+        }
+
+        contenedor.innerHTML = `
+          <div>
+            <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Nombre del Alumno</label>
+            <input type="text" id="fAlumno" list="listaAlumnosRegistrados" value="${datos.alumno || ''}" required placeholder="Escribe o selecciona un alumno..." class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-600 focus:bg-white transition-all">
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Línea Paquete</label>
+              <select id="inputLineaModal" onchange="actualizarModelosModal()" required class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-600 focus:bg-white transition-all">
+                <option value="">Seleccionar...</option>
+                <option value="Línea Basic" ${lineaDef === 'Línea Basic' ? 'selected' : ''}>Línea Basic</option>
+                <option value="Línea Deluxe" ${lineaDef === 'Línea Deluxe' ? 'selected' : ''}>Línea Deluxe</option>
+                <option value="Línea Prime" ${lineaDef === 'Línea Prime' ? 'selected' : ''}>Línea Prime</option>
+                <option value="Línea Elite" ${lineaDef === 'Línea Elite' ? 'selected' : ''}>Línea Elite</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Modelo</label>
+              <select id="inputModeloModal" onchange="actualizarPrecioModeloModal()" required ${lineaDef ? '' : 'disabled'} class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-600 focus:bg-white transition-all">
+                <option value="">${lineaDef ? 'Seleccionar Modelo...' : 'Primero elige línea'}</option>
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Monto Total Contratado ($)</label>
+            <input type="number" id="inputMontoModal" value="${datos.monto || ''}" required readonly class="w-full p-3 bg-slate-100 border border-slate-200 rounded-xl font-bold text-slate-800 outline-none">
+          </div>
+
+          <div class="pt-3 border-t border-slate-100 mt-2">
+            <label class="block text-xs font-bold uppercase tracking-wider text-blue-700 mb-2">Captura de Abonos (Pagos 1 al 10)</label>
+            <div class="grid grid-cols-5 gap-2 bg-blue-50/40 p-3 rounded-xl border border-blue-100">
+              ${inputsPagosHtml}
+            </div>
+          </div>
+        `;
+
+        if (lineaDef && PAQUETES_CATALOGO[lineaDef]) {
+          const selectModelo = document.getElementById('inputModeloModal');
+          PAQUETES_CATALOGO[lineaDef].forEach(item => {
+            const opt = document.createElement('option');
+            opt.value = item.modelo;
+            opt.textContent = `${item.modelo} - $${item.precio.toLocaleString()}`;
+            opt.dataset.precio = item.precio;
+            if (item.modelo === modeloDef) opt.selected = true;
+            selectModelo.appendChild(opt);
+          });
+        }
+      } else if (vistaActual === 'alumnos') {
+        contenedor.innerHTML = `
+          <div>
+            <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Nombre Completo</label>
+            <input type="text" id="fNombre" value="${datos.nombre || ''}" required class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-600 focus:bg-white transition-all">
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Correo Electrónico</label>
+              <input type="email" id="fEmail" value="${datos.email || ''}" required class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-600 focus:bg-white transition-all">
+            </div>
+            <div>
+              <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Teléfono con LADA (*Obligatorio +)</label>
+              <input type="text" id="fTelefono" value="${datos.telefono || ''}" placeholder="Ej: +52 5551234567 o +1 3232435251" required class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-600 focus:bg-white transition-all font-mono">
+              <span class="text-[10px] text-slate-500 mt-0.5 block font-sans">Obligatorio iniciar con "+" seguido del código de país.</span>
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Universidad</label>
+              <input type="text" id="fUniversidad" value="${datos.universidad || ''}" required class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-600 focus:bg-white transition-all">
+            </div>
+            <div>
+              <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Facultad / Carrera</label>
+              <input type="text" id="fEscuela" value="${datos.escuela || ''}" required class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-600 focus:bg-white transition-all">
+            </div>
+          </div>
+        `;
+      } else if (vistaActual === 'pagos') {
+        contenedor.innerHTML = `
+          <div>
+            <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Alumno</label>
+            <input type="text" id="fPagoAlumno" list="listaAlumnosRegistrados" value="${datos.alumno || ''}" required placeholder="Escribe o selecciona un alumno..." class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-600 focus:bg-white transition-all">
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Concepto</label>
+              <select id="fPagoConcepto" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-600 focus:bg-white transition-all">
+                <option value="Abono Parcial / Liquidación">Abono Parcial / Liquidación</option>
+                ${Array.from({length: 10}, (_, i) => `<option value="Pago ${i+1}" ${datos.concepto === `Pago ${i+1}` ? 'selected' : ''}>Pago ${i+1}</option>`).join('')}
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Monto Abonado ($)</label>
+              <input type="number" id="fPagoMonto" value="${datos.monto || ''}" required class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-600 focus:bg-white transition-all">
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Fecha</label>
+              <input type="date" id="fPagoFecha" value="${datos.fecha || new Date().toISOString().split('T')[0]}" required class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-600 focus:bg-white transition-all">
+            </div>
+            <div>
+              <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Método de Pago</label>
+              <select id="fPagoMetodo" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-600 focus:bg-white transition-all">
+                <option value="Efectivo" ${datos.metodo === 'Efectivo' ? 'selected' : ''}>Efectivo</option>
+                <option value="Transferencia" ${datos.metodo === 'Transferencia' ? 'selected' : ''}>Transferencia</option>
+                <option value="Tarjeta" ${datos.metodo === 'Tarjeta' ? 'selected' : ''}>Tarjeta</option>
+              </select>
+            </div>
+          </div>
+        `;
+      }
+    }
+
+    function guardarRegistro(e) {
+      e.preventDefault();
+      const alertaError = document.getElementById('alertaError');
+      alertaError.classList.add('hidden');
+      alertaError.innerText = '';
+
+      if (vistaActual === 'saldos') {
+        const alumnoInput = document.getElementById('fAlumno').value.trim();
+        const alumnoExiste = alumnos.some(a => a.nombre.toLowerCase() === alumnoInput.toLowerCase());
+        
+        if (!alumnoExiste) {
+          alertaError.innerText = `El alumno "${alumnoInput}" no está registrado. Primero debes agregarlo en la sección "Alumnos".`;
+          alertaError.classList.remove('hidden');
+          return;
+        }
+
+        const linea = document.getElementById('inputLineaModal').value;
+        const modelo = document.getElementById('inputModeloModal').value;
+        const monto = parseFloat(document.getElementById('inputMontoModal').value) || 0;
+        const paqueteCompleto = `${linea} - ${modelo}`;
+
+        const pagosCapturados = [];
+        for (let i = 0; i < 10; i++) {
+          pagosCapturados.push(parseFloat(document.getElementById(`fPagoItem_${i}`).value) || 0);
+        }
+
+        if (indiceEdicion !== null) {
+          saldos[indiceEdicion].alumno = alumnoInput;
+          saldos[indiceEdicion].paquete = paqueteCompleto;
+          saldos[indiceEdicion].monto = monto;
+          saldos[indiceEdicion].pagos = pagosCapturados;
+        } else {
+          saldos.push({ alumno: alumnoInput, paquete: paqueteCompleto, monto, pagos: pagosCapturados, entregas: {}, eleccionEspecial: "" });
+        }
+
+        for (let i = 0; i < 10; i++) {
+          const abonoMonto = pagosCapturados[i];
+          if (abonoMonto > 0) {
+            const etiquetaConcepto = `Pago ${i + 1}`;
+            const yaRegistrado = pagos.some(p => p.alumno.toLowerCase() === alumnoInput.toLowerCase() && p.concepto === etiquetaConcepto);
+            
+            if (!yaRegistrado) {
+              pagos.unshift({
+                id: generarNuevoIdPago(),
+                alumno: alumnoInput,
+                concepto: etiquetaConcepto,
+                monto: abonoMonto,
+                fecha: new Date().toISOString().split('T')[0],
+                metodo: 'Efectivo',
+                estado: 'Completado'
+              });
+            }
+          }
+        }
+
+      } else if (vistaActual === 'alumnos') {
+        const nombre = document.getElementById('fNombre').value.trim();
+        const email = document.getElementById('fEmail').value.trim();
+        const telefono = document.getElementById('fTelefono').value.trim();
+        const universidad = document.getElementById('fUniversidad').value.trim();
+        const escuela = document.getElementById('fEscuela').value.trim();
+
+        const regexLadaInternacional = /^\+\d{1,4}\s?\d{7,14}$/;
+        const soloNumeros = telefono.replace(/\D/g, '');
+
+        if (!telefono.startsWith('+') || soloNumeros.length < 8 || !regexLadaInternacional.test(telefono)) {
+          alertaError.innerText = `Formato de teléfono inválido. Debe incluir obligatoriamente la LADA del país iniciando con el signo '+' (Ejemplos: +52 5551234567 para México o +1 3232435251 para California/EE.UU.).`;
+          alertaError.classList.remove('hidden');
+          return;
+        }
+
+        const emailLimpio = email.toLowerCase();
+
+        const emailExiste = alumnos.some((a, idx) => idx !== indiceEdicion && a.email.toLowerCase() === emailLimpio);
+        if (emailExiste) {
+          alertaError.innerText = `El correo electrónico "${email}" ya se encuentra registrado por otro alumno. Por favor ingresa uno diferente.`;
+          alertaError.classList.remove('hidden');
+          return;
+        }
+
+        const telExiste = alumnos.some((a, idx) => idx !== indiceEdicion && a.telefono.replace(/\D/g, '') === soloNumeros);
+        if (telExiste) {
+          alertaError.innerText = `El número de teléfono "${telefono}" ya pertenece a otro alumno registrado. Ingresa un número distinto.`;
+          alertaError.classList.remove('hidden');
+          return;
+        }
+
+        if (indiceEdicion !== null) {
+          alumnos[indiceEdicion] = { ...alumnos[indiceEdicion], nombre, email, telefono, universidad, escuela };
+        } else {
+          alumnos.push({ id: generarNuevoIdAlumno(), nombre, email, telefono, universidad, escuela });
+        }
+        actualizarDatalistAlumnos();
+        actualizarOpcionesFiltroEscuelas();
+      } else if (vistaActual === 'pagos') {
+        const alumnoInput = document.getElementById('fPagoAlumno').value.trim();
+        const concepto = document.getElementById('fPagoConcepto').value;
+        const montoAbono = parseFloat(document.getElementById('fPagoMonto').value) || 0;
+        const fecha = document.getElementById('fPagoFecha').value;
+        const metodo = document.getElementById('fPagoMetodo').value;
+
+        const saldoTarget = saldos.find(s => s.alumno.toLowerCase() === alumnoInput.toLowerCase());
+
+        if (!saldoTarget) {
+          alertaError.innerText = `No se encontró una cuenta de saldo activa para "${alumnoInput}".`;
+          alertaError.classList.remove('hidden');
+          return;
+        }
+
+        const totalPagadoPrevio = calcularTotalPagado(saldoTarget.pagos);
+        const saldoPendienteActual = Math.max(0, saldoTarget.monto - totalPagadoPrevio);
+
+        if (saldoPendienteActual <= 0) {
+          alertaError.innerText = `El alumno "${alumnoInput}" ya tiene su cuenta totalmente liquidada ($0.00 pendientes). No es posible registrar más abonos.`;
+          alertaError.classList.remove('hidden');
+          return;
+        }
+
+        if (montoAbono > saldoPendienteActual) {
+          alertaError.innerText = `El monto ingresado ($${montoAbono.toLocaleString()}) supera el saldo pendiente del alumno ($${saldoPendienteActual.toLocaleString()}).`;
+          alertaError.classList.remove('hidden');
+          return;
+        }
+
+        const nuevoPago = { id: generarNuevoIdPago(), alumno: alumnoInput, concepto, monto: montoAbono, fecha, metodo, estado: 'Completado' };
+
+        if (indiceEdicion !== null) {
+          pagos[indiceEdicion] = nuevoPago;
+        } else {
+          pagos.unshift(nuevoPago);
+          saldoTarget.pagos = agregarNuevoAbonoArreglo(saldoTarget.pagos, montoAbono);
+        }
+      }
+
+      guardarEnLocalStorage();
+      cerrarModal();
+      cargarContenido(vistaActual);
+    }
+
+    function editarRegistro(index) {
+      indiceEdicion = index;
+      document.getElementById('modalTitulo').innerText = "Editar Registro";
+      
+      if (vistaActual === 'saldos') construirCamposFormulario(saldos[index]);
+      else if (vistaActual === 'alumnos') construirCamposFormulario(alumnos[index]);
+      else if (vistaActual === 'pagos') construirCamposFormulario(pagos[index]);
+
+      document.getElementById('modalFormulario').classList.remove('hidden');
+    }
+
+    function eliminarRegistro(index) {
+      if (confirm('¿Estás seguro de que deseas eliminar este registro?')) {
+        if (vistaActual === 'saldos') saldos.splice(index, 1);
+        else if (vistaActual === 'alumnos') {
+          alumnos.splice(index, 1);
+          actualizarDatalistAlumnos();
+          actualizarOpcionesFiltroEscuelas();
+        } else if (vistaActual === 'pagos') pagos.splice(index, 1);
+
+        guardarEnLocalStorage();
+        cargarContenido(vistaActual);
+      }
+    }
+
+    function prepararPlantillaRecibo(pagoObj) {
+      const logoData = localStorage.getItem('app_logo_empresa');
+      const pdfLogoImg = document.getElementById('pdfLogoImg');
+      const pdfLogoTexto = document.getElementById('pdfLogoTexto');
+
+      if (logoData) {
+        pdfLogoImg.src = logoData;
+        pdfLogoImg.style.display = 'block';
+        pdfLogoTexto.style.display = 'none';
+      } else {
+        pdfLogoImg.style.display = 'none';
+        pdfLogoTexto.style.display = 'block';
+      }
+
+      const alumnoObj = alumnos.find(a => a.nombre.toLowerCase() === pagoObj.alumno.toLowerCase()) || {};
+      const saldoObj = saldos.find(s => s.alumno.toLowerCase() === pagoObj.alumno.toLowerCase()) || { paquete: 'No especificado', monto: 0, pagos: [], entregas: {}, eleccionEspecial: "" };
+
+      const listaPagosAlumno = pagos.filter(p => p.alumno.toLowerCase() === pagoObj.alumno.toLowerCase());
+
+      document.getElementById('pdfFolio').innerText = pagoObj.id || 'PAG-000';
+      document.getElementById('pdfFecha').innerText = pagoObj.fecha;
+      document.getElementById('pdfAlumnoNombre').innerText = pagoObj.alumno;
+      document.getElementById('pdfAlumnoUniversidad').innerText = `Universidad: ${alumnoObj.universidad || 'No especificada'}`;
+      document.getElementById('pdfAlumnoCarrera').innerText = `Carrera/Facultad: ${alumnoObj.escuela || 'No especificada'}`;
+      document.getElementById('pdfPaqueteNombre').innerText = saldoObj.paquete;
+
+      document.getElementById('pdfPag2Alumno').innerText = pagoObj.alumno;
+      document.getElementById('pdfPag2Paquete').innerText = saldoObj.paquete;
+      document.getElementById('pdfFirmaNombreAlumno').innerText = `Firma del Alumno (${pagoObj.alumno})`;
+
+      const cuerpoTabla = document.getElementById('pdfCuerpoTablaPagos');
+      cuerpoTabla.innerHTML = '';
+
+      let acumuladoAbonos = 0;
+      if (listaPagosAlumno.length > 0) {
+        listaPagosAlumno.forEach(p => {
+          acumuladoAbonos += parseFloat(p.monto) || 0;
+          const esActual = p.id === pagoObj.id;
+          cuerpoTabla.innerHTML += `
+            <tr style="border-bottom: 1px solid #e2e8f0; ${esActual ? 'background-color: #f0fdf4;' : ''}">
+              <td style="padding: 8px 10px; font-weight: ${esActual ? 'bold' : 'normal'}; color: #0f172a;">
+                ${p.concepto} ${esActual ? '<span style="font-size: 9px; background-color: #22c55e; color: white; padding: 2px 5px; border-radius: 4px; margin-left: 4px;">Nuevo</span>' : ''}
+              </td>
+              <td style="padding: 8px 10px; color: #475569;">${p.fecha}</td>
+              <td style="padding: 8px 10px; color: #475569;">${p.metodo}</td>
+              <td style="padding: 8px 10px; text-align: right; font-weight: bold; color: ${esActual ? '#16a34a' : '#0284c7'};">
+                $${parseFloat(p.monto).toLocaleString()}
+              </td>
+            </tr>
+          `;
+        });
+      }
+
+      const montoTotalPaquete = parseFloat(saldoObj.monto) || 0;
+      const nuevoSaldoPendiente = Math.max(0, montoTotalPaquete - acumuladoAbonos);
+
+      document.getElementById('pdfMontoTotalHeader').innerText = `$${montoTotalPaquete.toLocaleString()}`;
+      document.getElementById('pdfMontoTotal').innerText = `$${montoTotalPaquete.toLocaleString()}`;
+      document.getElementById('pdfTotalPagado').innerText = `$${acumuladoAbonos.toLocaleString()}`;
+      document.getElementById('pdfSaldoPendiente').innerText = `$${nuevoSaldoPendiente.toLocaleString()}`;
+
+      const entregasObj = saldoObj.entregas || {};
+      const contenedorEntregados = document.getElementById('pdfListaEntregados');
+      const contenedorPendientes = document.getElementById('pdfListaPendientes');
+
+      let htmlEntregados = '<ul style="margin: 0; padding-left: 18px; line-height: 1.7;">';
+      let htmlPendientes = '<ul style="margin: 0; padding-left: 18px; line-height: 1.7;">';
+      let cantEntregados = 0;
+      let cantPendientes = 0;
+
+      let yaAgregadaAclaracionPendiente = false;
+
+      MATERIALES_ENTREGAS_COMPLETO.forEach(mat => {
+        const esEspecial = mat === "Anillo de Plata 925" || mat === "Personalizador";
+        
+        if (esEspecial && !saldoObj.eleccionEspecial) {
+          if (!yaAgregadaAclaracionPendiente) {
+            htmlPendientes += `<li style="margin-bottom: 3px; color: #b45309; font-weight: bold;">✨ Regalía Especial: Pendiente de elección por el alumno (Anillo de Plata 925 o Personalizador)</li>`;
+            cantPendientes++;
+            yaAgregadaAclaracionPendiente = true;
+          }
+          return;
+        }
+
+        if (esEspecial && saldoObj.eleccionEspecial && saldoObj.eleccionEspecial !== mat) return;
+
+        const estaEntregado = !!entregasObj[mat];
+        if (estaEntregado) {
+          htmlEntregados += `<li style="margin-bottom: 3px;"><strong>${mat}</strong></li>`;
+          cantEntregados++;
+        } else {
+          htmlPendientes += `<li style="margin-bottom: 3px;">${mat}</li>`;
+          cantPendientes++;
+        }
+      });
+
+      htmlEntregados += '</ul>';
+      htmlPendientes += '</ul>';
+
+      contenedorEntregados.innerHTML = cantEntregados > 0 ? htmlEntregados : '<p style="font-style: italic; color: #94a3b8;">Aún no se ha realizado ninguna entrega de materiales.</p>';
+      contenedorPendientes.innerHTML = cantPendientes > 0 ? htmlPendientes : '<p style="font-style: italic; color: #16a34a; font-weight: bold;">¡Todos los materiales han sido entregados!</p>';
+    }
+
+    async function descargarReciboPDF(pagoObj) {
+      prepararPlantillaRecibo(pagoObj);
+      await new Promise(r => setTimeout(r, 200));
+
+      const elemento = document.getElementById('reciboPdfPlantilla');
+      
+      const opciones = {
+        margin:       [5, 8, 5, 8],
+        filename:     `Recibo_${pagoObj.id || 'pago'}_${pagoObj.alumno.replace(/\s+/g, '_')}.pdf`,
+        image:        { type: 'jpeg', quality: 0.98 },
+        html2canvas:  { scale: 2, useCORS: true, logging: false },
+        jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+      };
+
+      return html2pdf().set(opciones).from(elemento).save();
+    }
+
+    async function enviarWhatsappYPdf(pagoObj) {
+      await descargarReciboPDF(pagoObj);
+
+      const alumnoObj = alumnos.find(a => a.nombre.toLowerCase() === pagoObj.alumno.toLowerCase());
+      const telefono = alumnoObj && alumnoObj.telefono ? alumnoObj.telefono.replace(/\D/g, '') : '';
+
+      const mensaje = encodeURIComponent(
+        `🎓 *AB GRADUACIONES - RECIBO DE PAGO*\n\n` +
+        `¡Hola *${pagoObj.alumno}*! Confirmamos la recepción de tu pago:\n\n` +
+        `📄 *Folio:* ${pagoObj.id || 'PAG-000'}\n` +
+        `📝 *Concepto:* ${pagoObj.concepto}\n` +
+        `💰 *Monto Abonado:* $${pagoObj.monto.toLocaleString()}\n` +
+        `📅 *Fecha:* ${pagoObj.fecha}\n\n` +
+        `📌 *Nota:* Te adjuntamos tu comprobante oficial en formato PDF.\n` +
+        `¡Muchas gracias!`
+      );
+
+      const url = telefono ? `https://wa.me/${telefono}?text=${mensaje}` : `https://wa.me/?text=${mensaje}`;
+      window.open(url, '_blank');
+    }
+
+    async function enviarEmailYPdf(pagoObj) {
+      await descargarReciboPDF(pagoObj);
+
+      const alumnoObj = alumnos.find(a => a.nombre.toLowerCase() === pagoObj.alumno.toLowerCase());
+      const email = alumnoObj && alumnoObj.email ? alumnoObj.email : '';
+
+      const asunto = encodeURIComponent(`Recibo de Pago - Ab Graduaciones (${pagoObj.concepto})`);
+      const cuerpo = encodeURIComponent(
+        `Estimado/a ${pagoObj.alumno},\n\n` +
+        `Le confirmamos la recepción de su pago por un monto de $${pagoObj.monto.toLocaleString()} correspondientes al concepto "${pagoObj.concepto}".\n\n` +
+        `Adjunto a este correo encontrará su comprobante oficial en archivo PDF descargado.\n\n` +
+        `Atentamente,\nAb Graduaciones`
+      );
+
+      window.location.href = `mailto:${email}?subject=${asunto}&body=${cuerpo}`;
+    }
+  </script>
+</body>
+</html>
