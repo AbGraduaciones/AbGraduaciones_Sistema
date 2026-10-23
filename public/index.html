@@ -375,43 +375,28 @@
 
     const PAQUETES_CATALOGO = {
       "Línea Basic": [
-        { modelo: "Bandera", precio: 8000 },
-        { modelo: "Bandera Vino", precio: 8100 },
-        { modelo: "Líneas", precio: 8300 },
-        { modelo: "Cuatro Banderas", precio: 8300 },
-        { modelo: "Bicolor", precio: 8400 },
-        { modelo: "Líneas D", precio: 8400 }
+        { modelo: "Fotos Calenda After", precio: 8000 },
+        { modelo: "Fotos Calenda Cena", precio: 8000 },
+        { modelo: "Fotos Calenda After Cena", precio: 8000 }
       ],
       "Línea Deluxe": [
-        { modelo: "Rayas", precio: 11900 },
-        { modelo: "Jirafa", precio: 11900 },
-        { modelo: "Roma Puntos", precio: 11950 },
-        { modelo: "Cocodrilo", precio: 12000 },
-        { modelo: "Azteca", precio: 12100 },
-        { modelo: "Frida", precio: 12200 },
-        { modelo: "Ramas", precio: 12300 }
+        { modelo: "Fotos Calenda After", precio: 11900 },
+        { modelo: "Fotos Calenda Cena", precio: 12200 },
+        { modelo: "Fotos Calenda After Cena", precio: 13300 }
       ],
       "Línea Prime": [
-        { modelo: "Espejo", precio: 12600 },
-        { modelo: "Cedro", precio: 12700 },
-        { modelo: "Olimpia", precio: 12750 },
-        { modelo: "Espejo Vino", precio: 12800 },
-        { modelo: "Pirámide V", precio: 12800 },
-        { modelo: "Eslovenia", precio: 12800 },
-        { modelo: "Negativo", precio: 12800 },
-        { modelo: "California", precio: 12850 },
-        { modelo: "Robótico Vino", precio: 12850 },
-        { modelo: "Jirafa Estrella", precio: 12850 },
-        { modelo: "Mercurio", precio: 12850 }
+        { modelo: "Fotos Calenda After", precio: 12600 },
+        { modelo: "Fotos Calenda Cena", precio: 12700 },
+        { modelo: "Fotos Calenda After Cena", precio: 13800 }
       ],
       "Línea Elite": [
-        { modelo: "Jirafa Espejo", precio: 12900 },
-        { modelo: "Estrella Espejo", precio: 12900 },
-        { modelo: "Robótico Chapetones", precio: 12950 },
-        { modelo: "Glass Viena", precio: 13000 },
-        { modelo: "Dublin", precio: 13000 },
-        { modelo: "Oxford", precio: 13000 }
+        { modelo: "Fotos Calenda After", precio: 12900 },
+        { modelo: "Fotos Calenda Cena", precio: 13200 },
+        { modelo: "Fotos Calenda After Cena", precio: 14200 }
       ]
+"Personalizado": [
+    { modelo: "Especial / A Medida", precio: 0 }
+  ]
     };
 
     let alumnos = JSON.parse(localStorage.getItem('app_alumnos_10p')) || [];
@@ -1401,15 +1386,30 @@
       }
     }
 
-    function actualizarPrecioModeloModal() {
-      const selectModelo = document.getElementById('inputModeloModal');
-      const option = selectModelo.options[selectModelo.selectedIndex];
-      const inputMonto = document.getElementById('inputMontoModal');
+function actualizarPrecioModeloModal() {
+  const lineaSel = document.getElementById('inputLineaModal').value;
+  const selectModelo = document.getElementById('inputModeloModal');
+  const option = selectModelo.options[selectModelo.selectedIndex];
+  const inputMonto = document.getElementById('inputMontoModal');
 
-      if (option && option.dataset.precio && inputMonto) {
-        inputMonto.value = option.dataset.precio;
-      }
+  if (lineaSel === 'Personalizado') {
+    // Permite al administrador escribir el precio libremente
+    inputMonto.removeAttribute('readonly');
+    inputMonto.classList.remove('bg-slate-100');
+    inputMonto.classList.add('bg-white');
+    inputMonto.value = '';
+    inputMonto.placeholder = 'Ingresa el monto acordado ($)';
+    inputMonto.focus();
+  } else {
+    // Para los paquetes estándar sigue bloqueado y toma el valor automático
+    inputMonto.setAttribute('readonly', true);
+    inputMonto.classList.add('bg-slate-100');
+    inputMonto.classList.remove('bg-white');
+    if (option && option.dataset.precio) {
+      inputMonto.value = option.dataset.precio;
     }
+  }
+}
 
     function construirCamposFormulario(datos = {}) {
       const contenedor = document.getElementById('camposFormulario');
@@ -1444,7 +1444,8 @@
                 <option value="Línea Deluxe" ${lineaDef === 'Línea Deluxe' ? 'selected' : ''}>Línea Deluxe</option>
                 <option value="Línea Prime" ${lineaDef === 'Línea Prime' ? 'selected' : ''}>Línea Prime</option>
                 <option value="Línea Elite" ${lineaDef === 'Línea Elite' ? 'selected' : ''}>Línea Elite</option>
-              </select>
+                <option value="Personalizado" ${lineaDef === 'Personalizado' ? 'selected' : ''}>✨ Personalizado / Otro</option>
+                </select>
             </div>
             <div>
               <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Modelo</label>
