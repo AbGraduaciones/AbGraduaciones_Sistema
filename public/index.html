@@ -415,6 +415,14 @@
         { modelo: "Bicolor", precio: 7400 },
         { modelo: "Líneas D", precio: 7400 }
       ],
+      "Línea Basic 6 Solo Fotos": [
+        { modelo: "Bandera", precio: 6800 },
+        { modelo: "Bandera Vino", precio: 6800 },
+        { modelo: "Líneas", precio: 6800 },
+        { modelo: "Cuatro Banderas", precio: 6800 },
+        { modelo: "Bicolor", precio: 6800 },
+        { modelo: "Líneas D", precio: 6800 }
+      ],
       "Línea Deluxe 1 Fotos Calenda After": [
         { modelo: "Rayas", precio: 11900 },
         { modelo: "Jirafa", precio: 11900 },
@@ -459,6 +467,15 @@
         { modelo: "Azteca", precio: 11300 },
         { modelo: "Frida", precio: 11300 },
         { modelo: "Ramas", precio: 11300 }
+      ],
+      "Línea Deluxe 6 Solo Fotos": [
+        { modelo: "Rayas", precio: 10700 },
+        { modelo: "Jirafa", precio: 10700 },
+        { modelo: "Roma Puntos", precio: 10700 },
+        { modelo: "Cocodrilo", precio: 10700 },
+        { modelo: "Azteca", precio: 10700 },
+        { modelo: "Frida", precio: 10700 },
+        { modelo: "Ramas", precio: 10700 }
       ],
       "Línea Prime 1 Fotos Calenda After": [
         { modelo: "Espejo", precio: 12600 },
@@ -525,6 +542,19 @@
         { modelo: "Jirafa Estrella", precio: 12000 },
         { modelo: "Mercurio", precio: 12000 }
       ],
+      "Línea Prime 6 Solo Fotos": [
+        { modelo: "Espejo", precio: 11400 },
+        { modelo: "Cedro", precio: 11400 },
+        { modelo: "Olimpia", precio: 11400 },
+        { modelo: "Espejo Vino", precio: 11400 },
+        { modelo: "Pirámide V", precio: 11400 },
+        { modelo: "Eslovenia", precio: 11400 },
+        { modelo: "Negativo", precio: 11400 },
+        { modelo: "California", precio: 11400 },
+        { modelo: "Robótico Vino", precio: 11400 },
+        { modelo: "Jirafa Estrella", precio: 11400 },
+        { modelo: "Mercurio", precio: 11400 }
+      ],
       "Línea Elite 1 Fotos Calenda After": [
         { modelo: "Jirafa Espejo", precio: 12900 },
         { modelo: "Estrella Espejo", precio: 12900 },
@@ -564,6 +594,14 @@
         { modelo: "Glass Viena", precio: 12300 },
         { modelo: "Dublin", precio: 12300 },
         { modelo: "Oxford", precio: 12300 }
+      ],
+      "Línea Elite 6 Solo Fotos": [
+        { modelo: "Jirafa Espejo", precio: 11700 },
+        { modelo: "Estrella Espejo", precio: 11700 },
+        { modelo: "Robótico Chapetones", precio: 11700 },
+        { modelo: "Glass Viena", precio: 11700 },
+        { modelo: "Dublin", precio: 11700 },
+        { modelo: "Oxford", precio: 11700 }
       ]
     };
 
@@ -1631,24 +1669,28 @@
                 <option value="Línea Basic 3 Fotos Calenda After Cena" ${lineaDef === 'Línea Basic 3 Fotos Calenda After Cena' ? 'selected' : ''}>Línea Basic 3 Fotos Calenda After Cena</option>
                 <option value="Línea Basic 4 Fotos Calenda" ${lineaDef === 'Línea Basic 4 Fotos Calenda' ? 'selected' : ''}>Línea Basic 4 Fotos Calenda</option>
                 <option value="Línea Basic 5 Fotos After" ${lineaDef === 'Línea Basic 5 Fotos After' ? 'selected' : ''}>Línea Basic 5 Fotos After</option>
+                <option value="Línea Basic 6 Solo Fotos" ${lineaDef === 'Línea Basic 6 Solo Fotos' ? 'selected' : ''}>Línea Basic 6 Solo Fotos</option>
                 
                 <option value="Línea Deluxe 1 Fotos Calenda After" ${lineaDef === 'Línea Deluxe 1 Fotos Calenda After' ? 'selected' : ''}>Línea Deluxe 1 Fotos Calenda After</option>
                 <option value="Línea Deluxe 2 Fotos Calenda Cena" ${lineaDef === 'Línea Deluxe 2 Fotos Calenda Cena' ? 'selected' : ''}>Línea Deluxe 2 Fotos Calenda Cena</option>
                 <option value="Línea Deluxe 3 Fotos Calenda After Cena" ${lineaDef === 'Línea Deluxe 3 Fotos Calenda After Cena' ? 'selected' : ''}>Línea Deluxe 3 Fotos Calenda After Cena</option>
                 <option value="Línea Deluxe 4 Fotos Calenda" ${lineaDef === 'Línea Deluxe 4 Fotos Calenda' ? 'selected' : ''}>Línea Deluxe 4 Fotos Calenda</option>
                 <option value="Línea Deluxe 5 Fotos After" ${lineaDef === 'Línea Deluxe 5 Fotos After' ? 'selected' : ''}>Línea Deluxe 5 Fotos After</option>
+                <option value="Línea Deluxe 6 Solo Fotos" ${lineaDef === 'Línea Deluxe 6 Solo Fotos' ? 'selected' : ''}>Línea Deluxe 6 Solo Fotos</option>
                 
                 <option value="Línea Prime 1 Fotos Calenda After" ${lineaDef === 'Línea Prime 1 Fotos Calenda After' ? 'selected' : ''}>Línea Prime 1 Fotos Calenda After</option>
                 <option value="Línea Prime 2 Fotos Calenda Cena" ${lineaDef === 'Línea Prime 2 Fotos Calenda Cena' ? 'selected' : ''}>Línea Prime 2 Fotos Calenda Cena</option>
                 <option value="Línea Prime 3 Fotos Calenda After Cena" ${lineaDef === 'Línea Prime 3 Fotos Calenda After Cena' ? 'selected' : ''}>Línea Prime 3 Fotos Calenda After Cena</option>
                 <option value="Línea Prime 4 Fotos Calenda" ${lineaDef === 'Línea Prime 4 Fotos Calenda' ? 'selected' : ''}>Línea Prime 4 Fotos Calenda</option>
                 <option value="Línea Prime 5 Fotos After" ${lineaDef === 'Línea Prime 5 Fotos After' ? 'selected' : ''}>Línea Prime 5 Fotos After</option>
+                <option value="Línea Prime 6 Solo Fotos" ${lineaDef === 'Línea Prime 6 Solo Fotos' ? 'selected' : ''}>Línea Prime 6 Solo Fotos</option>
                 
                 <option value="Línea Elite 1 Fotos Calenda After" ${lineaDef === 'Línea Elite 1 Fotos Calenda After' ? 'selected' : ''}>Línea Elite 1 Fotos Calenda After</option>
                 <option value="Línea Elite 2 Fotos Calenda Cena" ${lineaDef === 'Línea Elite 2 Fotos Calenda Cena' ? 'selected' : ''}>Línea Elite 2 Fotos Calenda Cena</option>
                 <option value="Línea Elite 3 Fotos Calenda After Cena" ${lineaDef === 'Línea Elite 3 Fotos Calenda After Cena' ? 'selected' : ''}>Línea Elite 3 Fotos Calenda After Cena</option>
                 <option value="Línea Elite 4 Fotos Calenda" ${lineaDef === 'Línea Elite 4 Fotos Calenda' ? 'selected' : ''}>Línea Elite 4 Fotos Calenda</option>
                 <option value="Línea Elite 5 Fotos After" ${lineaDef === 'Línea Elite 5 Fotos After' ? 'selected' : ''}>Línea Elite 5 Fotos After</option>
+                <option value="Línea Elite 6 Solo Fotos" ${lineaDef === 'Línea Elite 6 Solo Fotos' ? 'selected' : ''}>Línea Elite 6 Solo Fotos</option>
               </select>
             </div>
             <div>
