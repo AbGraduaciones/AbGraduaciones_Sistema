@@ -104,4 +104,23 @@ app.post('/api/crear-checkout', async (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`Servidor ejecutándose en http://localhost:${PORT}`);
+});// Memoria compartida en el servidor
+let datosCompartidos = {
+  alumnos: [],
+  saldos: [],
+  pagos: []
+};
+
+// 1. Ruta para que cualquier dispositivo consulte los datos actuales
+app.get('/api/datos', (req, res) => {
+  res.json(datosCompartidos);
+});
+
+// 2. Ruta para que cualquier dispositivo guarde o actualice los datos
+app.post('/api/datos', (req, res) => {
+  const { alumnos, saldos, pagos } = req.body;
+  if (alumnos) datosCompartidos.alumnos = alumnos;
+  if (saldos) datosCompartidos.saldos = saldos;
+  if (pagos) datosCompartidos.pagos = pagos;
+  res.json({ ok: true, mensaje: 'Datos sincronizados correctamente' });
 });
