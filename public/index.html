@@ -414,39 +414,17 @@
       ]
     };
 
-    const alumnosIniciales = [
-      { id: "ALU-001", nombre: "Ciro Izzo", email: "ciro@example.com", telefono: "+52 5551234567", universidad: "UNAM", escuela: "Ingeniería" },
-      { id: "ALU-002", nombre: "Torres", email: "torres@example.com", telefono: "+52 5559876543", universidad: "IPN", escuela: "Derecho" },
-      { id: "ALU-003", nombre: "Juana de Arco", email: "juana@example.com", telefono: "+52 5555555555", universidad: "ITESM", escuela: "Medicina" },
-      { id: "ALU-004", nombre: "samuel", email: "samuel@example.com", telefono: "+52 5554443322", universidad: "ITO", escuela: "Ciencias" }
-    ];
+    let alumnos = JSON.parse(localStorage.getItem('app_alumnos_10p')) || [];
+    let saldos = JSON.parse(localStorage.getItem('app_saldos_10p')) || [];
+    let pagos = JSON.parse(localStorage.getItem('app_pagos_historial')) || [];
 
-    const saldosIniciales = [
-      { alumno: "Ciro Izzo", paquete: "Línea Basic - Bandera", monto: 8000, pagos: [800, 800, 0, 0, 0, 0, 0, 0, 0, 0], entregas: { "Panorámica con marco": true, "Camisa personalizada": true }, eleccionEspecial: "Anillo de Plata 925" },
-      { alumno: "Torres", paquete: "Línea Prime - Espejo", monto: 12600, pagos: [1260, 0, 0, 0, 0, 0, 0, 0, 0, 0], entregas: {}, eleccionEspecial: "" },
-      { alumno: "samuel", paquete: "Línea Deluxe - Cocodrilo", monto: 12000, pagos: [1200, 1200, 1200, 0, 0, 0, 0, 0, 0, 0], entregas: {}, eleccionEspecial: "" }
-    ];
-
-    const pagosIniciales = [
-      { id: "PAG-001", alumno: "Torres", concepto: "Pago 1", monto: 1260, fecha: "2026-09-20", metodo: "Efectivo", estado: "Completado" },
-      { id: "PAG-002", alumno: "Ciro Izzo", concepto: "Pago 1", monto: 800, fecha: "2026-09-21", metodo: "Transferencia", estado: "Completado" },
-      { id: "PAG-003", alumno: "Ciro Izzo", concepto: "Pago 2", monto: 800, fecha: "2026-10-01", metodo: "Efectivo", estado: "Completado" },
-      { id: "PAG-004", alumno: "samuel", concepto: "Pago 1", monto: 1200, fecha: "2026-10-08", metodo: "Efectivo", estado: "Completado" },
-      { id: "PAG-005", alumno: "samuel", concepto: "Pago 2", monto: 1200, fecha: "2026-10-10", metodo: "Efectivo", estado: "Completado" },
-      { id: "PAG-006", alumno: "samuel", concepto: "Pago 3", monto: 1200, fecha: "2026-10-12", metodo: "Efectivo", estado: "Completado" }
-    ];
-
-    let alumnos = JSON.parse(localStorage.getItem('app_alumnos_10p')) || alumnosIniciales;
-    let saldos = JSON.parse(localStorage.getItem('app_saldos_10p')) || saldosIniciales;
-    let pagos = JSON.parse(localStorage.getItem('app_pagos_historial')) || pagosIniciales;
-
-    document.addEventListener('DOMContentLoaded', () => {
+    document.addEventListener('DOMContentLoaded', async () => {
       cargarLogoGuardado();
+      await sincronizarDesdeServidor();
       actualizarDatalistAlumnos();
       actualizarOpcionesFiltroEscuelas();
       cargarContenido('saldos');
 
-      // --- CAPTURA Y RESPUESTA AL RETORNO DE STRIPE ---
       const urlParams = new URLSearchParams(window.location.search);
       const estadoPago = urlParams.get('pago');
 
@@ -458,6 +436,30 @@
         window.history.replaceState({}, document.title, window.location.pathname);
       }
     });
+
+    // --- SINCRONIZAR DESDE EL SERVIDOR (SIN BLOQUEO DE LENGTH) ---
+    async function sincronizarDesdeServidor() {
+      try {
+        const respuesta = await fetch('/api/datos', { cache: 'no-store' });
+        if (respuesta.ok) {
+          const data = await respuesta.json();
+          if (Array.isArray(data.alumnos)) {
+            alumnos = data.alumnos;
+            localStorage.setItem('app_alumnos_10p', JSON.stringify(alumnos));
+          }
+          if (Array.isArray(data.saldos)) {
+            saldos = data.saldos;
+            localStorage.setItem('app_saldos_10p', JSON.stringify(saldos));
+          }
+          if (Array.isArray(data.pagos)) {
+            pagos = data.pagos;
+            localStorage.setItem('app_pagos_historial', JSON.stringify(pagos));
+          }
+        }
+      } catch (err) {
+        console.warn('Sin conexión con servidor o ruta no disponible, usando datos locales:', err);
+      }
+    }
 
     function cambiarModoVista(nuevoModo) {
       modoAcceso = nuevoModo;
@@ -503,10 +505,26 @@
       reader.readAsDataURL(archivo);
     }
 
-    function guardarEnLocalStorage() {
+    // --- GUARDAR Y PROPAGAR INMEDIATAMENTE AL BACKEND ---
+    async function guardarEnLocalStorage() {
       localStorage.setItem('app_alumnos_10p', JSON.stringify(alumnos));
       localStorage.setItem('app_saldos_10p', JSON.stringify(saldos));
       localStorage.setItem('app_pagos_historial', JSON.stringify(pagos));
+
+      try {
+        const res = await fetch('/api/datos', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ alumnos, saldos, pagos })
+        });
+        if (!res.ok) {
+          throw new Error(`Respuesta fallida del servidor: ${res.status}`);
+        }
+        console.log('✅ Base de datos sincronizada con Render.');
+      } catch (error) {
+        console.error('❌ Error crítico al sincronizar con Render:', error);
+        alert('Aviso: Los datos se guardaron en este navegador, pero falló la sincronización con el servidor. Revisa los logs de Render.');
+      }
     }
 
     function calcularTotalPagado(pagosArray) {
@@ -938,7 +956,7 @@
       `;
     }
 
-    function guardarEleccionAlumno(opcionElegida) {
+    async function guardarEleccionAlumno(opcionElegida) {
       if (!alumnoSesionActual) return;
 
       const saldoObj = saldos.find(s => s.alumno.toLowerCase() === alumnoSesionActual.nombre.toLowerCase());
@@ -953,7 +971,7 @@
 
       if (confirmar) {
         saldoObj.eleccionEspecial = opcionElegida;
-        guardarEnLocalStorage();
+        await guardarEnLocalStorage();
         alert(`✅ ¡Elección guardada con éxito! Tu regalía registrada es: ${opcionElegida}.`);
         renderizarPortalAlumno();
       }
@@ -1041,7 +1059,6 @@
       pagoPendientePasarela = null;
     }
 
-    // --- FUNCIÓN CONECTADA AL BACKEND LOCAL EN NODE.JS + STRIPE ---
     async function procesarPagoAlumnoSimulado() {
       if (!pagoPendientePasarela || !alumnoSesionActual) return;
 
@@ -1062,7 +1079,6 @@
       }
 
       try {
-        // Petición a tu servidor local Express
         const respuesta = await fetch('/api/crear-checkout', {
           method: 'POST',
           headers: {
@@ -1082,13 +1098,13 @@
         console.log(data);
         if (data.url) {
           cerrarModalPasarela();
-          window.location.href = data.url; // Redirige a la pantalla oficial de Stripe
+          window.location.href = data.url;
         } else {
           alert('Error al generar la pasarela de pago. Revisa la consola del servidor.');
         }
       } catch (error) {
         console.error('Error de conexión con el servidor:', error);
-        alert('No se pudo conectar con tu servidor local en http://localhost:3000. Asegúrate de tener encendido tu servidor ejecutando "node server.js".');
+        alert('No se pudo conectar con el servidor para procesar el pago.');
       }
     }
 
@@ -1107,12 +1123,12 @@
       document.getElementById('modalEntregas').classList.remove('hidden');
     }
 
-    function cambiarEleccionAdmin(nuevaOpcion) {
+    async function cambiarEleccionAdmin(nuevaOpcion) {
       if (indiceSaldoEntregaActual === null) return;
       const saldoObj = saldos[indiceSaldoEntregaActual];
       saldoObj.eleccionEspecial = nuevaOpcion;
 
-      guardarEnLocalStorage();
+      await guardarEnLocalStorage();
       renderizarItemsModalEntregas(saldoObj);
       renderizarTablaSaldos(saldos);
     }
@@ -1159,14 +1175,14 @@
       });
     }
 
-    function toggleEntregaItem(nombreMat, checked) {
+    async function toggleEntregaItem(nombreMat, checked) {
       if (indiceSaldoEntregaActual === null) return;
       const saldoObj = saldos[indiceSaldoEntregaActual];
       if (!saldoObj.entregas) saldoObj.entregas = {};
 
       saldoObj.entregas[nombreMat] = checked;
 
-      guardarEnLocalStorage();
+      await guardarEnLocalStorage();
       renderizarItemsModalEntregas(saldoObj);
       renderizarTablaSaldos(saldos);
     }
@@ -1527,7 +1543,7 @@
       }
     }
 
-    function guardarRegistro(e) {
+    async function guardarRegistro(e) {
       e.preventDefault();
       const alertaError = document.getElementById('alertaError');
       alertaError.classList.add('hidden');
@@ -1661,12 +1677,12 @@
         }
       }
 
-      guardarEnLocalStorage();
+      await guardarEnLocalStorage();
       cerrarModal();
       cargarContenido(vistaActual);
     }
 
-    function editarRegistro(index) {
+    async function editarRegistro(index) {
       indiceEdicion = index;
       document.getElementById('modalTitulo').innerText = "Editar Registro";
       
@@ -1677,16 +1693,19 @@
       document.getElementById('modalFormulario').classList.remove('hidden');
     }
 
-    function eliminarRegistro(index) {
+    async function eliminarRegistro(index) {
       if (confirm('¿Estás seguro de que deseas eliminar este registro?')) {
-        if (vistaActual === 'saldos') saldos.splice(index, 1);
-        else if (vistaActual === 'alumnos') {
+        if (vistaActual === 'saldos') {
+          saldos.splice(index, 1);
+        } else if (vistaActual === 'alumnos') {
           alumnos.splice(index, 1);
           actualizarDatalistAlumnos();
           actualizarOpcionesFiltroEscuelas();
-        } else if (vistaActual === 'pagos') pagos.splice(index, 1);
+        } else if (vistaActual === 'pagos') {
+          pagos.splice(index, 1);
+        }
 
-        guardarEnLocalStorage();
+        await guardarEnLocalStorage();
         cargarContenido(vistaActual);
       }
     }
