@@ -4,6 +4,9 @@ const cors = require('cors');
 const path = require('path');
 const pagoController = require('../controllers/pagoController.js');
 
+const { Resend } = require('resend');
+const resend = new Resend(process.env.RESEND_API_KEY);
+
 // Inicializar la aplicación Express
 const app = express();
 
@@ -99,6 +102,42 @@ app.post('/api/crear-checkout', async (req, res) => {
         console.error('Error al procesar con Stripe:', error.message);
         res.status(500).json({ error: error.message });
     }
+});
+
+// Ruta para enviar código de acceso mediante Resend
+app.post('/api/enviar-codigo-seguridad', async (req, res) => {
+  const { email, nombre } = req.body;
+
+  if (!email) {
+    return res.status(400).json({ success: false, message: 'El correo es requerido' });
+  }
+
+  // Generar código aleatorio de 6 dígitos
+  const codigoGenerado = Math.floor(100000 + Math.random() * 900000).toString();
+
+  try {
+    const data = await resend.emails.send({
+      from: 'onboarding@resend.dev', // Correo de prueba de Resend (o tu dominio verificado)
+      to: email,
+      subject: 'Tu código de acceso - Ab Graduaciones',
+      html: `
+        <div style="font-family: Arial, sans-serif; padding: 20px; color: #1e293b;">
+          <h2>Hola, ${nombre || 'Alumno'}</h2>
+          <p>Tu código de seguridad para ingresar a tu estado de cuenta es:</p>
+          <h1 style="color: #2563eb; letter-spacing: 4px; font-size: 32px;">${codigoGenerado}</h1>
+          <p>Este código es confidencial y de uso personal.</p>
+          <br>
+          <p>Atentamente,<br><strong>Ab Graduaciones</strong></p>
+        </div>
+      `
+    });
+
+    // Enviamos respuesta exitosa y el código para validar
+    res.json({ success: true, codigo: codigoGenerado });
+  } catch (error) {
+    console.error('Error al enviar con Resend:', error);
+    res.status(500).json({ success: false, message: 'No se pudo enviar el correo' });
+  }
 });
 
 const PORT = process.env.PORT || 3000;
