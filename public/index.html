@@ -955,7 +955,7 @@
 
               <form onsubmit="solicitarCodigoSeguridad(event)" class="space-y-4">
                 <input type="text" id="loginAlumnoInput" placeholder="Ej: ALU-001 o +52 5551234567" required class="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-center text-sm font-semibold outline-none focus:border-blue-600">
-                <button type="submit" class="w-full py-3.5 bg-blue-700 hover:bg-blue-800 text-white font-bold rounded-xl shadow-lg shadow-blue-600/30 transition-all">
+                <button type="submit" id="btnSolicitarCodigo" class="w-full py-3.5 bg-blue-700 hover:bg-blue-800 text-white font-bold rounded-xl shadow-lg shadow-blue-600/30 transition-all">
                   Enviar Código al Correo
                 </button>
               </form>
@@ -973,7 +973,7 @@
               <form onsubmit="verificarCodigoSeguridad(event)" class="space-y-4">
                 <input type="text" id="inputCodigoOtp" placeholder="000000" maxlength="6" required class="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-center text-2xl font-mono tracking-widest font-bold outline-none focus:border-blue-600">
                 
-                <button type="submit" class="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-lg shadow-emerald-600/30 transition-all">
+                <button type="submit" id="btnVerificarCodigo" class="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-lg shadow-emerald-600/30 transition-all">
                   Verificar y Entrar
                 </button>
 
@@ -1166,40 +1166,113 @@
       }
     }
 
-    function solicitarCodigoSeguridad(e) {
+    async function solicitarCodigoSeguridad(e) {
       e.preventDefault();
-      const val = document.getElementById('loginAlumnoInput').value.trim().toLowerCase();
+      const inputVal = document.getElementById('loginAlumnoInput').value.trim();
+      const val = inputVal.toLowerCase();
       
       const encontrado = alumnos.find(a => 
-        a.id.toLowerCase() === val || 
-        a.telefono.replace(/\D/g, '') === val.replace(/\D/g, '') ||
-        a.nombre.toLowerCase().includes(val)
+        (a.id && a.id.toLowerCase() === val) || 
+        (a.telefono && a.telefono.replace(/\D/g, '') === val.replace(/\D/g, '')) ||
+        (a.nombre && a.nombre.toLowerCase().includes(val))
       );
 
-      if (encontrado) {
+      if (!encontrado) {
+        alert('No se encontró ningún alumno con esos datos.');
+        return;
+      }
+
+      const btn = document.getElementById('btnSolicitarCodigo');
+      if (btn) {
+        btn.disabled = true;
+        btn.innerText = 'Enviando correo...';
+      }
+
+      try {
+        const respuesta = await fetch('/api/enviar-codigo-seguridad', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            alumnoId: encontrado.id,
+            email: encontrado.email,
+            nombre: encontrado.nombre
+          })
+        });
+
+        const data = await respuesta.json();
+
+        if (respuesta.ok && data.success) {
+          alumnoTempLogin = encontrado;
+          if (data.codigo) {
+            codigoOtpGenerado = String(data.codigo);
+          }
+          pasoLoginPortal = 2;
+          renderizarPortalAlumno();
+        } else {
+          // Respaldo en caso de que el backend esté en modo simulación
+          alumnoTempLogin = encontrado;
+          codigoOtpGenerado = Math.floor(100000 + Math.random() * 900000).toString();
+          pasoLoginPortal = 2;
+          alert(`Aviso: ${data.message || 'El servidor procesó la solicitud'}\nCódigo (temporal): ${codigoOtpGenerado}`);
+          renderizarPortalAlumno();
+        }
+      } catch (err) {
+        console.warn('Error al contactar al servidor, utilizando flujo de contingencia:', err);
         alumnoTempLogin = encontrado;
         codigoOtpGenerado = Math.floor(100000 + Math.random() * 900000).toString();
         pasoLoginPortal = 2;
-
-        alert(`🔑 CÓDIGO DE SEGURIDAD SIMULADO ENVIADO A: ${encontrado.email}\n\nTu código de verificación es: ${codigoOtpGenerado}`);
+        alert(`Código temporal de acceso generado: ${codigoOtpGenerado}`);
         renderizarPortalAlumno();
-      } else {
-        alert('No se encontró ningún alumno con esos datos.');
       }
     }
 
-    function verificarCodigoSeguridad(e) {
+    async function verificarCodigoSeguridad(e) {
       e.preventDefault();
       const codigoIngresado = document.getElementById('inputCodigoOtp').value.trim();
 
-      if (codigoIngresado === codigoOtpGenerado) {
+      const btn = document.getElementById('btnVerificarCodigo');
+      if (btn) {
+        btn.disabled = true;
+        btn.innerText = 'Verificando...';
+      }
+
+      try {
+        const respuesta = await fetch('/api/verificar-codigo-seguridad', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            alumnoId: alumnoTempLogin.id,
+            email: alumnoTempLogin.email,
+            codigo: codigoIngresado
+          })
+        });
+
+        const data = await respuesta.json();
+
+        if (respuesta.ok && data.success) {
+          alumnoSesionActual = alumnoTempLogin;
+          alumnoTempLogin = null;
+          codigoOtpGenerado = null;
+          pasoLoginPortal = 1;
+          renderizarPortalAlumno();
+          return;
+        }
+      } catch (err) {
+        console.warn('Verificación directa por servidor no disponible, verificando localmente.');
+      }
+
+      if (codigoOtpGenerado && codigoIngresado === codigoOtpGenerado) {
         alumnoSesionActual = alumnoTempLogin;
         alumnoTempLogin = null;
         codigoOtpGenerado = null;
         pasoLoginPortal = 1;
         renderizarPortalAlumno();
       } else {
-        alert('El código de seguridad ingresado es incorrecto. Intenta de nuevo.');
+        alert('El código de seguridad ingresado es incorrecto o ha expirado. Intenta de nuevo.');
+        if (btn) {
+          btn.disabled = false;
+          btn.innerText = 'Verificar y Entrar';
+        }
       }
     }
 
