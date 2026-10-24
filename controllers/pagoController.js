@@ -1,6 +1,7 @@
-const Stripe = require('stripe');
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const Pago = require('../models/Pago');
 const Cuenta = require('../models/Cuenta');
+
 // Registrar un nuevo pago manual y actualizar el saldo de la cuenta
 exports.crearPago = async (req, res) => {
     try {
@@ -39,41 +40,62 @@ exports.handleStripeWebhook = async (req, res) => {
         // Stripe requiere el buffer crudo (raw body) para verificar la firma
         event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);
     } catch (err) {
-        console.error(`Error en la firma del webhook: ${err.message}`);
+        console.error(`❌ Error en la firma del webhook: ${err.message}`);
         return res.status(400).send(`Webhook Error: ${err.message}`);
     }
+
+    console.log(`🔔 Evento recibido de Stripe: ${event.type}`);
 
     // Manejar el evento de pago completado
     if (event.type === 'checkout.session.completed') {
         const session = event.data.object;
 
+        console.log('📦 Objeto session recibido:', {
+            id: session.id,
+            amount_total: session.amount_total,
+            metadata: session.metadata
+        });
+
         try {
-            // Lee los datos enviados previamente en session.metadata
-            const cuentaId = session.metadata?.cuentaId;
-            const clienteId = session.metadata?.clienteId;
+            // Se busca cuentaId en metadata (soporta cuentaId, cuenta_id o cuenta)
+            const metadata = session.metadata || {};
+            const cuentaId = metadata.cuentaId || metadata.cuenta_id || metadata.cuenta;
+            const clienteId = metadata.clienteId || metadata.cliente_id || metadata.cliente;
             const monto = session.amount_total ? session.amount_total / 100 : 0;
 
-            if (cuentaId) {
-                // Registrar el pago en la base de datos
-                const nuevoPago = new Pago({
-                    cuenta: cuentaId,
-                    cliente: clienteId,
-                    monto: monto,
-                    metodoPago: 'stripe',
-                    transaccionId: session.id,
-                    estado: 'completado'
+            if (!cuentaId) {
+                console.warn('⚠️ Alerta: El webhook recibió el pago pero no viene cuentaId en session.metadata.');
+                return res.status(200).json({
+                    received: true,
+                    warning: 'No se encontró cuentaId en metadata'
                 });
-                await nuevoPago.save();
-
-                // Descontar el saldo de la cuenta
-                await Cuenta.findByIdAndUpdate(cuentaId, {
-                    $inc: { saldo: -monto }
-                });
-
-                console.log(`Pago procesado con éxito para la cuenta: ${cuentaId}`);
             }
+
+            // Registrar el pago en la base de datos
+            const nuevoPago = new Pago({
+                cuenta: cuentaId,
+                cliente: clienteId || null,
+                monto: monto,
+                metodoPago: 'stripe',
+                transaccionId: session.id,
+                estado: 'completado'
+            });
+            await nuevoPago.save();
+
+            // Descontar el saldo de la cuenta
+            const cuentaActualizada = await Cuenta.findByIdAndUpdate(
+                cuentaId,
+                { $inc: { saldo: -monto } },
+                { new: true }
+            );
+
+            console.log(`✅ Pago de $${monto} registrado exitosamente para la cuenta: ${cuentaId}`);
+            if (!cuentaActualizada) {
+                console.warn(`⚠️ Ojo: No se encontró ningún documento Cuenta con el ID: ${cuentaId}`);
+            }
+
         } catch (dbError) {
-            console.error('Error al registrar pago en BD:', dbError.message);
+            console.error('❌ Error al registrar pago en BD:', dbError.message);
             return res.status(500).json({ error: 'Error interno al actualizar la base de datos' });
         }
     }
