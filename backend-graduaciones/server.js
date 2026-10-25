@@ -3,7 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const nodemailer = require('nodemailer');
-const pagoController = require('./controllers/pagoController.js');
+const pagoController = require('../controllers/pagoController.js');
 
 // 1. Configuración robusta del transportador de Gmail
 const transporter = nodemailer.createTransport({
