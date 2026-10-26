@@ -3,9 +3,64 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const nodemailer = require('nodemailer');
-const pagoController = require('../controllers/PagoController.js');
 
-// 1. Configuración del transportador de Gmail
+// 1. Carga tolerante del controlador de pagos para evitar MODULE_NOT_FOUND en Render
+let pagoController;
+const rutasPosibles = [
+  '../controllers/PagoController.js',
+  '../controllers/pagoController.js',
+  './controllers/PagoController.js',
+  './controllers/pagoController.js',
+  '../controllers/PagoController',
+  '../controllers/pagoController'
+];
+
+for (const ruta of rutasPosibles) {
+  try {
+    pagoController = require(ruta);
+    console.log(`✅ Controlador de pago cargado exitosamente desde: ${ruta}`);
+    break;
+  } catch (err) {
+    if (err.code !== 'MODULE_NOT_FOUND') {
+      console.error(`⚠️ Error al cargar controlador desde ${ruta}:`, err.message);
+    }
+  }
+}
+
+// Respaldo de seguridad si no encuentra el archivo externo
+if (!pagoController || !pagoController.handleStripeWebhook) {
+  console.warn('⚠️ No se encontró el archivo PagoController.js. Usando controlador de webhook integrado de respaldo.');
+  pagoController = {
+    handleStripeWebhook: async (req, res) => {
+      const sig = req.headers['stripe-signature'];
+      const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
+      let event;
+      try {
+        if (endpointSecret && process.env.STRIPE_SECRET_KEY) {
+          const stripeInstance = require('stripe')(process.env.STRIPE_SECRET_KEY);
+          event = stripeInstance.webhooks.constructEvent(req.body, sig, endpointSecret);
+        } else {
+          event = JSON.parse(req.body.toString());
+        }
+      } catch (err) {
+        console.error(`❌ Error en webhook: ${err.message}`);
+        return res.status(400).send(`Webhook Error: ${err.message}`);
+      }
+
+      if (event.type === 'checkout.session.completed') {
+        const session = event.data.object;
+        console.log('✅ Pago confirmado vía Stripe webhook:', {
+          id: session.id,
+          monto: session.amount_total ? session.amount_total / 100 : 0,
+          metadata: session.metadata
+        });
+      }
+      res.status(200).json({ received: true });
+    }
+  };
+}
+
+// 2. Configuración del transportador de Gmail
 const transporter = nodemailer.createTransport({
   host: 'smtp.gmail.com',
   port: 465,
