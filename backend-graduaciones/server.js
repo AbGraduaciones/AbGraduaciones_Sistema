@@ -2,17 +2,41 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const mongoose = require('mongoose');
 const nodemailer = require('nodemailer');
 
-// 1. Carga tolerante del controlador de pagos para evitar MODULE_NOT_FOUND en Render
-let pagoController;
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// Memoria compartida accesible globalmente
+global.datosCompartidos = {
+  alumnos: [],
+  saldos: [],
+  pagos: []
+};
+
+// 1. Conexión robusta a MongoDB Atlas
+const mongoUri = process.env.MONGODB_URI || process.env.MONGOOSE_URI;
+
+if (mongoUri) {
+  mongoose.connect(mongoUri, {
+    serverSelectionTimeoutMS: 5000, // No esperar más de 5 segundos si falla la red
+  })
+  .then(() => console.log('✅ Conectado exitosamente a MongoDB Atlas'))
+  .catch((err) => console.error('❌ Error de conexión a MongoDB:', err.message));
+} else {
+  console.warn('⚠️ No se encontró MONGODB_URI en las variables de entorno.');
+}
+
+// 2. Carga tolerante del controlador de pagos (Compatible con Linux / Render)
+let pagoController = null;
 const rutasPosibles = [
-  '../controllers/PagoController.js',
-  '../controllers/pagoController.js',
-  './controllers/PagoController.js',
-  './controllers/pagoController.js',
+  './controllers/pagoController',
+  './controllers/PagoController',
+  '../controllers/pagoController',
   '../controllers/PagoController',
-  '../controllers/pagoController'
+  './controllers/pagoController.js',
+  './controllers/PagoController.js'
 ];
 
 for (const ruta of rutasPosibles) {
@@ -27,62 +51,18 @@ for (const ruta of rutasPosibles) {
   }
 }
 
-// 2. Configuración del transportador de Gmail
-const transporter = nodemailer.createTransport({
-  host: 'smtp.gmail.com',
-  port: 465,
-  secure: true, // SSL directo
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS // Contraseña de aplicación
-  }
-});
-
-// Inicializar Express
-const app = express();
-
-// Diagnóstico de variables en consola
-console.log('--- DIAGNÓSTICO DE INICIO ---');
-if (!process.env.STRIPE_SECRET_KEY) {
-    console.error('ERROR: No se encontró STRIPE_SECRET_KEY en el archivo .env');
-} else {
-    console.log('Clave Stripe cargada correctamente.');
-}
-
-if (!process.env.STRIPE_WEBHOOK_SECRET) {
-    console.warn('AVISO: No se encontró STRIPE_WEBHOOK_SECRET en el archivo .env');
-} else {
-    console.log('Firma Webhook cargada correctamente.');
-}
-
-if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
-    console.warn('AVISO: Faltan EMAIL_USER o EMAIL_PASS en el archivo .env');
-} else {
-    console.log(`Correo emisor configurado: ${process.env.EMAIL_USER}`);
-}
-
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
-app.use(cors());
-
-// Memoria compartida en el servidor
-let datosCompartidos = {
-  alumnos: [],
-  saldos: [],
-  pagos: []
-};
-
-// Webhook de Stripe: procesa y registra automáticamente el abono en el historial
+// 3. Webhook de Stripe: CRÍTICO que esté antes de express.json()
 app.post(
   '/webhook',
   express.raw({ type: 'application/json' }),
   async (req, res) => {
-    // Si existe el controlador externo y tiene su propio método, se delega; sino, se ejecuta el registro automático
-    if (pagoController && typeof pagoController.handleStripeWebhook === 'function' && pagoController.handleStripeWebhook.length === 2) {
+    if (pagoController && typeof pagoController.handleStripeWebhook === 'function') {
       try {
         return await pagoController.handleStripeWebhook(req, res);
-      } catch (e) {
-        console.warn('Controlador externo falló, ejecutando registrador interno:', e.message);
+      } catch (err) {
+        console.error('Error delegando webhook a pagoController:', err.message);
       }
     }
 
@@ -91,7 +71,7 @@ app.post(
     let event;
 
     try {
-      if (endpointSecret && process.env.STRIPE_SECRET_KEY) {
+      if (endpointSecret && sig) {
         event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);
       } else {
         event = JSON.parse(req.body.toString());
@@ -104,33 +84,29 @@ app.post(
     if (event.type === 'checkout.session.completed') {
       const session = event.data.object;
       const metadata = session.metadata || {};
-      const montoAbonado = session.amount_total ? session.amount_total / 100 : 0;
+      const monto = session.amount_total ? session.amount_total / 100 : 0;
       const nombreAlumno = metadata.nombreAlumno || (session.customer_details && session.customer_details.name) || 'Alumno';
-      const concepto = (session.line_items && session.line_items.data && session.line_items.data[0]?.description) || 'Abono en Línea (Stripe)';
+      const cuentaId = metadata.cuentaId || `CTA-${nombreAlumno}`;
+      const concepto = metadata.concepto || 'Abono en Línea (Stripe)';
 
-      console.log(`💳 Pago completado en Stripe por $${montoAbonado} para: ${nombreAlumno}`);
-
-      // Generar nuevo folio
-      const nuevoFolioNum = datosCompartidos.pagos.length + 1;
+      const nuevoFolioNum = (global.datosCompartidos.pagos || []).length + 1;
       const folioId = 'PAG-' + String(nuevoFolioNum).padStart(3, '0');
 
       const nuevoPago = {
         id: folioId,
         alumno: nombreAlumno,
         concepto: concepto,
-        monto: montoAbonado,
+        monto: monto,
         fecha: new Date().toISOString().split('T')[0],
         metodo: 'Tarjeta (Stripe)',
         estado: 'Completado'
       };
 
-      // Registrar en el historial de pagos
-      datosCompartidos.pagos.unshift(nuevoPago);
+      global.datosCompartidos.pagos.unshift(nuevoPago);
 
-      // Descontar del plan de abonos en la cuenta correspondiente
-      const saldoEncontrado = datosCompartidos.saldos.find(s => 
-        (s.id && s.id === metadata.cuentaId) ||
-        (s._id && s._id === metadata.cuentaId) ||
+      const saldoEncontrado = global.datosCompartidos.saldos.find(s =>
+        (s.id && s.id === cuentaId) ||
+        (s._id && s._id === cuentaId) ||
         (s.alumno && s.alumno.toLowerCase() === nombreAlumno.toLowerCase())
       );
 
@@ -141,108 +117,101 @@ app.post(
         let asignado = false;
         for (let i = 0; i < 10; i++) {
           if (!saldoEncontrado.pagos[i] || saldoEncontrado.pagos[i] === 0) {
-            saldoEncontrado.pagos[i] = montoAbonado;
+            saldoEncontrado.pagos[i] = monto;
             asignado = true;
             break;
           }
         }
         if (!asignado) {
-          saldoEncontrado.pagos[9] = (parseFloat(saldoEncontrado.pagos[9]) || 0) + montoAbonado;
+          saldoEncontrado.pagos[9] = (parseFloat(saldoEncontrado.pagos[9]) || 0) + monto;
         }
-        console.log(`✅ Abono aplicado a la cuenta de: ${saldoEncontrado.alumno}`);
-      } else {
-        console.warn(`⚠️ No se encontró la cuenta asociada al alumno "${nombreAlumno}" para aplicar el pago.`);
+        console.log(`✅ Pago aplicado en memoria para: ${saldoEncontrado.alumno}`);
       }
     }
 
-    res.status(200).json({ received: true });
+    return res.status(200).json({ received: true });
   }
 );
 
-// Middleware para procesar JSON en el resto de las rutas
+// 4. Middlewares de Express
+app.use(cors());
 app.use(express.json());
 
-// Servir archivos estáticos
+// Servir frontend estático
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.static(path.join(__dirname, '../public')));
 
-// Rutas de sincronización
+// 5. Rutas de sincronización para el Frontend
 app.get('/api/datos', (req, res) => {
-  res.json(datosCompartidos);
+  res.json(global.datosCompartidos);
 });
 
 app.post('/api/datos', (req, res) => {
   const { alumnos, saldos, pagos } = req.body;
-  if (alumnos) datosCompartidos.alumnos = alumnos;
-  if (saldos) datosCompartidos.saldos = saldos;
-  if (pagos) datosCompartidos.pagos = pagos;
+  if (alumnos) global.datosCompartidos.alumnos = alumnos;
+  if (saldos) global.datosCompartidos.saldos = saldos;
+  if (pagos) global.datosCompartidos.pagos = pagos;
   res.json({ ok: true, mensaje: 'Datos sincronizados correctamente' });
 });
 
-// Ruta raíz
-app.get('/', (req, res) => {
-    const indexPath = path.join(__dirname, 'public', 'index.html');
-    res.sendFile(indexPath, (err) => {
-        if (err) {
-            res.json({
-                status: 'online',
-                mensaje: 'Sistema AbGraduaciones funcionando correctamente'
-            });
-        }
-    });
-});
-
-// Checkout Stripe (Flexible y a prueba de errores 400)
+// 6. Crear Checkout de Stripe
 app.post('/api/crear-checkout', async (req, res) => {
-    try {
-        console.log('📥 Petición recibida en /api/crear-checkout. Body:', req.body);
+  try {
+    const { nombreAlumno, concepto, monto } = req.body;
+    const cuentaId = req.body.cuentaId || req.body.cuenta_id || `CTA-${nombreAlumno || 'GENERAL'}`;
+    const clienteId = req.body.clienteId || req.body.cliente_id || req.body.alumnoId || 'ALU-001';
 
-        const { nombreAlumno, concepto, monto } = req.body;
-
-        const cuentaId = req.body.cuentaId || req.body.cuenta_id || req.body.idCuenta || req.body._id || req.body.alumnoId || `CTA-${nombreAlumno || 'GENERAL'}`;
-        const clienteId = req.body.clienteId || req.body.cliente_id || req.body.idCliente || req.body.alumnoId || '';
-
-        const montoNumerico = parseFloat(monto);
-        if (!montoNumerico || isNaN(montoNumerico) || montoNumerico <= 0) {
-            return res.status(400).json({ error: 'El monto especificado no es válido.' });
-        }
-
-        const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
-
-        console.log(`🚀 Creando sesión de Stripe con cuentaId: ${cuentaId}, Monto: $${montoNumerico}`);
-
-        const session = await stripe.checkout.sessions.create({
-            line_items: [
-                {
-                    price_data: {
-                        currency: 'mxn',
-                        product_data: {
-                            name: 'Graduaciones - ' + (concepto || 'Pago'),
-                            description: 'Abono de ' + (nombreAlumno || 'Alumno'),
-                        },
-                        unit_amount: Math.round(montoNumerico * 100),
-                    },
-                    quantity: 1,
-                },
-            ],
-            mode: 'payment',
-            metadata: {
-                cuentaId: String(cuentaId),
-                clienteId: String(clienteId),
-                nombreAlumno: String(nombreAlumno || '')
-            },
-            success_url: `${baseUrl}/?pago=exito`,
-            cancel_url: `${baseUrl}/?pago=cancelado`,
-        });
-
-        res.json({ id: session.id, url: session.url });
-    } catch (error) {
-        console.error('❌ Error al procesar con Stripe:', error.message);
-        res.status(500).json({ error: error.message });
+    const montoNumerico = parseFloat(monto);
+    if (!montoNumerico || isNaN(montoNumerico) || montoNumerico <= 0) {
+      return res.status(400).json({ error: 'El monto especificado no es válido.' });
     }
+
+    const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
+
+    const session = await stripe.checkout.sessions.create({
+      line_items: [
+        {
+          price_data: {
+            currency: 'mxn',
+            product_data: {
+              name: 'Graduaciones - ' + (concepto || 'Pago'),
+              description: 'Abono de ' + (nombreAlumno || 'Alumno'),
+            },
+            unit_amount: Math.round(montoNumerico * 100),
+          },
+          quantity: 1,
+        },
+      ],
+      mode: 'payment',
+      metadata: {
+        cuentaId: String(cuentaId),
+        clienteId: String(clienteId),
+        alumnoId: String(clienteId),
+        nombreAlumno: String(nombreAlumno || ''),
+        concepto: String(concepto || 'Abono en Línea')
+      },
+      success_url: `${baseUrl}/?pago=exito`,
+      cancel_url: `${baseUrl}/?pago=cancelado`,
+    });
+
+    res.json({ id: session.id, url: session.url });
+  } catch (error) {
+    console.error('❌ Error al crear checkout en Stripe:', error.message);
+    res.status(500).json({ error: error.message });
+  }
 });
 
-// Envío de código de seguridad
+// 7. Envío de correos por Gmail
+const transporter = nodemailer.createTransport({
+  host: 'smtp.gmail.com',
+  port: 465,
+  secure: true,
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS
+  }
+});
+
 app.post('/api/enviar-codigo-seguridad', async (req, res) => {
   try {
     const { email, nombre } = req.body;
@@ -260,21 +229,30 @@ app.post('/api/enviar-codigo-seguridad', async (req, res) => {
           <div style="font-size: 28px; font-weight: bold; letter-spacing: 5px; color: #2563eb; margin: 16px 0;">
             ${codigo}
           </div>
-          <p style="font-size: 12px; color: #64748b;">Si no solicitaste este código, puedes ignorar este mensaje.</p>
         </div>
       `
     });
 
-    console.log(`Código enviado exitosamente a ${email}`);
     res.json({ success: true, codigo, message: 'Código enviado exitosamente' });
   } catch (error) {
-    console.error('Error detallado al enviar correo:', error);
+    console.error('Error al enviar correo:', error.message);
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
-// Iniciar servidor
-const PORT = process.env.PORT || 3000;
+// Rutas API opcionales
+try {
+  app.use('/api/pagos', require('./routes/pagoRoutes'));
+} catch (e) {}
+
+// Ruta comodín para frontend
+app.get('*', (req, res) => {
+  const indexHtml = path.join(__dirname, 'public', 'index.html');
+  res.sendFile(indexHtml, (err) => {
+    if (err) res.send('Sistema Ab Graduaciones en línea');
+  });
+});
+
 app.listen(PORT, () => {
-    console.log(`Servidor ejecutándose en http://localhost:${PORT}`);
+  console.log(`🚀 Servidor ejecutándose en el puerto ${PORT}`);
 });
