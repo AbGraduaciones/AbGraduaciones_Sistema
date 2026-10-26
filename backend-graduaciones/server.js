@@ -3,9 +3,9 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const nodemailer = require('nodemailer');
-const pagoController = require('../controllers/pagoController.js');
+const pagoController = require('../controllers/PagoController.js');
 
-// 1. Configuración robusta del transportador de Gmail
+// 1. Configuración del transportador de Gmail
 const transporter = nodemailer.createTransport({
   host: 'smtp.gmail.com',
   port: 465,
@@ -90,24 +90,16 @@ app.get('/', (req, res) => {
     });
 });
 
-// Checkout Stripe
+// Checkout Stripe (Flexible y a prueba de errores 400)
 app.post('/api/crear-checkout', async (req, res) => {
     try {
         console.log('📥 Petición recibida en /api/crear-checkout. Body:', req.body);
 
         const { nombreAlumno, concepto, monto } = req.body;
 
-        // Soporta diferentes nomenclaturas comunes para el ID de la cuenta
-        const cuentaId = req.body.cuentaId || req.body.cuenta_id || req.body.idCuenta || req.body._id;
-        const clienteId = req.body.clienteId || req.body.cliente_id || req.body.idCliente || '';
-
-        // Validar que se reciba el identificador de la cuenta
-        if (!cuentaId) {
-            console.error('❌ Error: Falta cuentaId en el cuerpo de la petición.');
-            return res.status(400).json({ 
-                error: 'Falta el identificador de la cuenta (cuentaId). El pago no puede asociarse.' 
-            });
-        }
+        // Si no viene cuentaId explícito, usa alumnoId o el nombre del alumno como respaldo
+        const cuentaId = req.body.cuentaId || req.body.cuenta_id || req.body.idCuenta || req.body._id || req.body.alumnoId || `CTA-${nombreAlumno || 'GENERAL'}`;
+        const clienteId = req.body.clienteId || req.body.cliente_id || req.body.idCliente || req.body.alumnoId || '';
 
         const montoNumerico = parseFloat(monto);
         if (!montoNumerico || isNaN(montoNumerico) || montoNumerico <= 0) {
@@ -137,8 +129,8 @@ app.post('/api/crear-checkout', async (req, res) => {
                 cuentaId: String(cuentaId),
                 clienteId: String(clienteId)
             },
-            success_url: `${baseUrl}/success.html`,
-            cancel_url: `${baseUrl}/cancel.html`,
+            success_url: `${baseUrl}/?pago=exito`,
+            cancel_url: `${baseUrl}/?pago=cancelado`,
         });
 
         res.json({ id: session.id, url: session.url });
@@ -179,7 +171,7 @@ app.post('/api/enviar-codigo-seguridad', async (req, res) => {
   }
 });
 
-// Iniciar servidor al final
+// Iniciar servidor
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`Servidor ejecutándose en http://localhost:${PORT}`);
