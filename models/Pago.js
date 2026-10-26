@@ -2,12 +2,12 @@ const mongoose = require('mongoose');
 
 const pagoSchema = new mongoose.Schema({
     cuenta: {
-        type: mongoose.Schema.Types.ObjectId,
+        type: mongoose.Schema.Types.Mixed,
         ref: 'Cuenta',
         required: [true, 'La cuenta asociada es obligatoria']
     },
     cliente: {
-        type: mongoose.Schema.Types.ObjectId,
+        type: mongoose.Schema.Types.Mixed,
         ref: 'Cliente',
         required: [true, 'El cliente es obligatorio']
     },
@@ -22,7 +22,7 @@ const pagoSchema = new mongoose.Schema({
     },
     metodoPago: {
         type: String,
-        enum: ['efectivo', 'transferencia', 'tarjeta', 'otro'],
+        enum: ['efectivo', 'transferencia', 'tarjeta', 'stripe', 'otro'],
         default: 'efectivo'
     },
     notas: {

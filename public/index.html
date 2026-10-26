@@ -166,7 +166,7 @@
         </div>
 
         <div class="pt-2">
-          <button onclick="procesarPagoAlumnoSimulado()" class="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-lg shadow-emerald-600/30 transition-all flex justify-center items-center gap-2">
+          <button id="btnProcesarStripe" onclick="procesarPagoAlumnoSimulado()" class="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-lg shadow-emerald-600/30 transition-all flex justify-center items-center gap-2">
             🔒 Pagar Ahora con Seguridad (Stripe)
           </button>
         </div>
@@ -475,7 +475,7 @@
         { modelo: "Cocodrilo", precio: 10700 },
         { modelo: "Azteca", precio: 10700 },
         { modelo: "Frida", precio: 10700 },
-        { modelo: "Ramas", precio: 10700 }
+        { modelo: "Ramas", precio: 11300 }
       ],
       "Línea Prime 1 Fotos Calenda After": [
         { modelo: "Espejo", precio: 12600 },
@@ -609,9 +609,24 @@
     let saldos = JSON.parse(localStorage.getItem('app_saldos_10p')) || [];
     let pagos = JSON.parse(localStorage.getItem('app_pagos_historial')) || [];
 
+    // Garantizar que cada saldo tenga su propio identificador único 'id' o '_id'
+    function asegurarIdsEnSaldos() {
+      let cambio = false;
+      saldos.forEach((s, idx) => {
+        if (!s.id && !s._id) {
+          s.id = 'CTA-' + String(idx + 1).padStart(4, '0') + '-' + Math.floor(1000 + Math.random() * 9000);
+          cambio = true;
+        }
+      });
+      if (cambio) {
+        localStorage.setItem('app_saldos_10p', JSON.stringify(saldos));
+      }
+    }
+
     document.addEventListener('DOMContentLoaded', async () => {
       cargarLogoGuardado();
       await sincronizarDesdeServidor();
+      asegurarIdsEnSaldos();
       actualizarDatalistAlumnos();
       actualizarOpcionesFiltroEscuelas();
       cargarContenido('saldos');
@@ -620,10 +635,15 @@
       const estadoPago = urlParams.get('pago');
 
       if (estadoPago === 'exito') {
-        alert('🎉 ¡Pago procesado con éxito en Stripe! La transacción ha sido registrada.');
+        // Consultar inmediatamente al servidor para reflejar el pago recibido en Stripe
+        setTimeout(async () => {
+          await sincronizarDesdeServidor();
+          cargarContenido(vistaActual);
+          alert('🎉 ¡Pago procesado con éxito en Stripe! La transacción ha sido registrada.');
+        }, 600);
         window.history.replaceState({}, document.title, window.location.pathname);
       } else if (estadoPago === 'cancelado') {
-        alert('❌ El proceso de pago fue cancelado o interrumptido.');
+        alert('❌ El proceso de pago fue cancelado o interrumpido.');
         window.history.replaceState({}, document.title, window.location.pathname);
       }
     });
@@ -633,15 +653,16 @@
         const respuesta = await fetch('/api/datos', { cache: 'no-store' });
         if (respuesta.ok) {
           const data = await respuesta.json();
-          if (Array.isArray(data.alumnos)) {
+          if (Array.isArray(data.alumnos) && data.alumnos.length > 0) {
             alumnos = data.alumnos;
             localStorage.setItem('app_alumnos_10p', JSON.stringify(alumnos));
           }
-          if (Array.isArray(data.saldos)) {
+          if (Array.isArray(data.saldos) && data.saldos.length > 0) {
             saldos = data.saldos;
+            asegurarIdsEnSaldos();
             localStorage.setItem('app_saldos_10p', JSON.stringify(saldos));
           }
-          if (Array.isArray(data.pagos)) {
+          if (Array.isArray(data.pagos) && data.pagos.length > 0) {
             pagos = data.pagos;
             localStorage.setItem('app_pagos_historial', JSON.stringify(pagos));
           }
@@ -696,6 +717,7 @@
     }
 
     async function guardarEnLocalStorage() {
+      asegurarIdsEnSaldos();
       localStorage.setItem('app_alumnos_10p', JSON.stringify(alumnos));
       localStorage.setItem('app_saldos_10p', JSON.stringify(saldos));
       localStorage.setItem('app_pagos_historial', JSON.stringify(pagos));
@@ -1209,7 +1231,6 @@
           pasoLoginPortal = 2;
           renderizarPortalAlumno();
         } else {
-          // Respaldo en caso de que el backend esté en modo simulación
           alumnoTempLogin = encontrado;
           codigoOtpGenerado = Math.floor(100000 + Math.random() * 900000).toString();
           pasoLoginPortal = 2;
@@ -1321,6 +1342,7 @@
       pagoPendientePasarela = null;
     }
 
+    // PROCESAR PAGO STRIPE VINCULANDO CUENTA ID Y CLIENTE ID
     async function procesarPagoAlumnoSimulado() {
       if (!pagoPendientePasarela || !alumnoSesionActual) return;
 
@@ -1340,6 +1362,24 @@
         return;
       }
 
+      // Obtener o generar identificador único de la cuenta
+      let ctaId = '';
+      if (saldoObj) {
+        if (!saldoObj.id && !saldoObj._id) {
+          saldoObj.id = 'CTA-' + (alumnoSesionActual.id || Date.now());
+          guardarEnLocalStorage();
+        }
+        ctaId = saldoObj._id || saldoObj.id;
+      } else {
+        ctaId = 'CTA-' + (alumnoSesionActual.id || Date.now());
+      }
+
+      const btnPagar = document.getElementById('btnProcesarStripe');
+      if (btnPagar) {
+        btnPagar.disabled = true;
+        btnPagar.innerText = '⌛ Conectando con Stripe...';
+      }
+
       try {
         const respuesta = await fetch('/api/crear-checkout', {
           method: 'POST',
@@ -1347,7 +1387,9 @@
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
-            alumnoId: alumnoSesionActual.id || 'ALU-000',
+            cuentaId: String(ctaId),
+            clienteId: String(alumnoSesionActual.id || ''),
+            alumnoId: String(alumnoSesionActual.id || ''),
             nombreAlumno: alumnoSesionActual.nombre,
             concepto: typeof pagoPendientePasarela.conceptoTag === 'number' 
               ? `Pago ${pagoPendientePasarela.conceptoTag}` 
@@ -1357,15 +1399,25 @@
         });
 
         const data = await respuesta.json();
-        if (data.url) {
+
+        if (respuesta.ok && data.url) {
           cerrarModalPasarela();
           window.location.href = data.url;
         } else {
-          alert('Error al generar la pasarela de pago. Revisa la consola del servidor.');
+          console.error('Error del servidor:', data);
+          alert(`Error al generar la pasarela de pago: ${data.error || 'Respuesta inesperada del servidor'}`);
+          if (btnPagar) {
+            btnPagar.disabled = false;
+            btnPagar.innerText = '🔒 Pagar Ahora con Seguridad (Stripe)';
+          }
         }
       } catch (error) {
         console.error('Error de conexión con el servidor:', error);
         alert('No se pudo conectar con el servidor para procesar el pago.');
+        if (btnPagar) {
+          btnPagar.disabled = false;
+          btnPagar.innerText = '🔒 Pagar Ahora con Seguridad (Stripe)';
+        }
       }
     }
 
@@ -1920,6 +1972,7 @@
           saldos[indiceEdicion].esContadoEfectivo = esContadoEfectivo;
         } else {
           saldos.push({ 
+            id: 'CTA-' + Date.now(),
             alumno: alumnoInput, 
             paquete: paqueteCompleto, 
             monto, 

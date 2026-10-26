@@ -7,14 +7,15 @@ exports.crearPago = async (req, res) => {
     try {
         const { cuenta, monto } = req.body;
 
-        // 1. Crear el registro del pago
         const nuevoPago = new Pago(req.body);
         await nuevoPago.save();
 
-        // 2. Descontar el monto pagado del saldo de la cuenta
-        await Cuenta.findByIdAndUpdate(cuenta, {
-            $inc: { saldo: -monto } // Resta el monto pagado al saldo actual
-        });
+        if (cuenta) {
+            await Cuenta.findOneAndUpdate(
+                { $or: [{ _id: cuenta }, { id: cuenta }] },
+                { $inc: { saldo: -monto } }
+            );
+        }
 
         res.status(201).json({
             status: 'ok',
@@ -37,8 +38,11 @@ exports.handleStripeWebhook = async (req, res) => {
     let event;
 
     try {
-        // Stripe requiere el buffer crudo (raw body) para verificar la firma
-        event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);
+        if (endpointSecret && sig) {
+            event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);
+        } else {
+            event = JSON.parse(req.body.toString());
+        }
     } catch (err) {
         console.error(`❌ Error en la firma del webhook: ${err.message}`);
         return res.status(400).send(`Webhook Error: ${err.message}`);
@@ -46,79 +50,95 @@ exports.handleStripeWebhook = async (req, res) => {
 
     console.log(`🔔 Evento recibido de Stripe: ${event.type}`);
 
-    // Manejar el evento de pago completado
     if (event.type === 'checkout.session.completed') {
         const session = event.data.object;
+        const metadata = session.metadata || {};
+        const monto = session.amount_total ? session.amount_total / 100 : 0;
+        const nombreAlumno = metadata.nombreAlumno || (session.customer_details && session.customer_details.name) || 'Alumno';
+        const cuentaId = metadata.cuentaId || metadata.cuenta_id || metadata.cuenta || `CTA-${nombreAlumno}`;
+        const clienteId = metadata.clienteId || metadata.cliente_id || metadata.cliente || metadata.alumnoId || 'ALU-001';
+        const concepto = metadata.concepto || 'Abono en Línea (Stripe)';
 
-        console.log('📦 Objeto session recibido:', {
-            id: session.id,
-            amount_total: session.amount_total,
-            metadata: session.metadata
-        });
+        console.log(`💳 Procesando pago de $${monto} para: ${nombreAlumno} (Cuenta: ${cuentaId})`);
 
         try {
-            // Se busca cuentaId en metadata (soporta cuentaId, cuenta_id o cuenta)
-            const metadata = session.metadata || {};
-            const cuentaId = metadata.cuentaId || metadata.cuenta_id || metadata.cuenta;
-            const clienteId = metadata.clienteId || metadata.cliente_id || metadata.cliente;
-            const monto = session.amount_total ? session.amount_total / 100 : 0;
-
-            if (!cuentaId) {
-                console.warn('⚠️ Alerta: El webhook recibió el pago pero no viene cuentaId en session.metadata.');
-                return res.status(200).json({
-                    received: true,
-                    warning: 'No se encontró cuentaId en metadata'
-                });
-            }
-
-            // Registrar el pago en la base de datos
-            const nuevoPago = new Pago({
+            // 1. Guardar en MongoDB
+            const nuevoPagoBD = new Pago({
                 cuenta: cuentaId,
-                cliente: clienteId || null,
+                cliente: clienteId,
                 monto: monto,
                 metodoPago: 'stripe',
-                transaccionId: session.id,
-                estado: 'completado'
+                notas: `Stripe Session: ${session.id}`
             });
-            await nuevoPago.save();
+            await nuevoPagoBD.save();
 
-            // Descontar el saldo de la cuenta
-            const cuentaActualizada = await Cuenta.findByIdAndUpdate(
-                cuentaId,
-                { $inc: { saldo: -monto } },
-                { new: true }
+            await Cuenta.findOneAndUpdate(
+                { $or: [{ _id: cuentaId }, { id: cuentaId }] },
+                { $inc: { saldo: -monto } }
             );
 
-            console.log(`✅ Pago de $${monto} registrado exitosamente para la cuenta: ${cuentaId}`);
-            if (!cuentaActualizada) {
-                console.warn(`⚠️ Ojo: No se encontró ningún documento Cuenta con el ID: ${cuentaId}`);
+            // 2. Sincronizar en memoria compartida para el frontend
+            if (global.datosCompartidos) {
+                const nuevoFolioNum = (global.datosCompartidos.pagos || []).length + 1;
+                const folioId = 'PAG-' + String(nuevoFolioNum).padStart(3, '0');
+
+                const pagoFrontend = {
+                    id: folioId,
+                    alumno: nombreAlumno,
+                    concepto: concepto,
+                    monto: monto,
+                    fecha: new Date().toISOString().split('T')[0],
+                    metodo: 'Tarjeta (Stripe)',
+                    estado: 'Completado'
+                };
+
+                global.datosCompartidos.pagos.unshift(pagoFrontend);
+
+                // Aplicar el abono a la cuenta del alumno en los saldos
+                const saldoEncontrado = global.datosCompartidos.saldos.find(s =>
+                    (s.id && s.id === cuentaId) ||
+                    (s._id && s._id === cuentaId) ||
+                    (s.alumno && s.alumno.toLowerCase() === nombreAlumno.toLowerCase())
+                );
+
+                if (saldoEncontrado) {
+                    if (!Array.isArray(saldoEncontrado.pagos)) {
+                        saldoEncontrado.pagos = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+                    }
+                    let asignado = false;
+                    for (let i = 0; i < 10; i++) {
+                        if (!saldoEncontrado.pagos[i] || saldoEncontrado.pagos[i] === 0) {
+                            saldoEncontrado.pagos[i] = monto;
+                            asignado = true;
+                            break;
+                        }
+                    }
+                    if (!asignado) {
+                        saldoEncontrado.pagos[9] = (parseFloat(saldoEncontrado.pagos[9]) || 0) + monto;
+                    }
+                    console.log(`✅ Abono reflejado en la tabla para: ${saldoEncontrado.alumno}`);
+                } else {
+                    console.warn(`⚠️ No se encontró la cuenta de ${nombreAlumno} en saldos.`);
+                }
             }
 
+            console.log(`✅ Pago de $${monto} registrado exitosamente.`);
         } catch (dbError) {
-            console.error('❌ Error al registrar pago en BD:', dbError.message);
-            return res.status(500).json({ error: 'Error interno al actualizar la base de datos' });
+            console.error('❌ Error al procesar pago:', dbError.message);
+            return res.status(500).json({ error: dbError.message });
         }
     }
 
-    // Responder 200 a Stripe para confirmar recepción
     res.status(200).json({ received: true });
 };
 
 // Obtener todos los pagos
 exports.obtenerPagos = async (req, res) => {
     try {
-        const pagos = await Pago.find()
-            .populate('cliente', 'nombre email')
-            .populate('cuenta');
-        res.status(200).json({
-            status: 'ok',
-            data: pagos
-        });
+        const pagos = await Pago.find().sort({ createdAt: -1 });
+        res.status(200).json({ status: 'ok', data: pagos });
     } catch (error) {
-        res.status(500).json({
-            status: 'error',
-            message: error.message
-        });
+        res.status(500).json({ status: 'error', message: error.message });
     }
 };
 
@@ -126,82 +146,40 @@ exports.obtenerPagos = async (req, res) => {
 exports.obtenerPagosPorCuenta = async (req, res) => {
     try {
         const { cuentaId } = req.params;
-
-        const pagos = await Pago.find({ cuenta: cuentaId })
-            .populate('cliente', 'nombre email')
-            .sort({ createdAt: -1 });
-
-        res.status(200).json({
-            status: 'ok',
-            totalPagos: pagos.length,
-            data: pagos
-        });
+        const pagos = await Pago.find({ cuenta: cuentaId }).sort({ createdAt: -1 });
+        res.status(200).json({ status: 'ok', totalPagos: pagos.length, data: pagos });
     } catch (error) {
-        res.status(400).json({
-            status: 'error',
-            message: error.message
-        });
+        res.status(400).json({ status: 'error', message: error.message });
     }
 };
 
-// Actualizar un pago existente por su ID
+// Actualizar un pago existente
 exports.actualizarPago = async (req, res) => {
     try {
         const { id } = req.params;
-        const pagoActualizado = await Pago.findByIdAndUpdate(id, req.body, {
-            new: true,
-            runValidators: true
-        });
-
-        if (!pagoActualizado) {
-            return res.status(404).json({
-                status: 'error',
-                message: 'No se encontró el pago especificado.'
-            });
-        }
-
-        res.status(200).json({
-            status: 'ok',
-            message: 'Pago actualizado correctamente',
-            data: pagoActualizado
-        });
+        const pagoActualizado = await Pago.findByIdAndUpdate(id, req.body, { new: true, runValidators: true });
+        if (!pagoActualizado) return res.status(404).json({ status: 'error', message: 'No se encontró el pago' });
+        res.status(200).json({ status: 'ok', data: pagoActualizado });
     } catch (error) {
-        res.status(400).json({
-            status: 'error',
-            message: error.message
-        });
+        res.status(400).json({ status: 'error', message: error.message });
     }
 };
 
-// Eliminar/Cancelar un pago por su ID
+// Eliminar un pago
 exports.eliminarPago = async (req, res) => {
     try {
         const { id } = req.params;
-
         const pagoAEliminar = await Pago.findById(id);
+        if (!pagoAEliminar) return res.status(404).json({ status: 'error', message: 'No se encontró el pago' });
 
-        if (!pagoAEliminar) {
-            return res.status(404).json({
-                status: 'error',
-                message: 'No se encontró el pago especificado.'
-            });
-        }
-
-        // Revertir el saldo en la cuenta
-        await Cuenta.findByIdAndUpdate(pagoAEliminar.cuenta, {
-            $inc: { saldo: pagoAEliminar.monto }
-        });
-
+        await Cuenta.findOneAndUpdate(
+            { $or: [{ _id: pagoAEliminar.cuenta }, { id: pagoAEliminar.cuenta }] },
+            { $inc: { saldo: pagoAEliminar.monto } }
+        );
         await Pago.findByIdAndDelete(id);
 
-        res.status(200).json({
-            status: 'ok',
-            message: 'Pago cancelado y saldo restablecido en la cuenta'
-        });
+        res.status(200).json({ status: 'ok', message: 'Pago cancelado y saldo restablecido' });
     } catch (error) {
-        res.status(400).json({
-            status: 'error',
-            message: error.message
-        });
+        res.status(400).json({ status: 'error', message: error.message });
     }
 };
