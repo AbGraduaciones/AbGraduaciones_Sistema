@@ -2,10 +2,13 @@ const express = require('express');
 const router = express.Router();
 const pagoController = require('../controllers/pagoController');
 
+// POST /api/pagos/crear-checkout-session - Generar sesión de Stripe Checkout
+router.post('/crear-checkout-session', pagoController.crearCheckoutSession);
+
 // GET /api/pagos - Obtener todos los pagos
 router.get('/', pagoController.obtenerPagos);
 
-// POST /api/pagos - Crear un nuevo pago
+// POST /api/pagos - Crear un nuevo pago manual
 router.post('/', pagoController.crearPago);
 
 // GET /api/pagos/cuenta/:cuentaId - Obtener historial por ID de cuenta
