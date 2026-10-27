@@ -3,58 +3,71 @@ const Pago = require('../models/Pago');
 const Cuenta = require('../models/Cuenta');
 const mongoose = require('mongoose');
 
-// Crear sesión de Stripe Checkout (con metadatos tanto en la sesión como en el PaymentIntent/Cargo)
+// Crear sesión de Stripe Checkout (con metadatos en la sesión y en el cargo)
 exports.crearCheckoutSession = async (req, res) => {
   try {
     const { 
       monto, 
       concepto = 'Abono de Graduación', 
-      nombreAlumno = 'aaron', 
+      nombreAlumno = 'Alumno', 
       alumnoId = 'ALU-001', 
       cuentaId = 'CTA-001',
       email = '' 
     } = req.body;
 
+    const montoLimpio = parseFloat(monto) || 0;
+    if (montoLimpio <= 0) {
+      return res.status(400).json({ status: 'error', message: 'Monto inválido para procesar el pago' });
+    }
+
     const datosMeta = {
       alumnoId: String(alumnoId || 'ALU-001'),
-      nombreAlumno: String(nombreAlumno || 'aaron'),
+      nombreAlumno: String(nombreAlumno || 'Alumno'),
       cuentaId: String(cuentaId || 'CTA-001'),
       concepto: String(concepto || 'Abono de Graduación'),
       email: String(email || '')
     };
 
-    const session = await stripe.checkout.sessions.create({
+    const hostActual = req.get('host');
+    const protocolo = req.protocol;
+
+    const configuracionSesion = {
       payment_method_types: ['card'],
       line_items: [
         {
           price_data: {
             currency: 'mxn',
             product_data: {
-              name: concepto,
-              description: `Abono para alumno: ${nombreAlumno}`,
+              name: String(concepto),
+              description: `Abono de graduación - Alumno: ${nombreAlumno}`,
             },
-            unit_amount: Math.round(Number(monto) * 100), // Stripe recibe centavos
+            unit_amount: Math.round(montoLimpio * 100), // Stripe recibe centavos
           },
           quantity: 1,
         },
       ],
       mode: 'payment',
-      customer_email: email || undefined,
-      // Metadatos en la sesión de Checkout:
       metadata: datosMeta,
-      // 👇 ESTO ES LO QUE HACE QUE APAREZCA EN EL CARGO/TRANSACCIÓN DE STRIPE:
       payment_intent_data: {
         metadata: datosMeta,
         description: `Abono de graduación - ${nombreAlumno}`,
       },
-      success_url: `${req.protocol}://${req.get('host')}/success.html?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${req.protocol}://${req.get('host')}/cancel.html`,
-    });
+      // Redirige al index procesando los parámetros de éxito o cancelación
+      success_url: `${protocolo}://${hostActual}/index.html?pago=exito&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${protocolo}://${hostActual}/index.html?pago=cancelado`,
+    };
 
-    res.status(200).json({ status: 'ok', url: session.url, id: session.id });
+    // Solo agregar customer_email si viene un correo válido
+    if (email && typeof email === 'string' && email.includes('@')) {
+      configuracionSesion.customer_email = email.trim();
+    }
+
+    const session = await stripe.checkout.sessions.create(configuracionSesion);
+
+    return res.status(200).json({ status: 'ok', url: session.url, id: session.id });
   } catch (error) {
     console.error('❌ Error creando sesión de Stripe:', error.message);
-    res.status(500).json({ status: 'error', message: error.message });
+    return res.status(500).json({ status: 'error', message: error.message });
   }
 };
 
@@ -110,12 +123,10 @@ exports.handleStripeWebhook = async (req, res) => {
 
   console.log(`🔔 Evento recibido de Stripe: ${event.type}`);
 
-  // Procesar cuando la sesión se completa
   if (event.type === 'checkout.session.completed' || event.type === 'payment_intent.succeeded') {
     let session = event.data.object;
     let metadata = session.metadata || {};
 
-    // Si el evento fue de payment_intent o vino sin metadata, intentar consultar la sesión original
     if ((!metadata.nombreAlumno && !metadata.alumnoId) && session.id && session.id.startsWith('cs_')) {
       try {
         const fullSession = await stripe.checkout.sessions.retrieve(session.id);
@@ -131,7 +142,6 @@ exports.handleStripeWebhook = async (req, res) => {
       ? session.amount_total / 100 
       : (session.amount ? session.amount / 100 : 0);
     
-    // Obtener correo del pagador
     const customerEmail = (
       metadata.email || 
       session.customer_email || 
@@ -139,13 +149,11 @@ exports.handleStripeWebhook = async (req, res) => {
       ''
     ).trim().toLowerCase();
 
-    // Obtener identificadores
     let nombreAlumno = (metadata.nombreAlumno || metadata.alumno || '').trim();
     let cuentaId = metadata.cuentaId || metadata.cuenta_id || '';
     let clienteId = metadata.clienteId || metadata.alumnoId || '';
     const concepto = metadata.concepto || 'Abono en Línea (Stripe)';
 
-    // Búsqueda en memoria por correo si no hay nombre
     if (!nombreAlumno && global.datosCompartidos && Array.isArray(global.datosCompartidos.alumnos)) {
       const alumnoPorCorreo = global.datosCompartidos.alumnos.find(a => 
         (a.correo || a.email || '').trim().toLowerCase() === customerEmail
@@ -156,16 +164,15 @@ exports.handleStripeWebhook = async (req, res) => {
       }
     }
 
-    // Fallbacks si aún no hay nombre
     if (!nombreAlumno) {
       nombreAlumno = (session.customer_details && session.customer_details.name) 
         ? session.customer_details.name.trim() 
-        : 'aaron';
+        : 'Alumno';
     }
 
     console.log(`💳 Procesando pago de $${monto} para alumno: ${nombreAlumno} (Correo: ${customerEmail})`);
 
-    // 1. Sincronización en memoria compartida (Dashboard / Portal alumno)
+    // 1. Sincronización en memoria compartida
     if (global.datosCompartidos) {
       const nuevoFolioNum = (global.datosCompartidos.pagos || []).length + 1;
       const folioId = 'PAG-' + String(nuevoFolioNum).padStart(3, '0');
@@ -177,7 +184,7 @@ exports.handleStripeWebhook = async (req, res) => {
         
         const nombreS = (s.alumno || s.nombre || s.nombreAlumno || '').trim().toLowerCase();
         const nombreM = nombreAlumno.toLowerCase();
-        const nameMatch = nombreS && (nombreS === nombreM || nombreS.includes(nombreM) || nombreM.includes(nombreS) || nombreS.includes('aaron'));
+        const nameMatch = nombreS && (nombreS === nombreM || nombreS.includes(nombreM) || nombreM.includes(nombreS));
 
         const emailS = (s.correo || s.email || '').trim().toLowerCase();
         const emailMatch = customerEmail && emailS && emailS === customerEmail;
@@ -185,7 +192,6 @@ exports.handleStripeWebhook = async (req, res) => {
         return idMatch || alumnoIdMatch || nameMatch || emailMatch;
       });
 
-      // Si no se encuentra específicamente y solo hay uno en la lista, vincularlo
       if (!saldoEncontrado && saldos.length === 1) {
         saldoEncontrado = saldos[0];
       }
@@ -229,7 +235,7 @@ exports.handleStripeWebhook = async (req, res) => {
           saldoEncontrado['pago10'] = saldoEncontrado.pagos[9];
         }
 
-        const montoTotal = Number(saldoEncontrado.montoTotal || saldoEncontrado.total || 11300);
+        const montoTotal = Number(saldoEncontrado.montoTotal || saldoEncontrado.total || saldoEncontrado.monto || 0);
         const totalAbonado = saldoEncontrado.pagos.reduce((acc, curr) => acc + (Number(curr) || 0), 0);
 
         saldoEncontrado.totalPagado = totalAbonado;
@@ -254,9 +260,7 @@ exports.handleStripeWebhook = async (req, res) => {
 
       const condiciones = [
         { alumno: new RegExp(nombreAlumno, 'i') },
-        { nombre: new RegExp(nombreAlumno, 'i') },
-        { alumno: /aaron/i },
-        { nombre: /aaron/i }
+        { nombre: new RegExp(nombreAlumno, 'i') }
       ];
 
       if (customerEmail) {
