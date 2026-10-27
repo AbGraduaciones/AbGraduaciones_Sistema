@@ -18,7 +18,7 @@ exports.crearPago = async (req, res) => {
 
       await Cuenta.findOneAndUpdate(
         { $or: condiciones },
-        { $inc: { saldo: -monto, saldoPendiente: -monto } }
+        { $inc: { saldo: -Number(monto), saldoPendiente: -Number(monto) } }
       );
     }
 
@@ -35,7 +35,7 @@ exports.crearPago = async (req, res) => {
   }
 };
 
-// Webhook de Stripe blindado contra caídas de base de datos
+// Webhook de Stripe
 exports.handleStripeWebhook = async (req, res) => {
   const sig = req.headers['stripe-signature'];
   const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
@@ -59,14 +59,14 @@ exports.handleStripeWebhook = async (req, res) => {
     const session = event.data.object;
     const metadata = session.metadata || {};
     const monto = session.amount_total ? session.amount_total / 100 : 0;
-    const nombreAlumno = metadata.nombreAlumno || (session.customer_details && session.customer_details.name) || 'Alumno';
+    const nombreAlumno = (metadata.nombreAlumno || (session.customer_details && session.customer_details.name) || 'Alumno').trim();
     const cuentaId = metadata.cuentaId || metadata.cuenta_id || `CTA-${nombreAlumno}`;
     const clienteId = metadata.clienteId || metadata.alumnoId || 'ALU-001';
     const concepto = metadata.concepto || 'Abono en Línea (Stripe)';
 
     console.log(`💳 Procesando pago de $${monto} para: ${nombreAlumno} (Cuenta: ${cuentaId})`);
 
-    // 1. Sincronización en memoria compartida
+    // 1. Sincronización en memoria compartida (Frontend local / demo)
     if (global.datosCompartidos) {
       const nuevoFolioNum = (global.datosCompartidos.pagos || []).length + 1;
       const folioId = 'PAG-' + String(nuevoFolioNum).padStart(3, '0');
@@ -81,21 +81,28 @@ exports.handleStripeWebhook = async (req, res) => {
         estado: 'Completado'
       };
 
+      if (!Array.isArray(global.datosCompartidos.pagos)) {
+        global.datosCompartidos.pagos = [];
+      }
       global.datosCompartidos.pagos.unshift(pagoFrontend);
 
-      const saldoEncontrado = global.datosCompartidos.saldos.find(s =>
-        (s.id && s.id === cuentaId) ||
-        (s._id && s._id === cuentaId) ||
-        (s.alumno && s.alumno.toLowerCase() === nombreAlumno.toLowerCase())
-      );
+      // Búsqueda flexible de la cuenta en memoria
+      const saldoEncontrado = (global.datosCompartidos.saldos || []).find(s => {
+        const idMatch = (s.id && s.id === cuentaId) || (s._id && String(s._id) === String(cuentaId));
+        const nombreS = (s.alumno || s.nombre || s.nombreAlumno || '').trim().toLowerCase();
+        const nombreM = nombreAlumno.toLowerCase();
+        return idMatch || (nombreS && (nombreS === nombreM || nombreS.includes(nombreM) || nombreM.includes(nombreS)));
+      });
 
       if (saldoEncontrado) {
         if (!Array.isArray(saldoEncontrado.pagos)) {
           saldoEncontrado.pagos = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
         }
+
+        // Asignar en la primera casilla vacía de Pago 1 a Pago 10
         let asignado = false;
         for (let i = 0; i < 10; i++) {
-          if (!saldoEncontrado.pagos[i] || saldoEncontrado.pagos[i] === 0) {
+          if (!saldoEncontrado.pagos[i] || Number(saldoEncontrado.pagos[i]) === 0) {
             saldoEncontrado.pagos[i] = monto;
             asignado = true;
             break;
@@ -105,53 +112,66 @@ exports.handleStripeWebhook = async (req, res) => {
           saldoEncontrado.pagos[9] = (parseFloat(saldoEncontrado.pagos[9]) || 0) + monto;
         }
 
-        // Restar saldo en la memoria compartida
-        if (saldoEncontrado.saldoPendiente !== undefined) {
-          saldoEncontrado.saldoPendiente = Math.max(0, Number(saldoEncontrado.saldoPendiente) - monto);
-        } else if (saldoEncontrado.saldo !== undefined) {
-          saldoEncontrado.saldo = Math.max(0, Number(saldoEncontrado.saldo) - monto);
+        // Descontar saldo y recalcular
+        const montoTotal = Number(saldoEncontrado.montoTotal || saldoEncontrado.total || 0);
+        const totalAbonado = saldoEncontrado.pagos.reduce((acc, curr) => acc + (Number(curr) || 0), 0);
+
+        if (montoTotal > 0) {
+          saldoEncontrado.saldoPendiente = Math.max(0, montoTotal - totalAbonado);
+          saldoEncontrado.saldo = saldoEncontrado.saldoPendiente;
+        } else {
+          if (saldoEncontrado.saldoPendiente !== undefined) {
+            saldoEncontrado.saldoPendiente = Math.max(0, Number(saldoEncontrado.saldoPendiente) - monto);
+          }
+          if (saldoEncontrado.saldo !== undefined) {
+            saldoEncontrado.saldo = Math.max(0, Number(saldoEncontrado.saldo) - monto);
+          }
         }
 
-        if (saldoEncontrado.totalPagado !== undefined) {
-          saldoEncontrado.totalPagado = Number(saldoEncontrado.totalPagado) + monto;
-        }
-
-        console.log(`✅ Abono reflejado en memoria para: ${saldoEncontrado.alumno}`);
+        saldoEncontrado.totalPagado = totalAbonado;
+        console.log(`✅ Abono reflejado en memoria para: ${saldoEncontrado.alumno || nombreAlumno}. Saldo restante: ${saldoEncontrado.saldoPendiente}`);
+      } else {
+        console.warn(`⚠️ No se encontró la cuenta en memoria para: ${nombreAlumno} (Cuenta: ${cuentaId})`);
       }
     }
 
-    // 2. Guardar en MongoDB solo si la conexión está lista
-    if (mongoose.connection.readyState === 1) {
-      try {
-        const nuevoPagoBD = new Pago({
-          cuenta: cuentaId,
-          cliente: clienteId,
-          monto: monto,
-          metodoPago: 'stripe',
-          notas: `Stripe Session: ${session.id}`
-        });
-        await nuevoPagoBD.save();
+    // 2. Persistencia en MongoDB (Se ejecuta siempre, confiando en el buffer o conexión activa)
+    try {
+      const nuevoPagoBD = new Pago({
+        cuenta: cuentaId,
+        cliente: clienteId,
+        monto: monto,
+        metodoPago: 'stripe',
+        notas: `Stripe Session: ${session.id}`
+      });
+      await nuevoPagoBD.save();
 
-        // Filtro seguro evitando error de casteo de ObjectId
-        const condiciones = [
-          { id: cuentaId },
-          { alumno: new RegExp(`^${nombreAlumno}$`, 'i') }
-        ];
+      const condiciones = [
+        { id: cuentaId },
+        { alumno: new RegExp(`^${nombreAlumno}$`, 'i') },
+        { nombre: new RegExp(`^${nombreAlumno}$`, 'i') }
+      ];
 
-        if (mongoose.Types.ObjectId.isValid(cuentaId)) {
-          condiciones.unshift({ _id: cuentaId });
-        }
-
-        await Cuenta.findOneAndUpdate(
-          { $or: condiciones },
-          { $inc: { saldo: -monto, saldoPendiente: -monto } }
-        );
-        console.log(`✅ Pago de $${monto} guardado exitosamente en MongoDB.`);
-      } catch (dbError) {
-        console.error('⚠️ Aviso en base de datos (pago retenido en memoria):', dbError.message);
+      if (mongoose.Types.ObjectId.isValid(cuentaId)) {
+        condiciones.unshift({ _id: cuentaId });
       }
-    } else {
-      console.warn('⚠️ MongoDB no estaba listo al recibir el webhook; el pago quedó asegurado en memoria.');
+
+      const cuentaActualizada = await Cuenta.findOneAndUpdate(
+        { $or: condiciones },
+        { 
+          $inc: { saldo: -Number(monto), saldoPendiente: -Number(monto), totalPagado: Number(monto) },
+          $push: { pagosHistorial: nuevoPagoBD._id }
+        },
+        { new: true }
+      );
+
+      if (cuentaActualizada) {
+        console.log(`✅ Pago de $${monto} aplicado en MongoDB para la cuenta: ${cuentaActualizada._id}`);
+      } else {
+        console.warn(`⚠️ No se encontró documento en Cuenta de MongoDB que coincida con cuentaId: ${cuentaId} o alumno: ${nombreAlumno}`);
+      }
+    } catch (dbError) {
+      console.error('❌ Error guardando en base de datos:', dbError.message);
     }
   }
 
