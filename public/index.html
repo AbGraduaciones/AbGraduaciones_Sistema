@@ -509,7 +509,7 @@
         { modelo: "Olimpia", precio: 13800 },
         { modelo: "Espejo Vino", precio: 13800 },
         { modelo: "Pirámide V", precio: 13800 },
-        { modelo: "Eslovenia", precio: 13800 },
+        { modelo: "Eslovenia", precio: 12700 },
         { modelo: "Negativo", precio: 13800 },
         { modelo: "California", precio: 13800 },
         { modelo: "Robótico Vino", precio: 13800 },
@@ -1390,20 +1390,25 @@
       };
 
       try {
-        // Intenta la ruta estándar o la ruta anidada de pagos
         let respuesta = await fetch('/api/pagos/crear-checkout-session', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payloadCheckout)
         });
 
-        // Si la ruta anterior devuelve 404, usar la ruta alternativa definida en backend
+        // Si la ruta /api/pagos/crear-checkout-session no existe (404), intentar con /api/crear-checkout
         if (respuesta.status === 404) {
           respuesta = await fetch('/api/crear-checkout', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payloadCheckout)
           });
+        }
+
+        const tipoContenido = respuesta.headers.get('content-type') || '';
+        if (!tipoContenido.includes('application/json')) {
+          const textoRespuesta = await respuesta.text();
+          throw new Error(`El servidor devolvió una respuesta no válida (${respuesta.status}).`);
         }
 
         const data = await respuesta.json();
@@ -1420,8 +1425,8 @@
           }
         }
       } catch (error) {
-        console.error('Error de conexión con el servidor:', error);
-        alert('No se pudo conectar con el servidor para procesar el pago.');
+        console.error('Error de conexión:', error);
+        alert(`No se pudo procesar el pago: ${error.message || 'Error de conexión'}`);
         if (btnPagar) {
           btnPagar.disabled = false;
           btnPagar.innerText = '🔒 Pagar Ahora con Seguridad (Stripe)';
