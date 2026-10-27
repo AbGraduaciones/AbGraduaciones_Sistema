@@ -152,51 +152,12 @@ app.post('/api/datos', (req, res) => {
   res.json({ ok: true, mensaje: 'Datos sincronizados correctamente' });
 });
 
-// 6. Checkout Stripe
-app.post('/api/crear-checkout', async (req, res) => {
-  try {
-    const { nombreAlumno, concepto, monto } = req.body;
-    const cuentaId = req.body.cuentaId || req.body.cuenta_id || `CTA-${nombreAlumno || 'GENERAL'}`;
-    const clienteId = req.body.clienteId || req.body.cliente_id || req.body.alumnoId || 'ALU-001';
-
-    const montoNumerico = parseFloat(monto);
-    if (!montoNumerico || isNaN(montoNumerico) || montoNumerico <= 0) {
-      return res.status(400).json({ error: 'El monto especificado no es válido.' });
-    }
-
-    const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
-
-    const session = await stripe.checkout.sessions.create({
-      line_items: [
-        {
-          price_data: {
-            currency: 'mxn',
-            product_data: {
-              name: 'Graduaciones - ' + (concepto || 'Pago'),
-              description: 'Abono de ' + (nombreAlumno || 'Alumno'),
-            },
-            unit_amount: Math.round(montoNumerico * 100),
-          },
-          quantity: 1,
-        },
-      ],
-      mode: 'payment',
-      metadata: {
-        cuentaId: String(cuentaId),
-        clienteId: String(clienteId),
-        alumnoId: String(clienteId),
-        nombreAlumno: String(nombreAlumno || ''),
-        concepto: String(concepto || 'Abono en Línea')
-      },
-      success_url: `${baseUrl}/?pago=exito`,
-      cancel_url: `${baseUrl}/?pago=cancelado`,
-    });
-
-    res.json({ id: session.id, url: session.url });
-  } catch (error) {
-    console.error('❌ Error al crear checkout en Stripe:', error.message);
-    res.status(500).json({ error: error.message });
+// 6. Endpoint directo compatible para crear checkout delegando al controlador
+app.post('/api/crear-checkout', (req, res) => {
+  if (pagoController && typeof pagoController.crearCheckoutSession === 'function') {
+    return pagoController.crearCheckoutSession(req, res);
   }
+  return res.status(500).json({ error: 'Controlador de pagos no disponible' });
 });
 
 // 7. Envío de correos por Gmail
@@ -241,7 +202,9 @@ app.post('/api/enviar-codigo-seguridad', async (req, res) => {
 // 8. Rutas API
 try {
   app.use('/api/pagos', require('./routes/pagoRoutes'));
-} catch (e) {}
+} catch (e) {
+  console.warn('Ruta ./routes/pagoRoutes no encontrada o error al cargar:', e.message);
+}
 try {
   app.use('/api/cuentas', require('./routes/cuentas'));
 } catch (e) {}
@@ -249,8 +212,13 @@ try {
   app.use('/api/clientes', require('./routes/clientes'));
 } catch (e) {}
 
-// 9. Servir frontend compatible con Express 5 (SIN asteriscos en la ruta)
-app.use((req, res) => {
+// Manejador 404 para cualquier ruta de API no existente (para que NUNCA devuelva HTML)
+app.all('/api/*', (req, res) => {
+  res.status(404).json({ error: 'Ruta API no encontrada' });
+});
+
+// 9. Servir frontend solo para peticiones GET que no sean de API
+app.get('*', (req, res) => {
   const indexHtml = path.join(__dirname, 'public', 'index.html');
   res.sendFile(indexHtml, (err) => {
     if (err) res.status(200).send('Sistema Ab Graduaciones en línea');
