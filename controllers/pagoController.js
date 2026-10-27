@@ -11,9 +11,14 @@ exports.crearPago = async (req, res) => {
     await nuevoPago.save();
 
     if (cuenta) {
+      const condiciones = [{ id: cuenta }];
+      if (mongoose.Types.ObjectId.isValid(cuenta)) {
+        condiciones.unshift({ _id: cuenta });
+      }
+
       await Cuenta.findOneAndUpdate(
-        { $or: [{ _id: cuenta }, { id: cuenta }] },
-        { $inc: { saldo: -monto } }
+        { $or: condiciones },
+        { $inc: { saldo: -monto, saldoPendiente: -monto } }
       );
     }
 
@@ -99,6 +104,18 @@ exports.handleStripeWebhook = async (req, res) => {
         if (!asignado) {
           saldoEncontrado.pagos[9] = (parseFloat(saldoEncontrado.pagos[9]) || 0) + monto;
         }
+
+        // Restar saldo en la memoria compartida
+        if (saldoEncontrado.saldoPendiente !== undefined) {
+          saldoEncontrado.saldoPendiente = Math.max(0, Number(saldoEncontrado.saldoPendiente) - monto);
+        } else if (saldoEncontrado.saldo !== undefined) {
+          saldoEncontrado.saldo = Math.max(0, Number(saldoEncontrado.saldo) - monto);
+        }
+
+        if (saldoEncontrado.totalPagado !== undefined) {
+          saldoEncontrado.totalPagado = Number(saldoEncontrado.totalPagado) + monto;
+        }
+
         console.log(`✅ Abono reflejado en memoria para: ${saldoEncontrado.alumno}`);
       }
     }
@@ -115,9 +132,19 @@ exports.handleStripeWebhook = async (req, res) => {
         });
         await nuevoPagoBD.save();
 
+        // Filtro seguro evitando error de casteo de ObjectId
+        const condiciones = [
+          { id: cuentaId },
+          { alumno: new RegExp(`^${nombreAlumno}$`, 'i') }
+        ];
+
+        if (mongoose.Types.ObjectId.isValid(cuentaId)) {
+          condiciones.unshift({ _id: cuentaId });
+        }
+
         await Cuenta.findOneAndUpdate(
-          { $or: [{ _id: cuentaId }, { id: cuentaId }] },
-          { $inc: { saldo: -monto } }
+          { $or: condiciones },
+          { $inc: { saldo: -monto, saldoPendiente: -monto } }
         );
         console.log(`✅ Pago de $${monto} guardado exitosamente en MongoDB.`);
       } catch (dbError) {
@@ -171,9 +198,14 @@ exports.eliminarPago = async (req, res) => {
     const pagoAEliminar = await Pago.findById(id);
     if (!pagoAEliminar) return res.status(404).json({ status: 'error', message: 'No se encontró el pago' });
 
+    const condiciones = [{ id: pagoAEliminar.cuenta }];
+    if (mongoose.Types.ObjectId.isValid(pagoAEliminar.cuenta)) {
+      condiciones.unshift({ _id: pagoAEliminar.cuenta });
+    }
+
     await Cuenta.findOneAndUpdate(
-      { $or: [{ _id: pagoAEliminar.cuenta }, { id: pagoAEliminar.cuenta }] },
-      { $inc: { saldo: pagoAEliminar.monto } }
+      { $or: condiciones },
+      { $inc: { saldo: pagoAEliminar.monto, saldoPendiente: pagoAEliminar.monto } }
     );
     await Pago.findByIdAndDelete(id);
 
