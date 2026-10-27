@@ -609,7 +609,6 @@
     let saldos = JSON.parse(localStorage.getItem('app_saldos_10p')) || [];
     let pagos = JSON.parse(localStorage.getItem('app_pagos_historial')) || [];
 
-    // Garantizar que cada saldo tenga su propio identificador único 'id' o '_id'
     function asegurarIdsEnSaldos() {
       let cambio = false;
       saldos.forEach((s, idx) => {
@@ -632,17 +631,16 @@
       cargarContenido('saldos');
 
       const urlParams = new URLSearchParams(window.location.search);
-      const estadoPago = urlParams.get('pago');
+      const estadoPago = urlParams.get('pago') || urlParams.get('session_id');
 
-      if (estadoPago === 'exito') {
-        // Consultar inmediatamente al servidor para reflejar el pago recibido en Stripe
+      if (urlParams.get('pago') === 'exito' || urlParams.get('session_id')) {
         setTimeout(async () => {
           await sincronizarDesdeServidor();
           cargarContenido(vistaActual);
-          alert('🎉 ¡Pago procesado con éxito en Stripe! La transacción ha sido registrada.');
-        }, 600);
+          alert('🎉 ¡Pago procesado con éxito en Stripe! La transacción y tu abono han sido registrados.');
+        }, 1200);
         window.history.replaceState({}, document.title, window.location.pathname);
-      } else if (estadoPago === 'cancelado') {
+      } else if (urlParams.get('pago') === 'cancelado') {
         alert('❌ El proceso de pago fue cancelado o interrumpido.');
         window.history.replaceState({}, document.title, window.location.pathname);
       }
@@ -1342,7 +1340,7 @@
       pagoPendientePasarela = null;
     }
 
-    // PROCESAR PAGO STRIPE VINCULANDO CUENTA ID Y CLIENTE ID
+    // PROCESAR PAGO STRIPE VINCULANDO CUENTA ID, CLIENTE ID Y EMAIL
     async function procesarPagoAlumnoSimulado() {
       if (!pagoPendientePasarela || !alumnoSesionActual) return;
 
@@ -1362,7 +1360,6 @@
         return;
       }
 
-      // Obtener o generar identificador único de la cuenta
       let ctaId = '';
       if (saldoObj) {
         if (!saldoObj.id && !saldoObj._id) {
@@ -1380,23 +1377,34 @@
         btnPagar.innerText = '⌛ Conectando con Stripe...';
       }
 
+      const payloadCheckout = {
+        cuentaId: String(ctaId),
+        clienteId: String(alumnoSesionActual.id || ''),
+        alumnoId: String(alumnoSesionActual.id || ''),
+        nombreAlumno: alumnoSesionActual.nombre,
+        email: alumnoSesionActual.email || '',
+        concepto: typeof pagoPendientePasarela.conceptoTag === 'number' 
+          ? `Pago ${pagoPendientePasarela.conceptoTag}` 
+          : pagoPendientePasarela.conceptoTag,
+        monto: montoAbonar
+      };
+
       try {
-        const respuesta = await fetch('/api/crear-checkout', {
+        // Intenta la ruta estándar o la ruta anidada de pagos
+        let respuesta = await fetch('/api/pagos/crear-checkout-session', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            cuentaId: String(ctaId),
-            clienteId: String(alumnoSesionActual.id || ''),
-            alumnoId: String(alumnoSesionActual.id || ''),
-            nombreAlumno: alumnoSesionActual.nombre,
-            concepto: typeof pagoPendientePasarela.conceptoTag === 'number' 
-              ? `Pago ${pagoPendientePasarela.conceptoTag}` 
-              : pagoPendientePasarela.conceptoTag,
-            monto: montoAbonar
-          })
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payloadCheckout)
         });
+
+        // Si la ruta anterior devuelve 404, usar la ruta alternativa definida en backend
+        if (respuesta.status === 404) {
+          respuesta = await fetch('/api/crear-checkout', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payloadCheckout)
+          });
+        }
 
         const data = await respuesta.json();
 
@@ -1405,7 +1413,7 @@
           window.location.href = data.url;
         } else {
           console.error('Error del servidor:', data);
-          alert(`Error al generar la pasarela de pago: ${data.error || 'Respuesta inesperada del servidor'}`);
+          alert(`Error al generar la pasarela de pago: ${data.message || data.error || 'Respuesta inesperada del servidor'}`);
           if (btnPagar) {
             btnPagar.disabled = false;
             btnPagar.innerText = '🔒 Pagar Ahora con Seguridad (Stripe)';
@@ -1490,6 +1498,7 @@
     async function toggleEntregaItem(nombreMat, checked) {
       if (indiceSaldoEntregaActual === null) return;
       const saldoObj = saldos[indiceSaldoEntregaActual];
+      if (!saldoObj) return;
       if (!saldoObj.entregas) saldoObj.entregas = {};
 
       saldoObj.entregas[nombreMat] = checked;
