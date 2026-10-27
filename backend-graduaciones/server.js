@@ -15,12 +15,12 @@ global.datosCompartidos = {
   pagos: []
 };
 
-// 1. Conexión robusta a MongoDB Atlas
+// 1. Conexión a MongoDB Atlas
 const mongoUri = process.env.MONGODB_URI || process.env.MONGOOSE_URI;
 
 if (mongoUri) {
   mongoose.connect(mongoUri, {
-    serverSelectionTimeoutMS: 5000, // No esperar más de 5 segundos si falla la red
+    serverSelectionTimeoutMS: 5000
   })
   .then(() => console.log('✅ Conectado exitosamente a MongoDB Atlas'))
   .catch((err) => console.error('❌ Error de conexión a MongoDB:', err.message));
@@ -28,21 +28,19 @@ if (mongoUri) {
   console.warn('⚠️ No se encontró MONGODB_URI en las variables de entorno.');
 }
 
-// 2. Carga tolerante del controlador de pagos (Compatible con Linux / Render)
+// 2. Carga del controlador de pagos (tolerante a mayúsculas/minúsculas)
 let pagoController = null;
 const rutasPosibles = [
   './controllers/pagoController',
   './controllers/PagoController',
   '../controllers/pagoController',
-  '../controllers/PagoController',
-  './controllers/pagoController.js',
-  './controllers/PagoController.js'
+  '../controllers/PagoController'
 ];
 
 for (const ruta of rutasPosibles) {
   try {
     pagoController = require(ruta);
-    console.log(`✅ Controlador de pago cargado exitosamente desde: ${ruta}`);
+    console.log(`✅ Controlador de pago cargado desde: ${ruta}`);
     break;
   } catch (err) {
     if (err.code !== 'MODULE_NOT_FOUND') {
@@ -53,7 +51,7 @@ for (const ruta of rutasPosibles) {
 
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
-// 3. Webhook de Stripe: CRÍTICO que esté antes de express.json()
+// 3. Webhook de Stripe: DEBE ir antes de express.json()
 app.post(
   '/webhook',
   express.raw({ type: 'application/json' }),
@@ -154,7 +152,7 @@ app.post('/api/datos', (req, res) => {
   res.json({ ok: true, mensaje: 'Datos sincronizados correctamente' });
 });
 
-// 6. Crear Checkout de Stripe
+// 6. Checkout Stripe
 app.post('/api/crear-checkout', async (req, res) => {
   try {
     const { nombreAlumno, concepto, monto } = req.body;
@@ -240,16 +238,22 @@ app.post('/api/enviar-codigo-seguridad', async (req, res) => {
   }
 });
 
-// Rutas API opcionales
+// 8. Rutas API
 try {
   app.use('/api/pagos', require('./routes/pagoRoutes'));
 } catch (e) {}
+try {
+  app.use('/api/cuentas', require('./routes/cuentas'));
+} catch (e) {}
+try {
+  app.use('/api/clientes', require('./routes/clientes'));
+} catch (e) {}
 
-// Ruta comodín para frontend
-app.get('*', (req, res) => {
+// 9. Servir frontend compatible con Express 5 (SIN asteriscos en la ruta)
+app.use((req, res) => {
   const indexHtml = path.join(__dirname, 'public', 'index.html');
   res.sendFile(indexHtml, (err) => {
-    if (err) res.send('Sistema Ab Graduaciones en línea');
+    if (err) res.status(200).send('Sistema Ab Graduaciones en línea');
   });
 });
 
