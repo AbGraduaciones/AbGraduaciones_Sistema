@@ -8,13 +8,6 @@ const nodemailer = require('nodemailer');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Conexión a MongoDB
-if (process.env.MONGODB_URI) {
-  mongoose.connect(process.env.MONGODB_URI)
-    .then(() => console.log('✅ Conectado a la base de datos MongoDB'))
-    .catch((err) => console.error('❌ Error al conectar a MongoDB:', err.message));
-}
-
 // Memoria compartida accesible globalmente
 global.datosCompartidos = {
   alumnos: [],
@@ -22,13 +15,25 @@ global.datosCompartidos = {
   pagos: []
 };
 
-// Carga tolerante del controlador de pagos
-let pagoController;
+// 1. Conexión a MongoDB Atlas
+const mongoUri = process.env.MONGODB_URI || process.env.MONGOOSE_URI;
+if (mongoUri) {
+  mongoose.connect(mongoUri, {
+    serverSelectionTimeoutMS: 5000
+  })
+  .then(() => console.log('✅ Conectado exitosamente a MongoDB Atlas'))
+  .catch((err) => console.error('❌ Error de conexión a MongoDB:', err.message));
+} else {
+  console.warn('⚠️ No se encontró MONGODB_URI en las variables de entorno.');
+}
+
+// 2. Carga del controlador de pagos
+let pagoController = null;
 const rutasPosibles = [
-  './controllers/PagoController',
   './controllers/pagoController',
-  '../controllers/PagoController',
-  '../controllers/pagoController'
+  './controllers/PagoController',
+  '../controllers/pagoController',
+  '../controllers/PagoController'
 ];
 
 for (const ruta of rutasPosibles) {
@@ -43,9 +48,7 @@ for (const ruta of rutasPosibles) {
   }
 }
 
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-
-// Webhook de Stripe: DEBE ir antes de express.json()
+// 3. Webhook de Stripe (Debe ir antes de express.json)
 app.post(
   '/webhook',
   express.raw({ type: 'application/json' }),
@@ -53,19 +56,20 @@ app.post(
     if (pagoController && typeof pagoController.handleStripeWebhook === 'function') {
       return await pagoController.handleStripeWebhook(req, res);
     }
-    res.status(200).json({ received: true });
+    return res.status(200).json({ received: true });
   }
 );
 
-// Middlewares estándar
+// 4. Middlewares de Express
 app.use(cors());
 app.use(express.json());
 
-// Servir frontend
+// Servir archivos estáticos del frontend
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.static(path.join(__dirname, '../public')));
+app.use(express.static(__dirname));
 
-// Rutas de sincronización para el frontend
+// 5. Rutas de sincronización para el Frontend
 app.get('/api/datos', (req, res) => {
   res.json(global.datosCompartidos);
 });
@@ -78,54 +82,18 @@ app.post('/api/datos', (req, res) => {
   res.json({ ok: true, mensaje: 'Datos sincronizados correctamente' });
 });
 
-// Crear sesión de Checkout Stripe
-app.post('/api/crear-checkout', async (req, res) => {
-  try {
-    const { nombreAlumno, concepto, monto } = req.body;
-    const cuentaId = req.body.cuentaId || req.body.cuenta_id || `CTA-${nombreAlumno || 'GENERAL'}`;
-    const clienteId = req.body.clienteId || req.body.cliente_id || req.body.alumnoId || 'ALU-001';
-
-    const montoNumerico = parseFloat(monto);
-    if (!montoNumerico || isNaN(montoNumerico) || montoNumerico <= 0) {
-      return res.status(400).json({ error: 'El monto especificado no es válido.' });
-    }
-
-    const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
-
-    const session = await stripe.checkout.sessions.create({
-      line_items: [
-        {
-          price_data: {
-            currency: 'mxn',
-            product_data: {
-              name: 'Graduaciones - ' + (concepto || 'Pago'),
-              description: 'Abono de ' + (nombreAlumno || 'Alumno'),
-            },
-            unit_amount: Math.round(montoNumerico * 100),
-          },
-          quantity: 1,
-        },
-      ],
-      mode: 'payment',
-      metadata: {
-        cuentaId: String(cuentaId),
-        clienteId: String(clienteId),
-        alumnoId: String(clienteId),
-        nombreAlumno: String(nombreAlumno || ''),
-        concepto: String(concepto || 'Abono en Línea')
-      },
-      success_url: `${baseUrl}/?pago=exito`,
-      cancel_url: `${baseUrl}/?pago=cancelado`,
-    });
-
-    res.json({ id: session.id, url: session.url });
-  } catch (error) {
-    console.error('❌ Error al crear checkout en Stripe:', error.message);
-    res.status(500).json({ error: error.message });
+// 6. Endpoint de checkout directo (soporta ambas rutas: /api/crear-checkout y /api/pagos/crear-checkout-session)
+const ejecutarCheckoutStripe = (req, res) => {
+  if (pagoController && typeof pagoController.crearCheckoutSession === 'function') {
+    return pagoController.crearCheckoutSession(req, res);
   }
-});
+  return res.status(500).json({ status: 'error', message: 'Controlador de pagos no disponible en el servidor' });
+};
 
-// Configuración de envío de correo
+app.post('/api/crear-checkout', ejecutarCheckoutStripe);
+app.post('/api/pagos/crear-checkout-session', ejecutarCheckoutStripe);
+
+// 7. Envío de correos por Gmail
 const transporter = nodemailer.createTransport({
   host: 'smtp.gmail.com',
   port: 465,
@@ -164,16 +132,33 @@ app.post('/api/enviar-codigo-seguridad', async (req, res) => {
   }
 });
 
-// Rutas API opcionales
+// 8. Rutas modulares API
 try {
   app.use('/api/pagos', require('./routes/pagoRoutes'));
 } catch (e) {}
+try {
+  app.use('/api/cuentas', require('./routes/cuentas'));
+} catch (e) {}
+try {
+  app.use('/api/clientes', require('./routes/clientes'));
+} catch (e) {}
 
-// Ruta raíz
+// Manejador estricto para que NINGUNA ruta de /api devuelva HTML si falla
+app.all('/api/*', (req, res) => {
+  res.status(404).json({ status: 'error', message: 'Ruta API no encontrada' });
+});
+
+// 9. Servir frontend (únicamente peticiones GET de navegación)
 app.get('*', (req, res) => {
-  const indexHtml = path.join(__dirname, 'public', 'index.html');
-  res.sendFile(indexHtml, (err) => {
-    if (err) res.send('Sistema Ab Graduaciones en línea');
+  const rutaPublicIndex = path.join(__dirname, 'public', 'index.html');
+  const rutaLocalIndex = path.join(__dirname, 'index.html');
+
+  res.sendFile(rutaPublicIndex, (err) => {
+    if (err) {
+      res.sendFile(rutaLocalIndex, (err2) => {
+        if (err2) res.status(200).send('Sistema Ab Graduaciones en línea');
+      });
+    }
   });
 });
 

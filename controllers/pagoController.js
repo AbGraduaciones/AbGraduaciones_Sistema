@@ -3,7 +3,7 @@ const Pago = require('../models/Pago');
 const Cuenta = require('../models/Cuenta');
 const mongoose = require('mongoose');
 
-// Crear sesión de Stripe Checkout (con metadatos en la sesión y en el cargo)
+// Crear sesión de Stripe Checkout
 exports.crearCheckoutSession = async (req, res) => {
   try {
     const { 
@@ -28,8 +28,7 @@ exports.crearCheckoutSession = async (req, res) => {
       email: String(email || '')
     };
 
-    const hostActual = req.get('host');
-    const protocolo = req.protocol;
+    const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
 
     const configuracionSesion = {
       payment_method_types: ['card'],
@@ -41,7 +40,7 @@ exports.crearCheckoutSession = async (req, res) => {
               name: String(concepto),
               description: `Abono de graduación - Alumno: ${nombreAlumno}`,
             },
-            unit_amount: Math.round(montoLimpio * 100), // Stripe recibe centavos
+            unit_amount: Math.round(montoLimpio * 100),
           },
           quantity: 1,
         },
@@ -52,12 +51,10 @@ exports.crearCheckoutSession = async (req, res) => {
         metadata: datosMeta,
         description: `Abono de graduación - ${nombreAlumno}`,
       },
-      // Redirige al index procesando los parámetros de éxito o cancelación
-      success_url: `${protocolo}://${hostActual}/index.html?pago=exito&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${protocolo}://${hostActual}/index.html?pago=cancelado`,
+      success_url: `${baseUrl}/?pago=exito&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${baseUrl}/?pago=cancelado`,
     };
 
-    // Solo agregar customer_email si viene un correo válido
     if (email && typeof email === 'string' && email.includes('@')) {
       configuracionSesion.customer_email = email.trim();
     }
@@ -109,7 +106,6 @@ exports.handleStripeWebhook = async (req, res) => {
   const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
   let event;
-
   try {
     if (endpointSecret && sig) {
       event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);
@@ -120,8 +116,6 @@ exports.handleStripeWebhook = async (req, res) => {
     console.error(`❌ Error en la firma del webhook: ${err.message}`);
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
-
-  console.log(`🔔 Evento recibido de Stripe: ${event.type}`);
 
   if (event.type === 'checkout.session.completed' || event.type === 'payment_intent.succeeded') {
     let session = event.data.object;
@@ -134,7 +128,7 @@ exports.handleStripeWebhook = async (req, res) => {
           metadata = fullSession.metadata;
         }
       } catch (e) {
-        console.warn('⚠️ No se pudo recuperar metadata adicional de Stripe:', e.message);
+        console.warn('⚠️ No se pudo recuperar metadata de Stripe:', e.message);
       }
     }
 
@@ -169,8 +163,6 @@ exports.handleStripeWebhook = async (req, res) => {
         ? session.customer_details.name.trim() 
         : 'Alumno';
     }
-
-    console.log(`💳 Procesando pago de $${monto} para alumno: ${nombreAlumno} (Correo: ${customerEmail})`);
 
     // 1. Sincronización en memoria compartida
     if (global.datosCompartidos) {
@@ -242,8 +234,6 @@ exports.handleStripeWebhook = async (req, res) => {
         saldoEncontrado.totalAbonado = totalAbonado;
         saldoEncontrado.saldoPendiente = Math.max(0, montoTotal - totalAbonado);
         saldoEncontrado.saldo = saldoEncontrado.saldoPendiente;
-
-        console.log(`✅ Saldo en memoria actualizado. Total abonado: $${totalAbonado}, Pendiente: $${saldoEncontrado.saldoPendiente}`);
       }
     }
 
@@ -274,7 +264,7 @@ exports.handleStripeWebhook = async (req, res) => {
         }
       }
 
-      const cuentaActualizada = await Cuenta.findOneAndUpdate(
+      await Cuenta.findOneAndUpdate(
         { $or: condiciones },
         { 
           $inc: { saldo: -Number(monto), saldoPendiente: -Number(monto), totalPagado: Number(monto) },
@@ -282,12 +272,6 @@ exports.handleStripeWebhook = async (req, res) => {
         },
         { new: true }
       );
-
-      if (cuentaActualizada) {
-        console.log(`✅ MongoDB actualizado con éxito: Cuenta ${cuentaActualizada._id}`);
-      } else {
-        console.warn(`⚠️ No se encontró registro en Cuenta en MongoDB que coincida con ${nombreAlumno}`);
-      }
     } catch (dbError) {
       console.error('❌ Error guardando en base de datos:', dbError.message);
     }
@@ -306,7 +290,7 @@ exports.obtenerPagos = async (req, res) => {
   }
 };
 
-// Obtener el historial de pagos por cuenta
+// Obtener historial por cuenta
 exports.obtenerPagosPorCuenta = async (req, res) => {
   try {
     const { cuentaId } = req.params;
@@ -317,7 +301,7 @@ exports.obtenerPagosPorCuenta = async (req, res) => {
   }
 };
 
-// Actualizar un pago existente
+// Actualizar un pago
 exports.actualizarPago = async (req, res) => {
   try {
     const { id } = req.params;
