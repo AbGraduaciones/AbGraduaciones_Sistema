@@ -79,20 +79,51 @@ exports.crearCheckoutSession = async (req, res) => {
 // Registrar un nuevo pago manual
 exports.crearPago = async (req, res) => {
   try {
-    const { cuenta, monto } = req.body;
+    const { cuenta, monto, alumno } = req.body;
+    const montoNum = limpiarNumero(monto);
+
     const nuevoPago = new Pago(req.body);
     await nuevoPago.save();
 
-    if (cuenta) {
-      const condiciones = [{ id: cuenta }];
-      if (mongoose.Types.ObjectId.isValid(cuenta)) {
-        condiciones.unshift({ _id: cuenta });
+    if (cuenta || alumno) {
+      const condiciones = [];
+      if (cuenta) {
+        condiciones.push({ id: cuenta });
+        if (mongoose.Types.ObjectId.isValid(cuenta)) condiciones.unshift({ _id: cuenta });
+      }
+      if (alumno) {
+        condiciones.push({ alumno: new RegExp(alumno, 'i') }, { nombre: new RegExp(alumno, 'i') });
       }
 
-      await Cuenta.findOneAndUpdate(
-        { $or: condiciones },
-        { $inc: { saldo: -Number(monto), saldoPendiente: -Number(monto) } }
-      );
+      const cuentaDoc = await Cuenta.findOne({ $or: condiciones });
+      if (cuentaDoc) {
+        // Asignar en la primera columna disponible (pago1 a pago10)
+        let asignado = false;
+        for (let i = 1; i <= 10; i++) {
+          if (!cuentaDoc[`pago${i}`] || limpiarNumero(cuentaDoc[`pago${i}`]) === 0) {
+            cuentaDoc[`pago${i}`] = montoNum;
+            asignado = true;
+            break;
+          }
+        }
+        if (!asignado) {
+          cuentaDoc.pago10 = limpiarNumero(cuentaDoc.pago10) + montoNum;
+        }
+
+        const montoTotal = limpiarNumero(cuentaDoc.montoTotal || cuentaDoc.total || 0);
+        let totalPagado = 0;
+        for (let i = 1; i <= 10; i++) {
+          totalPagado += limpiarNumero(cuentaDoc[`pago${i}`]);
+        }
+        cuentaDoc.totalPagado = totalPagado;
+        cuentaDoc.saldoPendiente = Math.max(0, montoTotal - totalPagado);
+        cuentaDoc.saldo = cuentaDoc.saldoPendiente;
+
+        if (Array.isArray(cuentaDoc.pagosHistorial)) {
+          cuentaDoc.pagosHistorial.push(nuevoPago._id);
+        }
+        await cuentaDoc.save();
+      }
     }
 
     res.status(201).json({
@@ -172,7 +203,7 @@ exports.handleStripeWebhook = async (req, res) => {
         : 'Alumno';
     }
 
-    // 1. Sincronización en memoria compartida (Frontend / Tablas de Saldos)
+    // 1. Sincronización en memoria compartida (si tu frontend lee datos en memoria)
     if (global.datosCompartidos) {
       const nuevoFolioNum = (global.datosCompartidos.pagos || []).length + 1;
       const folioId = 'PAG-' + String(nuevoFolioNum).padStart(3, '0');
@@ -220,7 +251,6 @@ exports.handleStripeWebhook = async (req, res) => {
           saldoEncontrado.pagos = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
         }
 
-        // Asignar en el siguiente espacio disponible (pago1 a pago10)
         let asignado = false;
         for (let i = 0; i < 10; i++) {
           const valorActual = limpiarNumero(saldoEncontrado.pagos[i] || saldoEncontrado[`pago${i + 1}`]);
@@ -237,7 +267,6 @@ exports.handleStripeWebhook = async (req, res) => {
           saldoEncontrado['pago10'] = acumulado;
         }
 
-        // Obtener el monto total asegurando formato numérico
         const montoTotalOriginal = limpiarNumero(
           saldoEncontrado.montoTotal || saldoEncontrado.total || saldoEncontrado.monto || saldoEncontrado.saldoPendiente || 0
         );
@@ -258,41 +287,69 @@ exports.handleStripeWebhook = async (req, res) => {
       }
     }
 
-    // 2. Persistencia en MongoDB
+    // 2. Persistencia en MongoDB Atlas
     try {
-      const nuevoPagoBD = new Pago({
-        cuenta: cuentaId || 'CTA-001',
-        cliente: clienteId || 'ALU-001',
-        monto: monto,
-        metodoPago: 'stripe',
-        notas: `Stripe Session: ${session.id} | Email: ${customerEmail}`
-      });
-      await nuevoPagoBD.save();
+      if (mongoose.connection.readyState === 1) {
+        const nuevoPagoBD = new Pago({
+          cuenta: cuentaId || 'CTA-001',
+          cliente: clienteId || 'ALU-001',
+          monto: monto,
+          montoAbonado: monto,
+          alumno: nombreAlumno,
+          concepto: concepto,
+          metodoPago: 'stripe',
+          estado: 'Completado',
+          notas: `Stripe Session: ${session.id} | Email: ${customerEmail}`
+        });
+        await nuevoPagoBD.save();
 
-      const condiciones = [
-        { alumno: new RegExp(nombreAlumno, 'i') },
-        { nombre: new RegExp(nombreAlumno, 'i') }
-      ];
+        const condiciones = [
+          { alumno: new RegExp(nombreAlumno, 'i') },
+          { nombre: new RegExp(nombreAlumno, 'i') }
+        ];
 
-      if (customerEmail) {
-        condiciones.push({ correo: customerEmail }, { email: customerEmail });
-      }
-
-      if (cuentaId) {
-        condiciones.unshift({ id: cuentaId });
-        if (mongoose.Types.ObjectId.isValid(cuentaId)) {
-          condiciones.unshift({ _id: cuentaId });
+        if (customerEmail) {
+          condiciones.push({ correo: customerEmail }, { email: customerEmail });
         }
-      }
 
-      await Cuenta.findOneAndUpdate(
-        { $or: condiciones },
-        { 
-          $inc: { saldo: -Number(monto), saldoPendiente: -Number(monto), totalPagado: Number(monto) },
-          $push: { pagosHistorial: nuevoPagoBD._id }
-        },
-        { new: true }
-      );
+        if (cuentaId) {
+          condiciones.unshift({ id: cuentaId });
+          if (mongoose.Types.ObjectId.isValid(cuentaId)) {
+            condiciones.unshift({ _id: cuentaId });
+          }
+        }
+
+        const cuentaDoc = await Cuenta.findOne({ $or: condiciones });
+        if (cuentaDoc) {
+          let asignado = false;
+          for (let i = 1; i <= 10; i++) {
+            if (!cuentaDoc[`pago${i}`] || limpiarNumero(cuentaDoc[`pago${i}`]) === 0) {
+              cuentaDoc[`pago${i}`] = monto;
+              asignado = true;
+              break;
+            }
+          }
+          if (!asignado) {
+            cuentaDoc.pago10 = limpiarNumero(cuentaDoc.pago10) + monto;
+          }
+
+          const montoTotal = limpiarNumero(cuentaDoc.montoTotal || cuentaDoc.total || cuentaDoc.monto || 0);
+          let totalPagado = 0;
+          for (let i = 1; i <= 10; i++) {
+            totalPagado += limpiarNumero(cuentaDoc[`pago${i}`]);
+          }
+          cuentaDoc.totalPagado = totalPagado;
+          cuentaDoc.saldoPendiente = Math.max(0, montoTotal - totalPagado);
+          cuentaDoc.saldo = cuentaDoc.saldoPendiente;
+
+          if (Array.isArray(cuentaDoc.pagosHistorial)) {
+            cuentaDoc.pagosHistorial.push(nuevoPagoBD._id);
+          }
+          await cuentaDoc.save();
+        }
+      } else {
+        console.error('⚠️ Mongoose no está conectado a la base de datos (readyState !== 1). Revisa Network Access en MongoDB Atlas.');
+      }
     } catch (dbError) {
       console.error('❌ Error guardando en base de datos:', dbError.message);
     }
@@ -304,10 +361,16 @@ exports.handleStripeWebhook = async (req, res) => {
 // Obtener todos los pagos
 exports.obtenerPagos = async (req, res) => {
   try {
-    const pagos = await Pago.find().sort({ createdAt: -1 });
-    res.status(200).json({ status: 'ok', data: pagos });
+    if (mongoose.connection.readyState === 1) {
+      const pagos = await Pago.find().sort({ createdAt: -1 });
+      return res.status(200).json({ status: 'ok', data: pagos });
+    }
+    // Respaldo de memoria si BD no está lista
+    const pagosMemoria = (global.datosCompartidos && global.datosCompartidos.pagos) || [];
+    res.status(200).json({ status: 'ok', data: pagosMemoria });
   } catch (error) {
-    res.status(500).json({ status: 'error', message: error.message });
+    const pagosMemoria = (global.datosCompartidos && global.datosCompartidos.pagos) || [];
+    res.status(200).json({ status: 'ok', data: pagosMemoria });
   }
 };
 
