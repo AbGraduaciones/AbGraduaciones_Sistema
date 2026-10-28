@@ -17,7 +17,7 @@
 </head>
 <body class="bg-slate-50 text-slate-800 flex flex-col md:flex-row min-h-screen font-sans">
 
-  <!-- BARRA LATERAL -->
+  <!-- BARRA LATERAL (Panel de control del Administrador) -->
   <aside id="barraLateral" class="w-64 bg-slate-900 text-white p-6 flex flex-col justify-between shrink-0 shadow-xl relative z-10 border-r border-slate-800">
     <div>
       <!-- LOGO Y TÍTULO DE LA EMPRESA -->
@@ -64,8 +64,8 @@
       </nav>
     </div>
 
-    <!-- SELECTOR DE PERFIL / MODO -->
-    <div class="pt-6 border-t border-slate-800">
+    <!-- SELECTOR DE PERFIL / MODO (Visible solo para Administrador) -->
+    <div id="contenedorSelectorModo" class="pt-6 border-t border-slate-800">
       <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">Modo de Vista</p>
       <select id="selectorModo" onchange="cambiarModoVista(this.value)" class="w-full bg-slate-800 border border-slate-700 text-white text-xs font-semibold rounded-xl p-2.5 outline-none focus:border-blue-500">
         <option value="admin">👨‍💼 Administrador</option>
@@ -77,7 +77,7 @@
   <!-- CONTENIDO PRINCIPAL -->
   <main class="flex-1 p-8 relative overflow-x-auto">
     <!-- ENCABEZADO SUPERIOR -->
-    <div class="flex justify-between items-center mb-8 pb-4 border-b border-slate-200">
+    <div id="encabezadoSuperior" class="flex justify-between items-center mb-8 pb-4 border-b border-slate-200">
       <div>
         <h2 id="tituloSeccion" class="text-3xl font-extrabold text-slate-900 tracking-tight">Saldos y Productos</h2>
       </div>
@@ -628,7 +628,27 @@
       asegurarIdsEnSaldos();
       actualizarDatalistAlumnos();
       actualizarOpcionesFiltroEscuelas();
-      cargarContenido('saldos');
+
+      // ==========================================
+      // DETECCIÓN INTELIGENTE DE RUTA (ALUMNO vs ADMIN)
+      // ==========================================
+      const rutaActual = window.location.pathname.toLowerCase();
+      const esRutaAlumno = rutaActual === '/pago' || rutaActual === '/portal' || rutaActual === '/';
+
+      if (esRutaAlumno) {
+        // En la ruta del alumno se oculta la barra lateral completa para no ver el panel de administración
+        const barraLateral = document.getElementById('barraLateral');
+        const selectorModoDiv = document.getElementById('contenedorSelectorModo');
+        if (barraLateral) barraLateral.classList.add('hidden');
+        if (selectorModoDiv) selectorModoDiv.classList.add('hidden');
+        
+        modoAcceso = 'alumno';
+        cargarContenido('portal_alumno');
+      } else {
+        // En /admin se muestra el panel completo de administración
+        modoAcceso = 'admin';
+        cargarContenido('saldos');
+      }
 
       const urlParams = new URLSearchParams(window.location.search);
       const estadoPago = urlParams.get('pago') || urlParams.get('session_id');
@@ -828,11 +848,13 @@
       const filtroEscuela = document.getElementById('filtroEscuela');
       const filtroPaquete = document.getElementById('filtroPaquete');
       const contenedorFiltros = document.getElementById('contenedorFiltros');
+      const encabezadoSuperior = document.getElementById('encabezadoSuperior');
 
       tabla.style.display = "none";
       dinamic.style.display = "none";
       btnContenedor.style.display = "none";
       contenedorFiltros.style.display = "flex";
+      encabezadoSuperior.style.display = "flex";
 
       if (vista === 'saldos') {
         titulo.innerText = "Saldos y Productos";
@@ -957,6 +979,12 @@
       } else if (vista === 'portal_alumno') {
         titulo.innerText = "Portal del Alumno";
         contenedorFiltros.style.display = "none";
+        
+        // Si estamos en la ruta pública directa, se estiliza el encabezado para los alumnos
+        if (window.location.pathname.toLowerCase() === '/pago' || window.location.pathname.toLowerCase() === '/portal' || window.location.pathname.toLowerCase() === '/') {
+          encabezadoSuperior.style.display = "none";
+        }
+        
         dinamic.style.display = "block";
         renderizarPortalAlumno();
       }
@@ -968,7 +996,7 @@
       if (!alumnoSesionActual) {
         if (pasoLoginPortal === 1) {
           dinamic.innerHTML = `
-            <div class="max-w-md mx-auto bg-white p-8 rounded-2xl border border-slate-200 shadow-xl text-center">
+            <div class="max-w-md mx-auto bg-white p-8 rounded-2xl border border-slate-200 shadow-xl text-center mt-6">
               <div class="text-4xl mb-3">🎓</div>
               <h3 class="text-2xl font-bold text-slate-900 mb-2">Consulta tu Estado de Cuenta</h3>
               <p class="text-xs text-slate-500 mb-6">Ingresa tu ID de Alumno o Teléfono (con LADA, ej: +52...) para recibir tu código de acceso seguro.</p>
@@ -985,7 +1013,7 @@
           const emailOculto = alumnoTempLogin.email ? alumnoTempLogin.email.replace(/(.{2})(.*)(?=@)/, (gp1, gp2, gp3) => gp2 + "*".repeat(gp3.length)) : 'tu correo registrado';
           
           dinamic.innerHTML = `
-            <div class="max-w-md mx-auto bg-white p-8 rounded-2xl border border-slate-200 shadow-xl text-center">
+            <div class="max-w-md mx-auto bg-white p-8 rounded-2xl border border-slate-200 shadow-xl text-center mt-6">
               <div class="text-4xl mb-3">📩</div>
               <h3 class="text-2xl font-bold text-slate-900 mb-2">Código de Seguridad Enviado</h3>
               <p class="text-xs text-slate-500 mb-4">Hemos enviado un PIN de 6 dígitos al correo: <strong class="text-blue-600">${emailOculto}</strong></p>
@@ -1073,7 +1101,7 @@
         <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm mb-6 flex flex-wrap justify-between items-center gap-4">
           <div>
             <h3 class="text-2xl font-black text-slate-900">¡Hola, ${alumnoSesionActual.nombre}! 👋</h3>
-            <p class="text-xs font-semibold text-slate-500">${alumnoSesionActual.universidad} | ${alumnoSesionActual.escuela}</p>
+            <p class="text-xs font-semibold text-slate-500">${alumnoSesionActual.universidad || 'Universidad'} | ${alumnoSesionActual.escuela || alumnoSesionActual.facultad || 'Carrera'}</p>
             <p class="text-xs font-bold text-blue-600 mt-1">Paquete Contratado: ${saldoObj.paquete}</p>
             ${saldoObj.esContadoEfectivo ? '<span class="inline-block mt-2 text-xs font-extrabold bg-emerald-100 text-emerald-800 px-3 py-1 rounded-full border border-emerald-200">🏷️ Modalidad de Contado en Efectivo (-5% Aplicado)</span>' : ''}
           </div>
@@ -1340,7 +1368,6 @@
       pagoPendientePasarela = null;
     }
 
-    // PROCESAR PAGO STRIPE VINCULANDO CUENTA ID, CLIENTE ID Y EMAIL
     async function procesarPagoAlumnoSimulado() {
       if (!pagoPendientePasarela || !alumnoSesionActual) return;
 
@@ -1396,7 +1423,6 @@
           body: JSON.stringify(payloadCheckout)
         });
 
-        // Si la ruta /api/pagos/crear-checkout-session no existe (404), intentar con /api/crear-checkout
         if (respuesta.status === 404) {
           respuesta = await fetch('/api/crear-checkout', {
             method: 'POST',
@@ -1595,6 +1621,7 @@
           <th class="p-4">Teléfono y Acciones</th>
           <th class="p-4">Universidad</th>
           <th class="p-4">Facultad / Carrera</th>
+          <th class="p-4">Dirección</th>
           <th class="p-4 text-center">Acciones</th>
         </tr>`;
 
@@ -1605,6 +1632,9 @@
       data.forEach((item) => {
         const indexReal = alumnos.indexOf(item);
         const telLimpio = (item.telefono || '').replace(/\D/g, '');
+        const direccionTexto = item.calle 
+          ? `${item.calle} ${item.numeroExterior || ''}${item.colonia ? ', ' + item.colonia : ''}${item.ciudad ? ', ' + item.ciudad : ''}`
+          : (item.direccion || '-');
 
         tbody.innerHTML += `
           <tr class="hover:bg-slate-50 transition-colors">
@@ -1623,8 +1653,9 @@
                 ` : ''}
               </div>
             </td>
-            <td class="p-4 font-medium text-slate-700">${item.universidad}</td>
-            <td class="p-4 text-slate-600">${item.escuela}</td>
+            <td class="p-4 font-medium text-slate-700">${item.universidad || '-'}</td>
+            <td class="p-4 text-slate-600">${item.facultad || item.escuela || '-'}</td>
+            <td class="p-4 text-slate-500 text-xs">${direccionTexto}</td>
             <td class="p-4 text-center">
               <button onclick="editarRegistro(${indexReal})" class="text-blue-600 hover:text-blue-800 font-bold text-xs mr-2">Editar</button>
               <button onclick="eliminarRegistro(${indexReal})" class="text-red-500 hover:text-red-700 font-bold text-xs">Eliminar</button>
@@ -1685,8 +1716,8 @@
         renderizarTablaSaldos(filtrados);
       } else if (vistaActual === 'alumnos') {
         const filtrados = alumnos.filter(a => {
-          const coincideTexto = !query || a.id.toLowerCase().includes(query) || a.nombre.toLowerCase().includes(query) || a.telefono.includes(query);
-          const coincideEscuela = !escuelaSel || a.escuela.toLowerCase() === escuelaSel || a.universidad.toLowerCase() === escuelaSel;
+          const coincideTexto = !query || (a.id && a.id.toLowerCase().includes(query)) || (a.nombre && a.nombre.toLowerCase().includes(query)) || (a.telefono && a.telefono.includes(query));
+          const coincideEscuela = !escuelaSel || (a.escuela && a.escuela.toLowerCase() === escuelaSel) || (a.universidad && a.universidad.toLowerCase() === escuelaSel) || (a.facultad && a.facultad.toLowerCase() === escuelaSel);
           return coincideTexto && coincideEscuela;
         });
         renderizarTablaAlumnos(filtrados);
@@ -1896,14 +1927,46 @@
               <span class="text-[10px] text-slate-500 mt-0.5 block font-sans">Obligatorio iniciar con "+" seguido del código de país.</span>
             </div>
           </div>
+
+          <!-- UNIVERSIDAD Y CARRERA SEPARADAS -->
           <div class="grid grid-cols-2 gap-4">
             <div>
-              <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Universidad</label>
-              <input type="text" id="fUniversidad" value="${datos.universidad || ''}" required class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-600 focus:bg-white transition-all">
+              <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Universidad / Institución</label>
+              <input type="text" id="fUniversidad" value="${datos.universidad || ''}" required placeholder="Ej: UNAM, IPN, UABJO..." class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-600 focus:bg-white transition-all">
             </div>
             <div>
               <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Facultad / Carrera</label>
-              <input type="text" id="fEscuela" value="${datos.escuela || ''}" required class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-600 focus:bg-white transition-all">
+              <input type="text" id="fEscuela" value="${datos.facultad || datos.escuela || ''}" required placeholder="Ej: Lic. en Derecho, Contaduría..." class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-600 focus:bg-white transition-all">
+            </div>
+          </div>
+
+          <!-- DESGLOSE DE DIRECCIÓN -->
+          <div class="pt-3 border-t border-slate-100">
+            <p class="text-xs font-bold uppercase tracking-wider text-blue-700 mb-2">📍 Dirección del Alumno</p>
+            <div class="grid grid-cols-3 gap-3 mb-3">
+              <div class="col-span-2">
+                <label class="block text-[11px] font-bold text-slate-500 mb-1">Calle</label>
+                <input type="text" id="fCalle" value="${datos.calle || ''}" placeholder="Nombre de calle o avenida" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-blue-600 focus:bg-white transition-all">
+              </div>
+              <div>
+                <label class="block text-[11px] font-bold text-slate-500 mb-1">No. Exterior / Interior</label>
+                <input type="text" id="fNumeroExterior" value="${datos.numeroExterior || ''}" placeholder="#123 Int A" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-blue-600 focus:bg-white transition-all">
+              </div>
+            </div>
+
+            <div class="grid grid-cols-3 gap-3">
+              <div>
+                <label class="block text-[11px] font-bold text-slate-500 mb-1">Colonia</label>
+                <input type="text" id="fColonia" value="${datos.colonia || ''}" placeholder="Colonia o Barrio" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-blue-600 focus:bg-white transition-all">
+              </div>
+              <div>
+                <label class="block text-[11px] font-bold text-slate-500 mb-1">Ciudad / Municipio</label>
+                <input type="text" id="fCiudad" value="${datos.ciudad || ''}" placeholder="Ciudad" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-blue-600 focus:bg-white transition-all">
+              </div>
+              <div>
+                <label class="block text-[11px] font-bold text-slate-500 mb-1">Código Postal</label>
+                <input type="text" id="fCodigoPostal" value="${datos.codigoPostal || ''}" placeholder="C.P." class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-blue-600 focus:bg-white transition-all">
+              </div>
             </div>
           </div>
         `;
@@ -2023,6 +2086,12 @@
         const telefono = document.getElementById('fTelefono').value.trim();
         const universidad = document.getElementById('fUniversidad').value.trim();
         const escuela = document.getElementById('fEscuela').value.trim();
+        
+        const calle = document.getElementById('fCalle') ? document.getElementById('fCalle').value.trim() : '';
+        const numeroExterior = document.getElementById('fNumeroExterior') ? document.getElementById('fNumeroExterior').value.trim() : '';
+        const colonia = document.getElementById('fColonia') ? document.getElementById('fColonia').value.trim() : '';
+        const ciudad = document.getElementById('fCiudad') ? document.getElementById('fCiudad').value.trim() : '';
+        const codigoPostal = document.getElementById('fCodigoPostal') ? document.getElementById('fCodigoPostal').value.trim() : '';
 
         const regexLadaInternacional = /^\+\d{1,4}\s?\d{7,14}$/;
         const soloNumeros = telefono.replace(/\D/g, '');
@@ -2049,10 +2118,25 @@
           return;
         }
 
+        const datosAlumnoActualizado = {
+          nombre,
+          email,
+          telefono,
+          universidad,
+          facultad: escuela,
+          escuela,
+          calle,
+          numeroExterior,
+          colonia,
+          ciudad,
+          codigoPostal,
+          direccion: [calle, numeroExterior, colonia, ciudad].filter(Boolean).join(', ') || escuela
+        };
+
         if (indiceEdicion !== null) {
-          alumnos[indiceEdicion] = { ...alumnos[indiceEdicion], nombre, email, telefono, universidad, escuela };
+          alumnos[indiceEdicion] = { ...alumnos[indiceEdicion], ...datosAlumnoActualizado };
         } else {
-          alumnos.push({ id: generarNuevoIdAlumno(), nombre, email, telefono, universidad, escuela });
+          alumnos.push({ id: generarNuevoIdAlumno(), ...datosAlumnoActualizado });
         }
         actualizarDatalistAlumnos();
         actualizarOpcionesFiltroEscuelas();
@@ -2152,7 +2236,7 @@
       document.getElementById('pdfFecha').innerText = pagoObj.fecha;
       document.getElementById('pdfAlumnoNombre').innerText = pagoObj.alumno;
       document.getElementById('pdfAlumnoUniversidad').innerText = `Universidad: ${alumnoObj.universidad || 'No especificada'}`;
-      document.getElementById('pdfAlumnoCarrera').innerText = `Carrera/Facultad: ${alumnoObj.escuela || 'No especificada'}`;
+      document.getElementById('pdfAlumnoCarrera').innerText = `Carrera/Facultad: ${alumnoObj.escuela || alumnoObj.facultad || 'No especificada'}`;
       document.getElementById('pdfPaqueteNombre').innerText = saldoObj.paquete;
 
       const avisoModalidad = document.getElementById('pdfModalidadPagoAviso');
