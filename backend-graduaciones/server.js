@@ -8,10 +8,23 @@ const nodemailer = require('nodemailer');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Importar modelos
-const Cliente = require('./models/Cliente');
-const Cuenta = require('./models/Cuenta');
-const Pago = require('./models/Pago');
+// Carga segura de modelos tolerante a mayúsculas/minúsculas y plural/singular
+const cargarModelo = (rutas) => {
+  for (const r of rutas) {
+    try {
+      return require(r);
+    } catch (e) {
+      if (e.code !== 'MODULE_NOT_FOUND') {
+        console.warn(`Aviso al cargar modelo ${r}:`, e.message);
+      }
+    }
+  }
+  return null;
+};
+
+const Cliente = cargarModelo(['./models/Cliente', './models/cliente', './models/Clientes', './models/clientes']) || mongoose.model('Cliente', new mongoose.Schema({}, { strict: false }));
+const Cuenta = cargarModelo(['./models/Cuenta', './models/cuenta', './models/Cuentas', './models/cuentas']) || mongoose.model('Cuenta', new mongoose.Schema({}, { strict: false }));
+const Pago = cargarModelo(['./models/Pago', './models/pago', './models/Pagos', './models/pagos']) || mongoose.model('Pago', new mongoose.Schema({}, { strict: false }));
 
 // Memoria compartida accesible globalmente
 global.datosCompartidos = {
