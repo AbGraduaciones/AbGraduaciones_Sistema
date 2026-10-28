@@ -17,7 +17,6 @@ const requireAuth = (req, res, next) => {
     return res.status(401).send('Acceso denegado: se requieren credenciales');
   }
 
-  // Extraer las credenciales codificadas en Base64
   const authData = Buffer.from(authHeader.split(' ')[1], 'base64').toString().split(':');
   const usuario = authData[0];
   const password = authData[1];
@@ -26,14 +25,14 @@ const requireAuth = (req, res, next) => {
   const adminPass = process.env.ADMIN_PASS;
 
   if (usuario === adminUser && password === adminPass) {
-    return next(); // Credenciales correctas, continúa la petición
+    return next();
   }
 
   res.setHeader('WWW-Authenticate', 'Basic realm="Panel de Administrador"');
   return res.status(401).send('Acceso denegado: usuario o contraseña incorrectos');
 };
 
-// Carga segura de modelos tolerante a mayúsculas/minúsculas y plural/singular
+// Carga tolerante de modelos
 const cargarModelo = (rutas) => {
   for (const r of rutas) {
     try {
@@ -58,7 +57,7 @@ global.datosCompartidos = {
   pagos: []
 };
 
-// Función auxiliar para cargar los datos desde MongoDB a la memoria compartida
+// Sincronización desde MongoDB Atlas
 async function sincronizarMemoriaDesdeBD() {
   if (mongoose.connection.readyState !== 1) return;
   try {
@@ -73,7 +72,16 @@ async function sincronizarMemoriaDesdeBD() {
         email: c.email,
         telefono: c.telefono || '',
         universidad: c.universidad || '',
-        escuela: c.direccion || c.escuela || ''
+        facultad: c.facultad || '',
+        escuela: c.facultad || c.universidad || c.direccion || c.escuela || '',
+        direccion: c.direccion || '',
+        calle: c.calle || '',
+        numeroExterior: c.numeroExterior || '',
+        numeroInterior: c.numeroInterior || '',
+        colonia: c.colonia || '',
+        ciudad: c.ciudad || '',
+        estado: c.estado || '',
+        codigoPostal: c.codigoPostal || ''
       }));
     }
 
@@ -108,26 +116,22 @@ async function sincronizarMemoriaDesdeBD() {
     }
     console.log('✅ Sincronización exitosa: MongoDB -> Memoria Global');
   } catch (err) {
-    console.error('⚠️ Error al cargar datos iniciales desde MongoDB:', err.message);
+    console.error('⚠️ Error al sincronizar desde MongoDB:', err.message);
   }
 }
 
-// 1. Conexión a MongoDB Atlas
+// 1. Conexión a MongoDB
 const mongoUri = process.env.MONGODB_URI || process.env.MONGOOSE_URI;
 if (mongoUri) {
-  mongoose.connect(mongoUri, {
-    serverSelectionTimeoutMS: 5000
-  })
-  .then(async () => {
-    console.log('✅ Conectado exitosamente a MongoDB Atlas');
-    await sincronizarMemoriaDesdeBD();
-  })
-  .catch((err) => console.error('❌ Error de conexión a MongoDB:', err.message));
-} else {
-  console.warn('⚠️ No se encontró MONGODB_URI en las variables de entorno.');
+  mongoose.connect(mongoUri, { serverSelectionTimeoutMS: 5000 })
+    .then(async () => {
+      console.log('✅ Conectado exitosamente a MongoDB Atlas');
+      await sincronizarMemoriaDesdeBD();
+    })
+    .catch((err) => console.error('❌ Error de conexión a MongoDB:', err.message));
 }
 
-// 2. Carga del controlador de pagos (tolerante a mayúsculas/minúsculas)
+// 2. Controlador de pagos
 let pagoController = null;
 const rutasPosibles = [
   './controllers/pagoController',
@@ -139,7 +143,7 @@ const rutasPosibles = [
 for (const ruta of rutasPosibles) {
   try {
     pagoController = require(ruta);
-    console.log(`✅ Controlador de pago cargado desde: ${ruta}`);
+    console.log(`✅ Controlador cargado desde: ${ruta}`);
     break;
   } catch (err) {
     if (err.code !== 'MODULE_NOT_FOUND') {
@@ -150,27 +154,23 @@ for (const ruta of rutasPosibles) {
 
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
-// 3. Webhook de Stripe: DEBE ir antes de express.json()
-app.post(
-  '/webhook',
-  express.raw({ type: 'application/json' }),
-  async (req, res) => {
-    if (pagoController && typeof pagoController.handleStripeWebhook === 'function') {
-      try {
-        return await pagoController.handleStripeWebhook(req, res);
-      } catch (err) {
-        console.error('Error delegando webhook a pagoController:', err.message);
-      }
+// 3. Webhook de Stripe
+app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+  if (pagoController && typeof pagoController.handleStripeWebhook === 'function') {
+    try {
+      return await pagoController.handleStripeWebhook(req, res);
+    } catch (err) {
+      console.error('Error delegando webhook:', err.message);
     }
-    return res.status(200).json({ received: true });
   }
-);
+  return res.status(200).json({ received: true });
+});
 
-// 4. Middlewares de Express
+// 4. Middlewares de datos
 app.use(cors());
 app.use(express.json());
 
-// 5. Rutas de sincronización para el Frontend (Protegidas con autenticación)
+// 5. Rutas de sincronización para el Administrador (Protegidas)
 app.get('/api/datos', requireAuth, async (req, res) => {
   if (mongoose.connection.readyState === 1) {
     await sincronizarMemoriaDesdeBD();
@@ -186,13 +186,24 @@ app.post('/api/datos', requireAuth, async (req, res) => {
       global.datosCompartidos.alumnos = alumnos;
       if (mongoose.connection.readyState === 1) {
         for (const a of alumnos) {
+          const direccionCompuesta = a.direccion || [a.calle, a.numeroExterior, a.colonia, a.ciudad].filter(Boolean).join(', ') || a.escuela;
+
           await Cliente.findOneAndUpdate(
             { $or: [{ email: a.email }, { nombre: a.nombre }] },
             {
               nombre: a.nombre,
               email: a.email,
               telefono: a.telefono,
-              direccion: a.escuela || a.universidad
+              direccion: direccionCompuesta,
+              universidad: a.universidad,
+              facultad: a.facultad || a.escuela,
+              calle: a.calle,
+              numeroExterior: a.numeroExterior,
+              numeroInterior: a.numeroInterior,
+              colonia: a.colonia,
+              ciudad: a.ciudad,
+              estado: a.estado,
+              codigoPostal: a.codigoPostal
             },
             { upsert: true, new: true }
           );
@@ -234,14 +245,14 @@ app.post('/api/datos', requireAuth, async (req, res) => {
       global.datosCompartidos.pagos = pagos;
     }
 
-    res.json({ ok: true, mensaje: 'Datos sincronizados y guardados en MongoDB correctamente' });
+    res.json({ ok: true, mensaje: 'Datos sincronizados en MongoDB correctamente' });
   } catch (error) {
     console.error('Error al persistir en /api/datos:', error.message);
     res.json({ ok: true, mensaje: 'Guardado en memoria de respaldo' });
   }
 });
 
-// 6. Endpoint de checkout directo que delega al controlador (Público para pagos de clientes)
+// 6. Rutas de pagos (Públicas)
 const procesarCheckout = (req, res) => {
   if (pagoController && typeof pagoController.crearCheckoutSession === 'function') {
     return pagoController.crearCheckoutSession(req, res);
@@ -252,7 +263,7 @@ const procesarCheckout = (req, res) => {
 app.post('/api/crear-checkout', procesarCheckout);
 app.post('/api/pagos/crear-checkout-session', procesarCheckout);
 
-// 7. Envío de correos por Gmail (Público para el portal del alumno)
+// 7. Envío de correos (Público para portal de alumnos)
 const transporter = nodemailer.createTransport({
   host: 'smtp.gmail.com',
   port: 465,
@@ -291,7 +302,7 @@ app.post('/api/enviar-codigo-seguridad', async (req, res) => {
   }
 });
 
-// 8. Rutas API opcionales
+// 8. Routers auxiliares
 const cargarRutaSegura = (rutas) => {
   for (const r of rutas) {
     try {
@@ -314,27 +325,52 @@ if (routerCuentas) app.use('/api/cuentas', requireAuth, routerCuentas);
 const routerClientes = cargarRutaSegura(['./routes/clientes', './routes/Clientes']);
 if (routerClientes) app.use('/api/clientes', requireAuth, routerClientes);
 
-// Manejador para rutas de API no encontradas
-app.use('/api', (req, res) => {
-  res.status(404).json({ status: 'error', message: 'Ruta API no encontrada' });
-});
-
-// Archivos estáticos auxiliares (CSS, JS, imágenes, páginas secundarias)
+// 9. Archivos estáticos
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.static(path.join(__dirname, '../public')));
+app.use(express.static(__dirname));
 
-// 9. Servir frontend principal protegido con contraseña
-app.use(requireAuth, (req, res) => {
-  const rutaPublic = path.join(__dirname, 'public', 'index.html');
-  const rutaLocal = path.join(__dirname, 'index.html');
+// ==========================================
+// 10. RUTAS SEPARADAS: ALUMNOS vs ADMIN
+// ==========================================
 
-  res.sendFile(rutaPublic, (err) => {
-    if (err) {
-      res.sendFile(rutaLocal, (err2) => {
-        if (err2) res.status(200).send('Sistema Ab Graduaciones en línea');
+// Portal del alumno (PÚBLICO)
+app.get(['/', '/pago', '/portal'], (req, res) => {
+  const rutaPortal = path.join(__dirname, 'public', 'portal.html');
+  const rutaPortalRaiz = path.join(__dirname, 'portal.html');
+  const rutaPublicIndex = path.join(__dirname, 'public', 'index.html');
+
+  res.sendFile(rutaPortal, (err) => {
+    if (!err) return;
+    res.sendFile(rutaPortalRaiz, (err2) => {
+      if (!err2) return;
+      res.sendFile(rutaPublicIndex, (err3) => {
+        if (err3) res.status(200).send('Portal de alumnos en línea');
       });
-    }
+    });
   });
+});
+
+// Panel de administrador (PROTEGIDO)
+app.get('/admin', requireAuth, (req, res) => {
+  const rutaAdmin = path.join(__dirname, 'public', 'admin.html');
+  const rutaAdminRaiz = path.join(__dirname, 'admin.html');
+  const rutaPublicIndex = path.join(__dirname, 'public', 'index.html');
+
+  res.sendFile(rutaAdmin, (err) => {
+    if (!err) return;
+    res.sendFile(rutaAdminRaiz, (err2) => {
+      if (!err2) return;
+      res.sendFile(rutaPublicIndex, (err3) => {
+        if (err3) res.status(200).send('Panel de administrador');
+      });
+    });
+  });
+});
+
+// Redirección por defecto
+app.use((req, res) => {
+  res.redirect('/admin');
 });
 
 app.listen(PORT, () => {
