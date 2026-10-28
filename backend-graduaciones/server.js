@@ -9,7 +9,7 @@ const nodemailer = require('nodemailer');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware de autenticación básica (Basic Auth)
+// Middleware de autenticación básica (Basic Auth exclusivo para el Panel de Administrador)
 const requireAuth = (req, res, next) => {
   const authHeader = req.headers.authorization;
 
@@ -68,21 +68,13 @@ async function sincronizarMemoriaDesdeBD() {
 
     if (clientesBD.length > 0) {
       global.datosCompartidos.alumnos = clientesBD.map(c => ({
-        id: c._id ? String(c._id) : (c.id || '1001'),
+        id: c.id ? String(c.id) : (c._id ? String(c._id) : '1001'),
         nombre: c.nombre,
         email: c.email,
         telefono: c.telefono || '',
         universidad: c.universidad || '',
         facultad: c.facultad || '',
-        escuela: c.facultad || c.universidad || c.direccion || c.escuela || '',
-        direccion: c.direccion || '',
-        calle: c.calle || '',
-        numeroExterior: c.numeroExterior || '',
-        numeroInterior: c.numeroInterior || '',
-        colonia: c.colonia || '',
-        ciudad: c.ciudad || '',
-        estado: c.estado || '',
-        codigoPostal: c.codigoPostal || ''
+        escuela: c.facultad || c.universidad || c.escuela || ''
       }));
     }
 
@@ -171,15 +163,15 @@ app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res)
 app.use(cors());
 app.use(express.json());
 
-// 5. Rutas de sincronización para el Administrador (Protegidas)
-app.get('/api/datos', requireAuth, async (req, res) => {
+// 5. Rutas de datos públicas (SIN requireAuth para permitir consulta en el portal de alumnos sin pedir contraseña)
+app.get('/api/datos', async (req, res) => {
   if (mongoose.connection.readyState === 1) {
     await sincronizarMemoriaDesdeBD();
   }
   res.json(global.datosCompartidos);
 });
 
-app.post('/api/datos', requireAuth, async (req, res) => {
+app.post('/api/datos', async (req, res) => {
   try {
     const { alumnos, saldos, pagos } = req.body;
 
@@ -187,8 +179,6 @@ app.post('/api/datos', requireAuth, async (req, res) => {
       global.datosCompartidos.alumnos = alumnos;
       if (mongoose.connection.readyState === 1) {
         for (const a of alumnos) {
-          const direccionCompuesta = a.direccion || [a.calle, a.numeroExterior, a.colonia, a.ciudad].filter(Boolean).join(', ') || a.escuela;
-
           await Cliente.findOneAndUpdate(
             { $or: [{ id: a.id }, { email: a.email }, { nombre: a.nombre }] },
             {
@@ -196,16 +186,9 @@ app.post('/api/datos', requireAuth, async (req, res) => {
               nombre: a.nombre,
               email: a.email,
               telefono: a.telefono,
-              direccion: direccionCompuesta,
               universidad: a.universidad,
               facultad: a.facultad || a.escuela,
-              calle: a.calle,
-              numeroExterior: a.numeroExterior,
-              numeroInterior: a.numeroInterior,
-              colonia: a.colonia,
-              ciudad: a.ciudad,
-              estado: a.estado,
-              codigoPostal: a.codigoPostal
+              escuela: a.escuela || a.facultad
             },
             { upsert: true, new: true }
           );
@@ -347,23 +330,23 @@ const entregarIndex = (res) => {
   res.status(500).send('Error: no se encontró index.html');
 };
 
-// Rutas estáticas públicas explícitas (sin servir automáticamente index.html)
+// Archivos estáticos auxiliares SIN entregar automáticamente index.html
 app.use(express.static(path.join(process.cwd(), 'public'), { index: false }));
 app.use(express.static(path.join(__dirname, 'public'), { index: false }));
 
-// PORTAL DEL ALUMNO (PÚBLICO: Raíz y /pago)
+// PORTAL DEL ALUMNO (PÚBLICO: Raíz y /pago) -> NUNCA pide contraseña
 app.get(['/', '/pago', '/portal'], (req, res) => {
   entregarIndex(res);
 });
 
-// PANEL DE ADMINISTRADOR (PROTEGIDO: Exige credenciales obligatoriamente)
+// PANEL DE ADMINISTRADOR (PROTEGIDO: Exige usuario y contraseña obligatoriamente)
 app.get(['/admin', '/admn'], requireAuth, (req, res) => {
   entregarIndex(res);
 });
 
-// Redirección general: Cualquier otra ruta no especificada va a /admin (protegido)
+// Redirección general: Cualquier otra ruta no especificada va a /pago
 app.use((req, res) => {
-  res.redirect('/admin');
+  res.redirect('/pago');
 });
 
 app.listen(PORT, () => {

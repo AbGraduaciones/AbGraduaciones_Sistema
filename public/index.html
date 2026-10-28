@@ -633,9 +633,10 @@
       // DETECCIÓN INTELIGENTE DE RUTA (ALUMNO vs ADMIN)
       // ==========================================
       const rutaActual = window.location.pathname.toLowerCase();
-      const esRutaAlumno = rutaActual === '/pago' || rutaActual === '/portal' || rutaActual === '/';
+      const esAdmin = rutaActual.startsWith('/admin') || rutaActual.startsWith('/admn');
 
-      if (esRutaAlumno) {
+      if (!esAdmin) {
+        // En /pago, /portal o raíz: Ocultar panel admin y mostrar solo portal del alumno
         const barraLateral = document.getElementById('barraLateral');
         const selectorModoDiv = document.getElementById('contenedorSelectorModo');
         if (barraLateral) barraLateral.classList.add('hidden');
@@ -644,6 +645,7 @@
         modoAcceso = 'alumno';
         cargarContenido('portal_alumno');
       } else {
+        // En /admin: Mostrar panel de administración completo
         modoAcceso = 'admin';
         cargarContenido('saldos');
       }
@@ -1621,7 +1623,6 @@
           <th class="p-4">Teléfono y Acciones</th>
           <th class="p-4">Universidad</th>
           <th class="p-4">Facultad / Carrera</th>
-          <th class="p-4">Dirección</th>
           <th class="p-4 text-center">Acciones</th>
         </tr>`;
 
@@ -1632,9 +1633,6 @@
       data.forEach((item) => {
         const indexReal = alumnos.indexOf(item);
         const telLimpio = (item.telefono || '').replace(/\D/g, '');
-        const direccionTexto = item.calle 
-          ? `${item.calle} ${item.numeroExterior || ''}${item.colonia ? ', ' + item.colonia : ''}${item.ciudad ? ', ' + item.ciudad : ''}`
-          : (item.direccion || '-');
 
         tbody.innerHTML += `
           <tr class="hover:bg-slate-50 transition-colors">
@@ -1655,7 +1653,6 @@
             </td>
             <td class="p-4 font-medium text-slate-700">${item.universidad || '-'}</td>
             <td class="p-4 text-slate-600">${item.facultad || item.escuela || '-'}</td>
-            <td class="p-4 text-slate-500 text-xs">${direccionTexto}</td>
             <td class="p-4 text-center">
               <button onclick="editarRegistro(${indexReal})" class="text-blue-600 hover:text-blue-800 font-bold text-xs mr-2">Editar</button>
               <button onclick="eliminarRegistro(${indexReal})" class="text-red-500 hover:text-red-700 font-bold text-xs">Eliminar</button>
@@ -1935,7 +1932,7 @@
             </div>
           </div>
 
-          <!-- UNIVERSIDAD Y CARRERA SEPARADAS -->
+          <!-- UNIVERSIDAD Y CARRERA SEPARADAS (SIN CAMPOS DE DIRECCIÓN) -->
           <div class="grid grid-cols-2 gap-4">
             <div>
               <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Universidad / Institución</label>
@@ -1944,36 +1941,6 @@
             <div>
               <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Facultad / Carrera</label>
               <input type="text" id="fEscuela" value="${datos.facultad || datos.escuela || ''}" required placeholder="Ej: Lic. en Derecho, Contaduría..." class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-600 focus:bg-white transition-all">
-            </div>
-          </div>
-
-          <!-- DESGLOSE DE DIRECCIÓN -->
-          <div class="pt-3 border-t border-slate-100">
-            <p class="text-xs font-bold uppercase tracking-wider text-blue-700 mb-2">📍 Dirección del Alumno</p>
-            <div class="grid grid-cols-3 gap-3 mb-3">
-              <div class="col-span-2">
-                <label class="block text-[11px] font-bold text-slate-500 mb-1">Calle</label>
-                <input type="text" id="fCalle" value="${datos.calle || ''}" placeholder="Nombre de calle o avenida" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-blue-600 focus:bg-white transition-all">
-              </div>
-              <div>
-                <label class="block text-[11px] font-bold text-slate-500 mb-1">No. Exterior / Interior</label>
-                <input type="text" id="fNumeroExterior" value="${datos.numeroExterior || ''}" placeholder="#123 Int A" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-blue-600 focus:bg-white transition-all">
-              </div>
-            </div>
-
-            <div class="grid grid-cols-3 gap-3">
-              <div>
-                <label class="block text-[11px] font-bold text-slate-500 mb-1">Colonia</label>
-                <input type="text" id="fColonia" value="${datos.colonia || ''}" placeholder="Colonia o Barrio" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-blue-600 focus:bg-white transition-all">
-              </div>
-              <div>
-                <label class="block text-[11px] font-bold text-slate-500 mb-1">Ciudad / Municipio</label>
-                <input type="text" id="fCiudad" value="${datos.ciudad || ''}" placeholder="Ciudad" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-blue-600 focus:bg-white transition-all">
-              </div>
-              <div>
-                <label class="block text-[11px] font-bold text-slate-500 mb-1">Código Postal</label>
-                <input type="text" id="fCodigoPostal" value="${datos.codigoPostal || ''}" placeholder="C.P." class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-blue-600 focus:bg-white transition-all">
-              </div>
             </div>
           </div>
         `;
@@ -2094,12 +2061,6 @@
         const telefono = document.getElementById('fTelefono').value.trim();
         const universidad = document.getElementById('fUniversidad').value.trim();
         const escuela = document.getElementById('fEscuela').value.trim();
-        
-        const calle = document.getElementById('fCalle') ? document.getElementById('fCalle').value.trim() : '';
-        const numeroExterior = document.getElementById('fNumeroExterior') ? document.getElementById('fNumeroExterior').value.trim() : '';
-        const colonia = document.getElementById('fColonia') ? document.getElementById('fColonia').value.trim() : '';
-        const ciudad = document.getElementById('fCiudad') ? document.getElementById('fCiudad').value.trim() : '';
-        const codigoPostal = document.getElementById('fCodigoPostal') ? document.getElementById('fCodigoPostal').value.trim() : '';
 
         const regexLadaInternacional = /^\+\d{1,4}\s?\d{7,14}$/;
         const soloNumeros = telefono.replace(/\D/g, '');
@@ -2139,13 +2100,7 @@
           telefono,
           universidad,
           facultad: escuela,
-          escuela,
-          calle,
-          numeroExterior,
-          colonia,
-          ciudad,
-          codigoPostal,
-          direccion: [calle, numeroExterior, colonia, ciudad].filter(Boolean).join(', ') || escuela
+          escuela
         };
 
         if (indiceEdicion !== null) {
