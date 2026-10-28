@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const fs = require('fs');
 const mongoose = require('mongoose');
 const nodemailer = require('nodemailer');
 
@@ -326,6 +327,7 @@ const routerClientes = cargarRutaSegura(['./routes/clientes', './routes/Clientes
 if (routerClientes) app.use('/api/clientes', requireAuth, routerClientes);
 
 // 9. Archivos estáticos auxiliares (CSS, JS, imágenes)
+app.use(express.static(path.join(process.cwd(), 'public')));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.static(path.join(__dirname, '../public')));
 app.use(express.static(__dirname));
@@ -335,17 +337,20 @@ app.use(express.static(__dirname));
 // ==========================================
 
 const entregarIndex = (res) => {
-  const rutaPublicIndex = path.join(__dirname, 'public', 'index.html');
-  const rutaLocalIndex = path.join(__dirname, 'index.html');
+  const posiblesRutas = [
+    path.join(process.cwd(), 'public', 'index.html'),
+    path.join(__dirname, 'public', 'index.html'),
+    path.join(__dirname, '..', 'public', 'index.html'),
+    path.join(__dirname, 'index.html')
+  ];
 
-  res.sendFile(rutaPublicIndex, (err) => {
-    if (!err) return;
-    res.sendFile(rutaLocalIndex, (err2) => {
-      if (err2) {
-        res.status(500).send('Error: no se encontró el archivo index.html en el servidor');
-      }
-    });
-  });
+  for (const ruta of posiblesRutas) {
+    if (fs.existsSync(ruta)) {
+      return res.sendFile(ruta);
+    }
+  }
+
+  res.status(500).send('Error: no se encontró index.html');
 };
 
 // Portal del alumno (PÚBLICO - Carga la interfaz sin solicitar credenciales)
