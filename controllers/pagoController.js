@@ -3,6 +3,15 @@ const Pago = require('../models/Pago');
 const Cuenta = require('../models/Cuenta');
 const mongoose = require('mongoose');
 
+// Limpia formatos monetarios ("$11,300", "-", null) a números reales
+const limpiarNumero = (val) => {
+  if (typeof val === 'number') return isNaN(val) ? 0 : val;
+  if (!val || val === '-') return 0;
+  const limpio = String(val).replace(/[^0-9.-]+/g, '');
+  const num = parseFloat(limpio);
+  return isNaN(num) ? 0 : num;
+};
+
 // Crear sesión de Stripe Checkout
 exports.crearCheckoutSession = async (req, res) => {
   try {
@@ -163,7 +172,7 @@ exports.handleStripeWebhook = async (req, res) => {
         : 'Alumno';
     }
 
-    // 1. Sincronización en memoria compartida
+    // 1. Sincronización en memoria compartida (Frontend / Tablas de Saldos)
     if (global.datosCompartidos) {
       const nuevoFolioNum = (global.datosCompartidos.pagos || []).length + 1;
       const folioId = 'PAG-' + String(nuevoFolioNum).padStart(3, '0');
@@ -211,10 +220,11 @@ exports.handleStripeWebhook = async (req, res) => {
           saldoEncontrado.pagos = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
         }
 
+        // Asignar en el siguiente espacio disponible (pago1 a pago10)
         let asignado = false;
         for (let i = 0; i < 10; i++) {
-          const valorActual = saldoEncontrado.pagos[i] || saldoEncontrado[`pago${i + 1}`];
-          if (!valorActual || Number(valorActual) === 0 || valorActual === '-') {
+          const valorActual = limpiarNumero(saldoEncontrado.pagos[i] || saldoEncontrado[`pago${i + 1}`]);
+          if (valorActual === 0) {
             saldoEncontrado.pagos[i] = monto;
             saldoEncontrado[`pago${i + 1}`] = monto;
             asignado = true;
@@ -222,17 +232,29 @@ exports.handleStripeWebhook = async (req, res) => {
           }
         }
         if (!asignado) {
-          saldoEncontrado.pagos[9] = (parseFloat(saldoEncontrado.pagos[9]) || 0) + monto;
-          saldoEncontrado['pago10'] = saldoEncontrado.pagos[9];
+          const acumulado = limpiarNumero(saldoEncontrado.pagos[9] || saldoEncontrado['pago10']) + monto;
+          saldoEncontrado.pagos[9] = acumulado;
+          saldoEncontrado['pago10'] = acumulado;
         }
 
-        const montoTotal = Number(saldoEncontrado.montoTotal || saldoEncontrado.total || saldoEncontrado.monto || 0);
-        const totalAbonado = saldoEncontrado.pagos.reduce((acc, curr) => acc + (Number(curr) || 0), 0);
+        // Obtener el monto total asegurando formato numérico
+        const montoTotalOriginal = limpiarNumero(
+          saldoEncontrado.montoTotal || saldoEncontrado.total || saldoEncontrado.monto || saldoEncontrado.saldoPendiente || 0
+        );
+        
+        let totalAbonado = 0;
+        for (let i = 0; i < 10; i++) {
+          totalAbonado += limpiarNumero(saldoEncontrado.pagos[i] || saldoEncontrado[`pago${i + 1}`]);
+        }
 
+        const saldoFinal = Math.max(0, montoTotalOriginal - totalAbonado);
+
+        saldoEncontrado.montoTotal = montoTotalOriginal;
+        saldoEncontrado.total = montoTotalOriginal;
         saldoEncontrado.totalPagado = totalAbonado;
         saldoEncontrado.totalAbonado = totalAbonado;
-        saldoEncontrado.saldoPendiente = Math.max(0, montoTotal - totalAbonado);
-        saldoEncontrado.saldo = saldoEncontrado.saldoPendiente;
+        saldoEncontrado.saldoPendiente = saldoFinal;
+        saldoEncontrado.saldo = saldoFinal;
       }
     }
 
