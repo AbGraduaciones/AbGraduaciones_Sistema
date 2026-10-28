@@ -68,7 +68,7 @@ async function sincronizarMemoriaDesdeBD() {
 
     if (clientesBD.length > 0) {
       global.datosCompartidos.alumnos = clientesBD.map(c => ({
-        id: c._id ? String(c._id) : (c.id || 'ALU-001'),
+        id: c._id ? String(c._id) : (c.id || '1001'),
         nombre: c.nombre,
         email: c.email,
         telefono: c.telefono || '',
@@ -190,8 +190,9 @@ app.post('/api/datos', requireAuth, async (req, res) => {
           const direccionCompuesta = a.direccion || [a.calle, a.numeroExterior, a.colonia, a.ciudad].filter(Boolean).join(', ') || a.escuela;
 
           await Cliente.findOneAndUpdate(
-            { $or: [{ email: a.email }, { nombre: a.nombre }] },
+            { $or: [{ id: a.id }, { email: a.email }, { nombre: a.nombre }] },
             {
+              id: a.id,
               nombre: a.nombre,
               email: a.email,
               telefono: a.telefono,
@@ -264,7 +265,7 @@ const procesarCheckout = (req, res) => {
 app.post('/api/crear-checkout', procesarCheckout);
 app.post('/api/pagos/crear-checkout-session', procesarCheckout);
 
-// 7. Envío de correos (Público para portal de alumnos)
+// 7. Envío de correos (Público para alumnos)
 const transporter = nodemailer.createTransport({
   host: 'smtp.gmail.com',
   port: 465,
@@ -326,16 +327,9 @@ if (routerCuentas) app.use('/api/cuentas', requireAuth, routerCuentas);
 const routerClientes = cargarRutaSegura(['./routes/clientes', './routes/Clientes']);
 if (routerClientes) app.use('/api/clientes', requireAuth, routerClientes);
 
-// 9. Archivos estáticos auxiliares (CSS, JS, imágenes)
-app.use(express.static(path.join(process.cwd(), 'public')));
-app.use(express.static(path.join(__dirname, 'public')));
-app.use(express.static(path.join(__dirname, '../public')));
-app.use(express.static(__dirname));
-
 // ==========================================
-// 10. RUTAS SEPARADAS: ALUMNOS vs ADMIN
+// 9. GESTOR DE ENTREGA DE FRONTEND
 // ==========================================
-
 const entregarIndex = (res) => {
   const posiblesRutas = [
     path.join(process.cwd(), 'public', 'index.html'),
@@ -353,17 +347,22 @@ const entregarIndex = (res) => {
   res.status(500).send('Error: no se encontró index.html');
 };
 
-// Portal del alumno (PÚBLICO - Carga la interfaz sin solicitar credenciales)
+// PANEL DE ADMINISTRADOR (PROTEGIDO: Requiere usuario y contraseña)
+// Acepta tanto /admin como el typo /admn
+app.get(['/admin', '/admn'], requireAuth, (req, res) => {
+  entregarIndex(res);
+});
+
+// PORTAL DEL ALUMNO (PÚBLICO: Raíz y /pago)
 app.get(['/', '/pago', '/portal'], (req, res) => {
   entregarIndex(res);
 });
 
-// Panel de administrador (PROTEGIDO - Solicita usuario y contraseña)
-app.get('/admin', requireAuth, (req, res) => {
-  entregarIndex(res);
-});
+// Archivos estáticos auxiliares (después de las rutas protegidas)
+app.use(express.static(path.join(process.cwd(), 'public')));
+app.use(express.static(path.join(__dirname, 'public')));
 
-// Redirección por defecto
+// Cualquier otra ruta no registrada redirige al panel de administrador protegido
 app.use((req, res) => {
   res.redirect('/admin');
 });
