@@ -29,12 +29,17 @@ exports.crearCheckoutSession = async (req, res) => {
       return res.status(400).json({ status: 'error', message: 'Monto inválido para procesar el pago' });
     }
 
+    // Cálculo inverso para transferir la comisión de Stripe (3.6% + $3.00 MXN + IVA 16%)
+    const totalConComision = (montoLimpio + 3.48) / 0.95824;
+    const cargoServicio = Math.max(0, Math.round((totalConComision - montoLimpio) * 100) / 100);
+
     const datosMeta = {
       alumnoId: String(alumnoId || 'ALU-001'),
       nombreAlumno: String(nombreAlumno || 'Alumno'),
       cuentaId: String(cuentaId || 'CTA-001'),
       concepto: String(concepto || 'Abono de Graduación'),
-      email: String(email || '')
+      email: String(email || ''),
+      montoNetoAbono: String(montoLimpio)
     };
 
     const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
@@ -49,6 +54,17 @@ exports.crearCheckoutSession = async (req, res) => {
               description: `Abono de graduación - Alumno: ${nombreAlumno}`,
             },
             unit_amount: Math.round(montoLimpio * 100),
+          },
+          quantity: 1,
+        },
+        {
+          price_data: {
+            currency: 'mxn',
+            product_data: {
+              name: 'Cargo por servicio digital',
+              description: 'Tarifa de procesamiento de pago con tarjeta en línea',
+            },
+            unit_amount: Math.round(cargoServicio * 100),
           },
           quantity: 1,
         },
@@ -169,9 +185,10 @@ exports.handleStripeWebhook = async (req, res) => {
       }
     }
 
-    const monto = session.amount_total 
-      ? session.amount_total / 100 
-      : (session.amount ? session.amount / 100 : 0);
+    // Si viene el monto neto en metadata se registra el abono real del alumno, evitando abonarle la comisión
+    const monto = metadata.montoNetoAbono
+      ? parseFloat(metadata.montoNetoAbono)
+      : (session.amount_total ? session.amount_total / 100 : (session.amount ? session.amount / 100 : 0));
     
     const customerEmail = (
       metadata.email || 
