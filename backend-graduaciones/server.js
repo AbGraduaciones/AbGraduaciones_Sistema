@@ -347,22 +347,21 @@ const entregarIndex = (res) => {
   res.status(500).send('Error: no se encontró index.html');
 };
 
-// PANEL DE ADMINISTRADOR (PROTEGIDO: Requiere usuario y contraseña)
-// Acepta tanto /admin como el typo /admn
-app.get(['/admin', '/admn'], requireAuth, (req, res) => {
-  entregarIndex(res);
-});
+// Rutas estáticas públicas explícitas (sin servir automáticamente index.html)
+app.use(express.static(path.join(process.cwd(), 'public'), { index: false }));
+app.use(express.static(path.join(__dirname, 'public'), { index: false }));
 
 // PORTAL DEL ALUMNO (PÚBLICO: Raíz y /pago)
 app.get(['/', '/pago', '/portal'], (req, res) => {
   entregarIndex(res);
 });
 
-// Archivos estáticos auxiliares (después de las rutas protegidas)
-app.use(express.static(path.join(process.cwd(), 'public')));
-app.use(express.static(path.join(__dirname, 'public')));
+// PANEL DE ADMINISTRADOR (PROTEGIDO: Exige credenciales obligatoriamente)
+app.get(['/admin', '/admn'], requireAuth, (req, res) => {
+  entregarIndex(res);
+});
 
-// Cualquier otra ruta no registrada redirige al panel de administrador protegido
+// Redirección general: Cualquier otra ruta no especificada va a /admin (protegido)
 app.use((req, res) => {
   res.redirect('/admin');
 });
