@@ -636,7 +636,6 @@
       const esRutaAlumno = rutaActual === '/pago' || rutaActual === '/portal' || rutaActual === '/';
 
       if (esRutaAlumno) {
-        // En la ruta del alumno se oculta la barra lateral completa para no ver el panel de administración
         const barraLateral = document.getElementById('barraLateral');
         const selectorModoDiv = document.getElementById('contenedorSelectorModo');
         if (barraLateral) barraLateral.classList.add('hidden');
@@ -645,7 +644,6 @@
         modoAcceso = 'alumno';
         cargarContenido('portal_alumno');
       } else {
-        // En /admin se muestra el panel completo de administración
         modoAcceso = 'admin';
         cargarContenido('saldos');
       }
@@ -776,11 +774,14 @@
       return nuevoArreglo;
     }
 
+    // OPCIÓN C: Formato numérico de 4 dígitos (1001, 1002, 1003...)
     function generarNuevoIdAlumno() {
-      if (alumnos.length === 0) return "ALU-001";
-      const numeros = alumnos.map(a => parseInt(a.id.replace('ALU-', ''), 10)).filter(n => !isNaN(n));
-      const max = Math.max(...numeros, 0);
-      return "ALU-" + String(max + 1).padStart(3, '0');
+      if (!alumnos || alumnos.length === 0) return "1001";
+      const numeros = alumnos
+        .map(a => parseInt(String(a.id || '').replace(/\D/g, ''), 10))
+        .filter(n => !isNaN(n) && n >= 1000);
+      const max = numeros.length > 0 ? Math.max(...numeros) : 1000;
+      return String(max + 1);
     }
 
     function generarNuevoIdPago() {
@@ -980,7 +981,6 @@
         titulo.innerText = "Portal del Alumno";
         contenedorFiltros.style.display = "none";
         
-        // Si estamos en la ruta pública directa, se estiliza el encabezado para los alumnos
         if (window.location.pathname.toLowerCase() === '/pago' || window.location.pathname.toLowerCase() === '/portal' || window.location.pathname.toLowerCase() === '/') {
           encabezadoSuperior.style.display = "none";
         }
@@ -999,10 +999,10 @@
             <div class="max-w-md mx-auto bg-white p-8 rounded-2xl border border-slate-200 shadow-xl text-center mt-6">
               <div class="text-4xl mb-3">🎓</div>
               <h3 class="text-2xl font-bold text-slate-900 mb-2">Consulta tu Estado de Cuenta</h3>
-              <p class="text-xs text-slate-500 mb-6">Ingresa tu ID de Alumno o Teléfono (con LADA, ej: +52...) para recibir tu código de acceso seguro.</p>
+              <p class="text-xs text-slate-500 mb-6">Ingresa tu ID de Alumno (ej: 1001) o Teléfono con LADA (+52...) para recibir tu código de acceso seguro.</p>
 
               <form onsubmit="solicitarCodigoSeguridad(event)" class="space-y-4">
-                <input type="text" id="loginAlumnoInput" placeholder="Ej: ALU-001 o +52 5551234567" required class="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-center text-sm font-semibold outline-none focus:border-blue-600">
+                <input type="text" id="loginAlumnoInput" placeholder="Ej: 1001 o +52 5551234567" required class="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-center text-sm font-semibold outline-none focus:border-blue-600">
                 <button type="submit" id="btnSolicitarCodigo" class="w-full py-3.5 bg-blue-700 hover:bg-blue-800 text-white font-bold rounded-xl shadow-lg shadow-blue-600/30 transition-all">
                   Enviar Código al Correo
                 </button>
@@ -1220,7 +1220,7 @@
       const val = inputVal.toLowerCase();
       
       const encontrado = alumnos.find(a => 
-        (a.id && a.id.toLowerCase() === val) || 
+        (a.id && String(a.id).toLowerCase() === val) || 
         (a.telefono && a.telefono.replace(/\D/g, '') === val.replace(/\D/g, '')) ||
         (a.nombre && a.nombre.toLowerCase().includes(val))
       );
@@ -1638,7 +1638,7 @@
 
         tbody.innerHTML += `
           <tr class="hover:bg-slate-50 transition-colors">
-            <td class="p-4 font-mono text-xs text-slate-400 font-semibold">${item.id}</td>
+            <td class="p-4 font-mono text-sm text-blue-700 font-extrabold">${item.id}</td>
             <td class="p-4 font-bold text-slate-900">${item.nombre}</td>
             <td class="p-4 text-slate-600">${item.email}</td>
             <td class="p-4 font-mono text-slate-700">
@@ -1716,7 +1716,7 @@
         renderizarTablaSaldos(filtrados);
       } else if (vistaActual === 'alumnos') {
         const filtrados = alumnos.filter(a => {
-          const coincideTexto = !query || (a.id && a.id.toLowerCase().includes(query)) || (a.nombre && a.nombre.toLowerCase().includes(query)) || (a.telefono && a.telefono.includes(query));
+          const coincideTexto = !query || (a.id && String(a.id).toLowerCase().includes(query)) || (a.nombre && a.nombre.toLowerCase().includes(query)) || (a.telefono && a.telefono.includes(query));
           const coincideEscuela = !escuelaSel || (a.escuela && a.escuela.toLowerCase() === escuelaSel) || (a.universidad && a.universidad.toLowerCase() === escuelaSel) || (a.facultad && a.facultad.toLowerCase() === escuelaSel);
           return coincideTexto && coincideEscuela;
         });
@@ -1911,10 +1911,17 @@
           actualizarPrecioModeloModal();
         }
       } else if (vistaActual === 'alumnos') {
+        const idSugerido = datos.id || generarNuevoIdAlumno();
         contenedor.innerHTML = `
-          <div>
-            <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Nombre Completo</label>
-            <input type="text" id="fNombre" value="${datos.nombre || ''}" required class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-600 focus:bg-white transition-all">
+          <div class="grid grid-cols-3 gap-4">
+            <div>
+              <label class="block text-xs font-bold uppercase tracking-wider text-blue-700 mb-1">ID Alumno (4 dígitos)</label>
+              <input type="text" id="fIdManual" value="${idSugerido}" required placeholder="1001" class="w-full p-3 bg-blue-50/50 border border-blue-200 rounded-xl font-mono font-bold text-blue-900 focus:outline-none focus:border-blue-600 focus:bg-white transition-all">
+            </div>
+            <div class="col-span-2">
+              <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Nombre Completo</label>
+              <input type="text" id="fNombre" value="${datos.nombre || ''}" required class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-600 focus:bg-white transition-all">
+            </div>
           </div>
           <div class="grid grid-cols-2 gap-4">
             <div>
@@ -2081,6 +2088,7 @@
         }
 
       } else if (vistaActual === 'alumnos') {
+        const idManual = document.getElementById('fIdManual') ? document.getElementById('fIdManual').value.trim() : generarNuevoIdAlumno();
         const nombre = document.getElementById('fNombre').value.trim();
         const email = document.getElementById('fEmail').value.trim();
         const telefono = document.getElementById('fTelefono').value.trim();
@@ -2102,8 +2110,14 @@
           return;
         }
 
-        const emailLimpio = email.toLowerCase();
+        const idExiste = alumnos.some((a, idx) => idx !== indiceEdicion && String(a.id).trim().toLowerCase() === idManual.toLowerCase());
+        if (idExiste) {
+          alertaError.innerText = `El ID "${idManual}" ya está en uso. Ingresa uno distinto.`;
+          alertaError.classList.remove('hidden');
+          return;
+        }
 
+        const emailLimpio = email.toLowerCase();
         const emailExiste = alumnos.some((a, idx) => idx !== indiceEdicion && a.email.toLowerCase() === emailLimpio);
         if (emailExiste) {
           alertaError.innerText = `El correo "${email}" ya se encuentra registrado. Ingresa un correo distinto.`;
@@ -2119,6 +2133,7 @@
         }
 
         const datosAlumnoActualizado = {
+          id: idManual,
           nombre,
           email,
           telefono,
@@ -2136,7 +2151,7 @@
         if (indiceEdicion !== null) {
           alumnos[indiceEdicion] = { ...alumnos[indiceEdicion], ...datosAlumnoActualizado };
         } else {
-          alumnos.push({ id: generarNuevoIdAlumno(), ...datosAlumnoActualizado });
+          alumnos.push(datosAlumnoActualizado);
         }
         actualizarDatalistAlumnos();
         actualizarOpcionesFiltroEscuelas();
