@@ -31,7 +31,6 @@ exports.crearCheckoutSession = async (req, res) => {
     const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
 
     const configuracionSesion = {
-      payment_method_types: ['card'],
       line_items: [
         {
           price_data: {
