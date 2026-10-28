@@ -325,7 +325,7 @@ if (routerCuentas) app.use('/api/cuentas', requireAuth, routerCuentas);
 const routerClientes = cargarRutaSegura(['./routes/clientes', './routes/Clientes']);
 if (routerClientes) app.use('/api/clientes', requireAuth, routerClientes);
 
-// 9. Archivos estáticos
+// 9. Archivos estáticos auxiliares (CSS, JS, imágenes)
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.static(path.join(__dirname, '../public')));
 app.use(express.static(__dirname));
@@ -334,38 +334,28 @@ app.use(express.static(__dirname));
 // 10. RUTAS SEPARADAS: ALUMNOS vs ADMIN
 // ==========================================
 
-// Portal del alumno (PÚBLICO)
-app.get(['/', '/pago', '/portal'], (req, res) => {
-  const rutaPortal = path.join(__dirname, 'public', 'portal.html');
-  const rutaPortalRaiz = path.join(__dirname, 'portal.html');
+const entregarIndex = (res) => {
   const rutaPublicIndex = path.join(__dirname, 'public', 'index.html');
+  const rutaLocalIndex = path.join(__dirname, 'index.html');
 
-  res.sendFile(rutaPortal, (err) => {
+  res.sendFile(rutaPublicIndex, (err) => {
     if (!err) return;
-    res.sendFile(rutaPortalRaiz, (err2) => {
-      if (!err2) return;
-      res.sendFile(rutaPublicIndex, (err3) => {
-        if (err3) res.status(200).send('Portal de alumnos en línea');
-      });
+    res.sendFile(rutaLocalIndex, (err2) => {
+      if (err2) {
+        res.status(500).send('Error: no se encontró el archivo index.html en el servidor');
+      }
     });
   });
+};
+
+// Portal del alumno (PÚBLICO - Carga la interfaz sin solicitar credenciales)
+app.get(['/', '/pago', '/portal'], (req, res) => {
+  entregarIndex(res);
 });
 
-// Panel de administrador (PROTEGIDO)
+// Panel de administrador (PROTEGIDO - Solicita usuario y contraseña)
 app.get('/admin', requireAuth, (req, res) => {
-  const rutaAdmin = path.join(__dirname, 'public', 'admin.html');
-  const rutaAdminRaiz = path.join(__dirname, 'admin.html');
-  const rutaPublicIndex = path.join(__dirname, 'public', 'index.html');
-
-  res.sendFile(rutaAdmin, (err) => {
-    if (!err) return;
-    res.sendFile(rutaAdminRaiz, (err2) => {
-      if (!err2) return;
-      res.sendFile(rutaPublicIndex, (err3) => {
-        if (err3) res.status(200).send('Panel de administrador');
-      });
-    });
-  });
+  entregarIndex(res);
 });
 
 // Redirección por defecto
