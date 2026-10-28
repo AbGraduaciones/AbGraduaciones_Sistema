@@ -8,6 +8,11 @@ const nodemailer = require('nodemailer');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Importar modelos
+const Cliente = require('./models/Cliente');
+const Cuenta = require('./models/Cuenta');
+const Pago = require('./models/Pago');
+
 // Memoria compartida accesible globalmente
 global.datosCompartidos = {
   alumnos: [],
@@ -15,13 +20,70 @@ global.datosCompartidos = {
   pagos: []
 };
 
+// Función auxiliar para cargar los datos desde MongoDB a la memoria compartida
+async function sincronizarMemoriaDesdeBD() {
+  if (mongoose.connection.readyState !== 1) return;
+  try {
+    const clientesBD = await Cliente.find().lean();
+    const cuentasBD = await Cuenta.find().lean();
+    const pagosBD = await Pago.find().sort({ fecha: -1, createdAt: -1 }).lean();
+
+    if (clientesBD.length > 0) {
+      global.datosCompartidos.alumnos = clientesBD.map(c => ({
+        id: c._id ? String(c._id) : (c.id || 'ALU-001'),
+        nombre: c.nombre,
+        email: c.email,
+        telefono: c.telefono || '',
+        universidad: c.universidad || '',
+        escuela: c.direccion || c.escuela || ''
+      }));
+    }
+
+    if (cuentasBD.length > 0) {
+      global.datosCompartidos.saldos = cuentasBD.map(cta => ({
+        id: cta.id || String(cta._id),
+        _id: String(cta._id),
+        alumno: cta.alumno,
+        paquete: cta.paquete,
+        monto: cta.monto,
+        saldo: cta.saldo !== undefined ? cta.saldo : cta.monto,
+        saldoPendiente: cta.saldo !== undefined ? cta.saldo : cta.monto,
+        pagos: Array.isArray(cta.pagos) && cta.pagos.length === 10 ? cta.pagos : [0,0,0,0,0,0,0,0,0,0],
+        entregas: cta.entregas || {},
+        eleccionEspecial: cta.eleccionEspecial || '',
+        esContadoEfectivo: Boolean(cta.esContadoEfectivo)
+      }));
+    }
+
+    if (pagosBD.length > 0) {
+      global.datosCompartidos.pagos = pagosBD.map((p, idx) => ({
+        id: p._id ? String(p._id) : `PAG-${String(idx + 1).padStart(3, '0')}`,
+        folio: p._id ? String(p._id) : `PAG-${String(idx + 1).padStart(3, '0')}`,
+        alumno: p.alumno || 'Alumno',
+        concepto: p.concepto || 'Abono de Graduación',
+        monto: p.monto,
+        montoAbonado: p.monto,
+        fecha: p.fecha ? new Date(p.fecha).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+        metodo: p.metodoPago === 'stripe' ? 'Tarjeta (Stripe)' : (p.metodoPago || 'Efectivo'),
+        estado: 'Completado'
+      }));
+    }
+    console.log('✅ Sincronización exitosa: MongoDB -> Memoria Global');
+  } catch (err) {
+    console.error('⚠️ Error al cargar datos iniciales desde MongoDB:', err.message);
+  }
+}
+
 // 1. Conexión a MongoDB Atlas
 const mongoUri = process.env.MONGODB_URI || process.env.MONGOOSE_URI;
 if (mongoUri) {
   mongoose.connect(mongoUri, {
     serverSelectionTimeoutMS: 5000
   })
-  .then(() => console.log('✅ Conectado exitosamente a MongoDB Atlas'))
+  .then(async () => {
+    console.log('✅ Conectado exitosamente a MongoDB Atlas');
+    await sincronizarMemoriaDesdeBD();
+  })
   .catch((err) => console.error('❌ Error de conexión a MongoDB:', err.message));
 } else {
   console.warn('⚠️ No se encontró MONGODB_URI en las variables de entorno.');
@@ -62,70 +124,6 @@ app.post(
         console.error('Error delegando webhook a pagoController:', err.message);
       }
     }
-
-    const sig = req.headers['stripe-signature'];
-    const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
-    let event;
-
-    try {
-      if (endpointSecret && sig) {
-        event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);
-      } else {
-        event = JSON.parse(req.body.toString());
-      }
-    } catch (err) {
-      console.error(`❌ Error en verificación de webhook: ${err.message}`);
-      return res.status(400).send(`Webhook Error: ${err.message}`);
-    }
-
-    if (event.type === 'checkout.session.completed') {
-      const session = event.data.object;
-      const metadata = session.metadata || {};
-      const monto = session.amount_total ? session.amount_total / 100 : 0;
-      const nombreAlumno = metadata.nombreAlumno || (session.customer_details && session.customer_details.name) || 'Alumno';
-      const cuentaId = metadata.cuentaId || `CTA-${nombreAlumno}`;
-      const concepto = metadata.concepto || 'Abono en Línea (Stripe)';
-
-      const nuevoFolioNum = (global.datosCompartidos.pagos || []).length + 1;
-      const folioId = 'PAG-' + String(nuevoFolioNum).padStart(3, '0');
-
-      const nuevoPago = {
-        id: folioId,
-        alumno: nombreAlumno,
-        concepto: concepto,
-        monto: monto,
-        fecha: new Date().toISOString().split('T')[0],
-        metodo: 'Tarjeta (Stripe)',
-        estado: 'Completado'
-      };
-
-      global.datosCompartidos.pagos.unshift(nuevoPago);
-
-      const saldoEncontrado = global.datosCompartidos.saldos.find(s =>
-        (s.id && s.id === cuentaId) ||
-        (s._id && s._id === cuentaId) ||
-        (s.alumno && s.alumno.toLowerCase() === nombreAlumno.toLowerCase())
-      );
-
-      if (saldoEncontrado) {
-        if (!Array.isArray(saldoEncontrado.pagos)) {
-          saldoEncontrado.pagos = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-        }
-        let asignado = false;
-        for (let i = 0; i < 10; i++) {
-          if (!saldoEncontrado.pagos[i] || saldoEncontrado.pagos[i] === 0) {
-            saldoEncontrado.pagos[i] = monto;
-            asignado = true;
-            break;
-          }
-        }
-        if (!asignado) {
-          saldoEncontrado.pagos[9] = (parseFloat(saldoEncontrado.pagos[9]) || 0) + monto;
-        }
-        console.log(`✅ Pago aplicado en memoria para: ${saldoEncontrado.alumno}`);
-      }
-    }
-
     return res.status(200).json({ received: true });
   }
 );
@@ -139,17 +137,75 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.static(path.join(__dirname, '../public')));
 app.use(express.static(__dirname));
 
-// 5. Rutas de sincronización para el Frontend
-app.get('/api/datos', (req, res) => {
+// 5. Rutas de sincronización para el Frontend (persistencia real en Mongo)
+app.get('/api/datos', async (req, res) => {
+  if (mongoose.connection.readyState === 1) {
+    await sincronizarMemoriaDesdeBD();
+  }
   res.json(global.datosCompartidos);
 });
 
-app.post('/api/datos', (req, res) => {
-  const { alumnos, saldos, pagos } = req.body;
-  if (alumnos) global.datosCompartidos.alumnos = alumnos;
-  if (saldos) global.datosCompartidos.saldos = saldos;
-  if (pagos) global.datosCompartidos.pagos = pagos;
-  res.json({ ok: true, mensaje: 'Datos sincronizados correctamente' });
+app.post('/api/datos', async (req, res) => {
+  try {
+    const { alumnos, saldos, pagos } = req.body;
+
+    if (Array.isArray(alumnos)) {
+      global.datosCompartidos.alumnos = alumnos;
+      if (mongoose.connection.readyState === 1) {
+        for (const a of alumnos) {
+          await Cliente.findOneAndUpdate(
+            { $or: [{ email: a.email }, { nombre: a.nombre }] },
+            {
+              nombre: a.nombre,
+              email: a.email,
+              telefono: a.telefono,
+              direccion: a.escuela || a.universidad
+            },
+            { upsert: true, new: true }
+          );
+        }
+      }
+    }
+
+    if (Array.isArray(saldos)) {
+      global.datosCompartidos.saldos = saldos;
+      if (mongoose.connection.readyState === 1) {
+        for (const s of saldos) {
+          const montoTotal = Number(s.monto) || 11300;
+          const pagosArr = Array.isArray(s.pagos) ? s.pagos : [0,0,0,0,0,0,0,0,0,0];
+          const pagado = pagosArr.reduce((acc, val) => acc + (Number(val) || 0), 0);
+          const saldoFinal = Math.max(0, montoTotal - pagado);
+
+          await Cuenta.findOneAndUpdate(
+            { $or: [{ id: s.id }, { alumno: new RegExp(s.alumno, 'i') }] },
+            {
+              id: s.id,
+              cliente: s.id || 'CLIENTE-TEMP',
+              alumno: s.alumno,
+              paquete: s.paquete,
+              monto: montoTotal,
+              saldo: saldoFinal,
+              pagos: pagosArr,
+              entregas: s.entregas || {},
+              eleccionEspecial: s.eleccionEspecial || '',
+              esContadoEfectivo: Boolean(s.esContadoEfectivo),
+              pagada: saldoFinal <= 0
+            },
+            { upsert: true, new: true }
+          );
+        }
+      }
+    }
+
+    if (Array.isArray(pagos)) {
+      global.datosCompartidos.pagos = pagos;
+    }
+
+    res.json({ ok: true, mensaje: 'Datos sincronizados y guardados en MongoDB correctamente' });
+  } catch (error) {
+    console.error('Error al persistir en /api/datos:', error.message);
+    res.json({ ok: true, mensaje: 'Guardado en memoria de respaldo' });
+  }
 });
 
 // 6. Endpoint de checkout directo que delega al controlador
@@ -225,12 +281,12 @@ if (routerCuentas) app.use('/api/cuentas', routerCuentas);
 const routerClientes = cargarRutaSegura(['./routes/clientes', './routes/Clientes']);
 if (routerClientes) app.use('/api/clientes', routerClientes);
 
-// Manejador para rutas de API no encontradas (compatible con Express 5)
+// Manejador para rutas de API no encontradas
 app.use('/api', (req, res) => {
   res.status(404).json({ status: 'error', message: 'Ruta API no encontrada' });
 });
 
-// 9. Servir frontend (compatible con Express 5)
+// 9. Servir frontend
 app.use((req, res) => {
   const rutaPublic = path.join(__dirname, 'public', 'index.html');
   const rutaLocal = path.join(__dirname, 'index.html');

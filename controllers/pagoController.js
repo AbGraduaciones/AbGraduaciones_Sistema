@@ -101,31 +101,25 @@ exports.crearPago = async (req, res) => {
       }
 
       if (cuentaDoc) {
-        // Asignar en la primera columna disponible (pago1 a pago10)
+        if (!Array.isArray(cuentaDoc.pagos)) {
+          cuentaDoc.pagos = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        }
         let asignado = false;
-        for (let i = 1; i <= 10; i++) {
-          if (!cuentaDoc[`pago${i}`] || limpiarNumero(cuentaDoc[`pago${i}`]) === 0) {
-            cuentaDoc[`pago${i}`] = montoNum;
+        for (let i = 0; i < 10; i++) {
+          if (!cuentaDoc.pagos[i] || limpiarNumero(cuentaDoc.pagos[i]) === 0) {
+            cuentaDoc.pagos[i] = montoNum;
             asignado = true;
             break;
           }
         }
         if (!asignado) {
-          cuentaDoc.pago10 = limpiarNumero(cuentaDoc.pago10) + montoNum;
+          cuentaDoc.pagos[9] = limpiarNumero(cuentaDoc.pagos[9]) + montoNum;
         }
 
-        const montoTotal = limpiarNumero(cuentaDoc.montoTotal || cuentaDoc.total || cuentaDoc.monto || 11300);
-        let totalPagado = 0;
-        for (let i = 1; i <= 10; i++) {
-          totalPagado += limpiarNumero(cuentaDoc[`pago${i}`]);
-        }
-        cuentaDoc.totalPagado = totalPagado;
-        cuentaDoc.saldoPendiente = Math.max(0, montoTotal - totalPagado);
-        cuentaDoc.saldo = cuentaDoc.saldoPendiente;
-
-        if (Array.isArray(cuentaDoc.pagosHistorial)) {
-          cuentaDoc.pagosHistorial.push(nuevoPago._id);
-        }
+        const montoTotal = limpiarNumero(cuentaDoc.monto || 11300);
+        const totalPagado = cuentaDoc.pagos.reduce((acc, p) => acc + limpiarNumero(p), 0);
+        cuentaDoc.saldo = Math.max(0, montoTotal - totalPagado);
+        cuentaDoc.pagada = cuentaDoc.saldo <= 0;
         await cuentaDoc.save();
       }
     }
@@ -191,145 +185,14 @@ exports.handleStripeWebhook = async (req, res) => {
     let clienteId = metadata.clienteId || metadata.alumnoId || '';
     const concepto = metadata.concepto || 'Abono en Línea (Stripe)';
 
-    if (!nombreAlumno && global.datosCompartidos && Array.isArray(global.datosCompartidos.alumnos)) {
-      const alumnoPorCorreo = global.datosCompartidos.alumnos.find(a => 
-        (a.correo || a.email || '').trim().toLowerCase() === customerEmail
-      );
-      if (alumnoPorCorreo) {
-        nombreAlumno = alumnoPorCorreo.nombre || alumnoPorCorreo.nombreCompleto || '';
-        clienteId = clienteId || alumnoPorCorreo.id || alumnoPorCorreo.folio || '';
-      }
-    }
-
-    if (!nombreAlumno) {
-      nombreAlumno = (session.customer_details && session.customer_details.name) 
-        ? session.customer_details.name.trim() 
-        : '';
-    }
-
-    // 1. Sincronización en memoria compartida (Frontend / Tablas de Saldos)
-    if (global.datosCompartidos) {
-      const saldos = global.datosCompartidos.saldos || [];
-      let saldoEncontrado = null;
-
-      if (saldos.length === 1) {
-        saldoEncontrado = saldos[0];
-      } else if (saldos.length > 1) {
-        saldoEncontrado = saldos.find(s => {
-          const idMatch = cuentaId && ((s.id && s.id === cuentaId) || (s._id && String(s._id) === String(cuentaId)));
-          const alumnoIdMatch = clienteId && ((s.clienteId && s.clienteId === clienteId) || (s.alumnoId && s.alumnoId === clienteId));
-          
-          const nombreS = (s.alumno || s.nombre || s.nombreAlumno || '').trim().toLowerCase();
-          const nombreM = (nombreAlumno || '').toLowerCase();
-          const nameMatch = Boolean(nombreS && nombreM && (nombreS.includes(nombreM) || nombreM.includes(nombreS)));
-
-          const emailS = (s.correo || s.email || '').trim().toLowerCase();
-          const emailMatch = Boolean(customerEmail && emailS && emailS === customerEmail);
-
-          return idMatch || alumnoIdMatch || nameMatch || emailMatch;
-        });
-
-        if (!saldoEncontrado) {
-          saldoEncontrado = saldos.find(s => limpiarNumero(s.saldoPendiente || s.saldo) > 0) || saldos[0];
-        }
-      }
-
-      const nombreFinalHistorial = saldoEncontrado 
-        ? (saldoEncontrado.alumno || saldoEncontrado.nombre || nombreAlumno || 'aaron')
-        : (nombreAlumno || 'aaron');
-
-      const nuevoFolioNum = (global.datosCompartidos.pagos || []).length + 1;
-      const folioId = 'PAG-' + String(nuevoFolioNum).padStart(3, '0');
-
-      const pagoFrontend = {
-        id: folioId,
-        folio: folioId,
-        alumno: nombreFinalHistorial,
-        concepto: concepto,
-        monto: monto,
-        montoAbonado: monto,
-        fecha: new Date().toISOString().split('T')[0],
-        metodo: 'Tarjeta (Stripe)',
-        estado: 'Completado'
-      };
-
-      if (!Array.isArray(global.datosCompartidos.pagos)) {
-        global.datosCompartidos.pagos = [];
-      }
-      global.datosCompartidos.pagos.unshift(pagoFrontend);
-
-      if (saldoEncontrado) {
-        if (!Array.isArray(saldoEncontrado.pagos)) {
-          saldoEncontrado.pagos = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-        }
-
-        // Asignar en la primera columna vacía (pago1 a pago10)
-        let asignado = false;
-        for (let i = 0; i < 10; i++) {
-          const valorActual = limpiarNumero(saldoEncontrado.pagos[i] || saldoEncontrado[`pago${i + 1}`]);
-          if (valorActual === 0) {
-            saldoEncontrado.pagos[i] = monto;
-            saldoEncontrado[`pago${i + 1}`] = monto;
-            asignado = true;
-            break;
-          }
-        }
-        if (!asignado) {
-          const acumulado = limpiarNumero(saldoEncontrado.pagos[9] || saldoEncontrado['pago10']) + monto;
-          saldoEncontrado.pagos[9] = acumulado;
-          saldoEncontrado['pago10'] = acumulado;
-        }
-
-        const montoTotalOriginal = limpiarNumero(
-          saldoEncontrado.montoTotal || saldoEncontrado.total || saldoEncontrado.monto || 11300
-        );
-        
-        let totalAbonado = 0;
-        for (let i = 0; i < 10; i++) {
-          totalAbonado += limpiarNumero(saldoEncontrado.pagos[i] || saldoEncontrado[`pago${i + 1}`]);
-        }
-
-        const saldoFinal = Math.max(0, montoTotalOriginal - totalAbonado);
-
-        saldoEncontrado.montoTotal = montoTotalOriginal;
-        saldoEncontrado.total = montoTotalOriginal;
-        saldoEncontrado.totalPagado = totalAbonado;
-        saldoEncontrado.totalAbonado = totalAbonado;
-        saldoEncontrado.saldoPendiente = saldoFinal;
-        saldoEncontrado.saldo = saldoFinal;
-      }
-    }
-
-    // 2. Persistencia en MongoDB Atlas
+    // 1. Persistencia y Descuento en MongoDB Atlas
+    let cuentaDoc = null;
     try {
       if (mongoose.connection.readyState === 1) {
-        const nuevoPagoBD = new Pago({
-          cuenta: cuentaId || 'CTA-001',
-          cliente: clienteId || 'ALU-001',
-          monto: monto,
-          montoAbonado: monto,
-          alumno: nombreAlumno || 'aaron',
-          concepto: concepto,
-          metodoPago: 'stripe',
-          estado: 'Completado',
-          notas: `Stripe Session: ${session.id} | Email: ${customerEmail}`
-        });
-        await nuevoPagoBD.save();
-
         const condiciones = [];
-        if (nombreAlumno) {
-          condiciones.push(
-            { alumno: new RegExp(nombreAlumno, 'i') },
-            { nombre: new RegExp(nombreAlumno, 'i') }
-          );
-        } else {
-          condiciones.push({ alumno: /aaron/i }, { nombre: /aaron/i });
+        if (nombreAlumno && nombreAlumno !== 'Alumno') {
+          condiciones.push({ alumno: new RegExp(nombreAlumno, 'i') });
         }
-
-        if (customerEmail) {
-          condiciones.push({ correo: customerEmail }, { email: customerEmail });
-        }
-
         if (cuentaId) {
           condiciones.unshift({ id: cuentaId });
           if (mongoose.Types.ObjectId.isValid(cuentaId)) {
@@ -337,41 +200,102 @@ exports.handleStripeWebhook = async (req, res) => {
           }
         }
 
-        let cuentaDoc = await Cuenta.findOne({ $or: condiciones });
+        if (condiciones.length > 0) {
+          cuentaDoc = await Cuenta.findOne({ $or: condiciones });
+        }
         if (!cuentaDoc) {
           cuentaDoc = await Cuenta.findOne();
         }
 
         if (cuentaDoc) {
+          nombreAlumno = cuentaDoc.alumno || nombreAlumno || 'aaron';
+          cuentaId = cuentaDoc.id || String(cuentaDoc._id);
+
+          if (!Array.isArray(cuentaDoc.pagos) || cuentaDoc.pagos.length !== 10) {
+            cuentaDoc.pagos = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+          }
+
           let asignado = false;
-          for (let i = 1; i <= 10; i++) {
-            if (!cuentaDoc[`pago${i}`] || limpiarNumero(cuentaDoc[`pago${i}`]) === 0) {
-              cuentaDoc[`pago${i}`] = monto;
+          for (let i = 0; i < 10; i++) {
+            if (!cuentaDoc.pagos[i] || limpiarNumero(cuentaDoc.pagos[i]) === 0) {
+              cuentaDoc.pagos[i] = monto;
               asignado = true;
               break;
             }
           }
           if (!asignado) {
-            cuentaDoc.pago10 = limpiarNumero(cuentaDoc.pago10) + monto;
+            cuentaDoc.pagos[9] = limpiarNumero(cuentaDoc.pagos[9]) + monto;
           }
 
-          const montoTotal = limpiarNumero(cuentaDoc.montoTotal || cuentaDoc.total || cuentaDoc.monto || 11300);
-          let totalPagado = 0;
-          for (let i = 1; i <= 10; i++) {
-            totalPagado += limpiarNumero(cuentaDoc[`pago${i}`]);
-          }
-          cuentaDoc.totalPagado = totalPagado;
-          cuentaDoc.saldoPendiente = Math.max(0, montoTotal - totalPagado);
-          cuentaDoc.saldo = cuentaDoc.saldoPendiente;
-
-          if (Array.isArray(cuentaDoc.pagosHistorial)) {
-            cuentaDoc.pagosHistorial.push(nuevoPagoBD._id);
-          }
+          const montoTotal = limpiarNumero(cuentaDoc.monto || 11300);
+          const totalPagado = cuentaDoc.pagos.reduce((acc, p) => acc + limpiarNumero(p), 0);
+          cuentaDoc.saldo = Math.max(0, montoTotal - totalPagado);
+          cuentaDoc.pagada = cuentaDoc.saldo <= 0;
           await cuentaDoc.save();
         }
+
+        const nuevoPagoBD = new Pago({
+          cuenta: cuentaDoc ? cuentaDoc._id : (cuentaId || 'CTA-001'),
+          cliente: clienteId || 'ALU-001',
+          monto: monto,
+          metodoPago: 'stripe',
+          notas: `Stripe: ${session.id} | Alumno: ${nombreAlumno} | Email: ${customerEmail}`
+        });
+        await nuevoPagoBD.save();
       }
     } catch (dbError) {
       console.error('❌ Error guardando en base de datos:', dbError.message);
+    }
+
+    // 2. Reflejo inmediato en la memoria compartida
+    if (global.datosCompartidos) {
+      const saldos = global.datosCompartidos.saldos || [];
+      let saldoEncontrado = saldos.find(s => 
+        (cuentaId && (s.id === cuentaId || s._id === cuentaId)) ||
+        (nombreAlumno && s.alumno && s.alumno.toLowerCase() === nombreAlumno.toLowerCase())
+      ) || saldos[0];
+
+      if (saldoEncontrado) {
+        if (!Array.isArray(saldoEncontrado.pagos)) {
+          saldoEncontrado.pagos = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        }
+        let asignado = false;
+        for (let i = 0; i < 10; i++) {
+          if (!saldoEncontrado.pagos[i] || limpiarNumero(saldoEncontrado.pagos[i]) === 0) {
+            saldoEncontrado.pagos[i] = monto;
+            asignado = true;
+            break;
+          }
+        }
+        if (!asignado) {
+          saldoEncontrado.pagos[9] = limpiarNumero(saldoEncontrado.pagos[9]) + monto;
+        }
+
+        const montoTotalOriginal = limpiarNumero(saldoEncontrado.monto || 11300);
+        const totalAbonado = saldoEncontrado.pagos.reduce((acc, p) => acc + limpiarNumero(p), 0);
+        const saldoFinal = Math.max(0, montoTotalOriginal - totalAbonado);
+
+        saldoEncontrado.saldoPendiente = saldoFinal;
+        saldoEncontrado.saldo = saldoFinal;
+      }
+
+      const nuevoFolioNum = (global.datosCompartidos.pagos || []).length + 1;
+      const folioId = 'PAG-' + String(nuevoFolioNum).padStart(3, '0');
+
+      if (!Array.isArray(global.datosCompartidos.pagos)) {
+        global.datosCompartidos.pagos = [];
+      }
+      global.datosCompartidos.pagos.unshift({
+        id: folioId,
+        folio: folioId,
+        alumno: nombreAlumno || 'aaron',
+        concepto: concepto,
+        monto: monto,
+        montoAbonado: monto,
+        fecha: new Date().toISOString().split('T')[0],
+        metodo: 'Tarjeta (Stripe)',
+        estado: 'Completado'
+      });
     }
   }
 
@@ -430,7 +354,7 @@ exports.eliminarPago = async (req, res) => {
 
     await Cuenta.findOneAndUpdate(
       { $or: condiciones },
-      { $inc: { saldo: pagoAEliminar.monto, saldoPendiente: pagoAEliminar.monto } }
+      { $inc: { saldo: pagoAEliminar.monto } }
     );
     await Pago.findByIdAndDelete(id);
 
