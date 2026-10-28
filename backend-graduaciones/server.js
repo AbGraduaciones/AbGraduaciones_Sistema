@@ -17,7 +17,6 @@ global.datosCompartidos = {
 
 // 1. Conexión a MongoDB Atlas
 const mongoUri = process.env.MONGODB_URI || process.env.MONGOOSE_URI;
-
 if (mongoUri) {
   mongoose.connect(mongoUri, {
     serverSelectionTimeoutMS: 5000
@@ -138,6 +137,7 @@ app.use(express.json());
 // Servir frontend estático
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.static(path.join(__dirname, '../public')));
+app.use(express.static(__dirname));
 
 // 5. Rutas de sincronización para el Frontend
 app.get('/api/datos', (req, res) => {
@@ -152,13 +152,16 @@ app.post('/api/datos', (req, res) => {
   res.json({ ok: true, mensaje: 'Datos sincronizados correctamente' });
 });
 
-// 6. Endpoint directo compatible para crear checkout delegando al controlador
-app.post('/api/crear-checkout', (req, res) => {
+// 6. Endpoint de checkout directo que delega al controlador
+const procesarCheckout = (req, res) => {
   if (pagoController && typeof pagoController.crearCheckoutSession === 'function') {
     return pagoController.crearCheckoutSession(req, res);
   }
-  return res.status(500).json({ error: 'Controlador de pagos no disponible' });
-});
+  return res.status(500).json({ status: 'error', message: 'Controlador de pagos no disponible' });
+};
+
+app.post('/api/crear-checkout', procesarCheckout);
+app.post('/api/pagos/crear-checkout-session', procesarCheckout);
 
 // 7. Envío de correos por Gmail
 const transporter = nodemailer.createTransport({
@@ -199,29 +202,45 @@ app.post('/api/enviar-codigo-seguridad', async (req, res) => {
   }
 });
 
-// 8. Rutas API
-try {
-  app.use('/api/pagos', require('./routes/pagoRoutes'));
-} catch (e) {
-  console.warn('Ruta ./routes/pagoRoutes no encontrada o error al cargar:', e.message);
-}
-try {
-  app.use('/api/cuentas', require('./routes/cuentas'));
-} catch (e) {}
-try {
-  app.use('/api/clientes', require('./routes/clientes'));
-} catch (e) {}
+// 8. Rutas API opcionales
+const cargarRutaSegura = (rutas) => {
+  for (const r of rutas) {
+    try {
+      return require(r);
+    } catch (e) {
+      if (e.code !== 'MODULE_NOT_FOUND') {
+        console.warn(`Aviso al cargar ruta ${r}:`, e.message);
+      }
+    }
+  }
+  return null;
+};
 
-// Manejador 404 para cualquier ruta de API no existente (para que NUNCA devuelva HTML)
-app.all('/api/*', (req, res) => {
-  res.status(404).json({ error: 'Ruta API no encontrada' });
+const routerPagos = cargarRutaSegura(['./routes/pagoRoutes', './routes/PagoRoutes']);
+if (routerPagos) app.use('/api/pagos', routerPagos);
+
+const routerCuentas = cargarRutaSegura(['./routes/cuentas', './routes/Cuentas']);
+if (routerCuentas) app.use('/api/cuentas', routerCuentas);
+
+const routerClientes = cargarRutaSegura(['./routes/clientes', './routes/Clientes']);
+if (routerClientes) app.use('/api/clientes', routerClientes);
+
+// Manejador para rutas de API no encontradas (compatible con Express 5)
+app.use('/api', (req, res) => {
+  res.status(404).json({ status: 'error', message: 'Ruta API no encontrada' });
 });
 
-// 9. Servir frontend solo para peticiones GET que no sean de API
-app.get('*', (req, res) => {
-  const indexHtml = path.join(__dirname, 'public', 'index.html');
-  res.sendFile(indexHtml, (err) => {
-    if (err) res.status(200).send('Sistema Ab Graduaciones en línea');
+// 9. Servir frontend (compatible con Express 5)
+app.use((req, res) => {
+  const rutaPublic = path.join(__dirname, 'public', 'index.html');
+  const rutaLocal = path.join(__dirname, 'index.html');
+
+  res.sendFile(rutaPublic, (err) => {
+    if (err) {
+      res.sendFile(rutaLocal, (err2) => {
+        if (err2) res.status(200).send('Sistema Ab Graduaciones en línea');
+      });
+    }
   });
 });
 
