@@ -8,6 +8,31 @@ const nodemailer = require('nodemailer');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Middleware de autenticación básica (Basic Auth)
+const requireAuth = (req, res, next) => {
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader) {
+    res.setHeader('WWW-Authenticate', 'Basic realm="Panel de Administrador"');
+    return res.status(401).send('Acceso denegado: se requieren credenciales');
+  }
+
+  // Extraer las credenciales codificadas en Base64
+  const authData = Buffer.from(authHeader.split(' ')[1], 'base64').toString().split(':');
+  const usuario = authData[0];
+  const password = authData[1];
+
+  const adminUser = process.env.ADMIN_USER || 'admin';
+  const adminPass = process.env.ADMIN_PASS;
+
+  if (usuario === adminUser && password === adminPass) {
+    return next(); // Credenciales correctas, continúa la petición
+  }
+
+  res.setHeader('WWW-Authenticate', 'Basic realm="Panel de Administrador"');
+  return res.status(401).send('Acceso denegado: usuario o contraseña incorrectos');
+};
+
 // Carga segura de modelos tolerante a mayúsculas/minúsculas y plural/singular
 const cargarModelo = (rutas) => {
   for (const r of rutas) {
@@ -145,20 +170,15 @@ app.post(
 app.use(cors());
 app.use(express.json());
 
-// Servir frontend estático
-app.use(express.static(path.join(__dirname, 'public')));
-app.use(express.static(path.join(__dirname, '../public')));
-app.use(express.static(__dirname));
-
-// 5. Rutas de sincronización para el Frontend (persistencia real en Mongo)
-app.get('/api/datos', async (req, res) => {
+// 5. Rutas de sincronización para el Frontend (Protegidas con autenticación)
+app.get('/api/datos', requireAuth, async (req, res) => {
   if (mongoose.connection.readyState === 1) {
     await sincronizarMemoriaDesdeBD();
   }
   res.json(global.datosCompartidos);
 });
 
-app.post('/api/datos', async (req, res) => {
+app.post('/api/datos', requireAuth, async (req, res) => {
   try {
     const { alumnos, saldos, pagos } = req.body;
 
@@ -221,7 +241,7 @@ app.post('/api/datos', async (req, res) => {
   }
 });
 
-// 6. Endpoint de checkout directo que delega al controlador
+// 6. Endpoint de checkout directo que delega al controlador (Público para pagos de clientes)
 const procesarCheckout = (req, res) => {
   if (pagoController && typeof pagoController.crearCheckoutSession === 'function') {
     return pagoController.crearCheckoutSession(req, res);
@@ -232,7 +252,7 @@ const procesarCheckout = (req, res) => {
 app.post('/api/crear-checkout', procesarCheckout);
 app.post('/api/pagos/crear-checkout-session', procesarCheckout);
 
-// 7. Envío de correos por Gmail
+// 7. Envío de correos por Gmail (Público para el portal del alumno)
 const transporter = nodemailer.createTransport({
   host: 'smtp.gmail.com',
   port: 465,
@@ -289,18 +309,22 @@ const routerPagos = cargarRutaSegura(['./routes/pagoRoutes', './routes/PagoRoute
 if (routerPagos) app.use('/api/pagos', routerPagos);
 
 const routerCuentas = cargarRutaSegura(['./routes/cuentas', './routes/Cuentas']);
-if (routerCuentas) app.use('/api/cuentas', routerCuentas);
+if (routerCuentas) app.use('/api/cuentas', requireAuth, routerCuentas);
 
 const routerClientes = cargarRutaSegura(['./routes/clientes', './routes/Clientes']);
-if (routerClientes) app.use('/api/clientes', routerClientes);
+if (routerClientes) app.use('/api/clientes', requireAuth, routerClientes);
 
 // Manejador para rutas de API no encontradas
 app.use('/api', (req, res) => {
   res.status(404).json({ status: 'error', message: 'Ruta API no encontrada' });
 });
 
-// 9. Servir frontend
-app.use((req, res) => {
+// Archivos estáticos auxiliares (CSS, JS, imágenes, páginas secundarias)
+app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, '../public')));
+
+// 9. Servir frontend principal protegido con contraseña
+app.use(requireAuth, (req, res) => {
   const rutaPublic = path.join(__dirname, 'public', 'index.html');
   const rutaLocal = path.join(__dirname, 'index.html');
 
