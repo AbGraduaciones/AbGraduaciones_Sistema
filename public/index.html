@@ -27,9 +27,10 @@
             id="imgLogo" 
             src="/logo.png" 
             alt="Logo Ab Graduaciones" 
+            onerror="mostrarFallbackTextoLogo()"
             class="max-h-full max-w-[210px] object-contain"
           />
-          <h1 id="textoTituloLogo" class="hidden">
+          <h1 id="textoTituloLogo" class="text-2xl font-black tracking-wider text-white drop-shadow-[0_0_10px_rgba(59,130,246,0.5)] hidden">
             Ab Graduaciones
           </h1>
         </div>
@@ -217,7 +218,7 @@
         <tr>
           <td style="vertical-align: middle; text-align: left; width: 52%;">
             <div id="pdfLogoContenedor">
-             <img id="pdfLogoImg" src="/logo.png" style="max-height: 55px; max-width: 200px; object-fit: contain; display: block;" alt="Logo" />
+              <img id="pdfLogoImg" src="/logo.png" onerror="mostrarFallbackPdfTextoLogo()" style="max-height: 55px; max-width: 200px; object-fit: contain; display: block;" alt="Logo" />
               <div id="pdfLogoTexto" style="display: none;">
                 <div style="color: #1e3a8a; font-size: 24px; font-weight: 900; line-height: 1; letter-spacing: 1px;">AB</div>
                 <div style="color: #2563eb; font-size: 16px; font-weight: 700; line-height: 1; letter-spacing: 0.5px; text-transform: uppercase; margin-top: 2px;">GRADUACIONES</div>
@@ -622,6 +623,20 @@
       }
     }
 
+    function mostrarFallbackTextoLogo() {
+      const imgLogo = document.getElementById('imgLogo');
+      const textoTitulo = document.getElementById('textoTituloLogo');
+      if (imgLogo) imgLogo.classList.add('hidden');
+      if (textoTitulo) textoTitulo.classList.remove('hidden');
+    }
+
+    function mostrarFallbackPdfTextoLogo() {
+      const pdfLogoImg = document.getElementById('pdfLogoImg');
+      const pdfLogoTexto = document.getElementById('pdfLogoTexto');
+      if (pdfLogoImg) pdfLogoImg.style.display = 'none';
+      if (pdfLogoTexto) pdfLogoTexto.style.display = 'block';
+    }
+
     document.addEventListener('DOMContentLoaded', async () => {
       cargarLogoGuardado();
       await sincronizarDesdeServidor();
@@ -636,7 +651,6 @@
       const esAdmin = rutaActual.startsWith('/admin') || rutaActual.startsWith('/admn');
 
       if (!esAdmin) {
-        // En /pago, /portal o raíz: Ocultar panel admin y mostrar solo portal del alumno
         const barraLateral = document.getElementById('barraLateral');
         const selectorModoDiv = document.getElementById('contenedorSelectorModo');
         if (barraLateral) barraLateral.classList.add('hidden');
@@ -645,7 +659,6 @@
         modoAcceso = 'alumno';
         cargarContenido('portal_alumno');
       } else {
-        // En /admin: Mostrar panel de administración completo
         modoAcceso = 'admin';
         cargarContenido('saldos');
       }
@@ -707,23 +720,26 @@
     }
 
     function cargarLogoGuardado() {
-  const imgLogo = document.getElementById('imgLogo');
-  const pdfLogoImg = document.getElementById('pdfLogoImg');
-  const textoTitulo = document.getElementById('textoTituloLogo');
-  const pdfLogoTexto = document.getElementById('pdfLogoTexto');
+      const logoLocal = localStorage.getItem('app_logo_empresa');
+      const imgLogo = document.getElementById('imgLogo');
+      const pdfLogoImg = document.getElementById('pdfLogoImg');
+      const textoTitulo = document.getElementById('textoTituloLogo');
+      const pdfLogoTexto = document.getElementById('pdfLogoTexto');
 
-  if (imgLogo) {
-    imgLogo.src = '/logo.png';
-    imgLogo.classList.remove('hidden');
-  }
-  if (textoTitulo) textoTitulo.classList.add('hidden');
+      const rutaLogo = logoLocal || '/logo.png';
 
-  if (pdfLogoImg) {
-    pdfLogoImg.src = '/logo.png';
-    pdfLogoImg.style.display = 'block';
-  }
-  if (pdfLogoTexto) pdfLogoTexto.style.display = 'none';
-}
+      if (imgLogo) {
+        imgLogo.src = rutaLogo;
+        imgLogo.classList.remove('hidden');
+      }
+      if (textoTitulo) textoTitulo.classList.add('hidden');
+
+      if (pdfLogoImg) {
+        pdfLogoImg.src = rutaLogo;
+        pdfLogoImg.style.display = 'block';
+      }
+      if (pdfLogoTexto) pdfLogoTexto.style.display = 'none';
+    }
 
     function subirLogoLocal(event) {
       const archivo = event.target.files[0];
@@ -780,7 +796,6 @@
       return nuevoArreglo;
     }
 
-    // OPCIÓN C: Formato numérico de 4 dígitos (1001, 1002, 1003...)
     function generarNuevoIdAlumno() {
       if (!alumnos || alumnos.length === 0) return "1001";
       const numeros = alumnos
@@ -2188,17 +2203,18 @@
     }
 
     function prepararPlantillaRecibo(pagoObj) {
-      const logoData = localStorage.getItem('app_logo_empresa');
+      const logoLocal = localStorage.getItem('app_logo_empresa');
       const pdfLogoImg = document.getElementById('pdfLogoImg');
       const pdfLogoTexto = document.getElementById('pdfLogoTexto');
 
-      if (logoData) {
-        pdfLogoImg.src = logoData;
+      const rutaLogo = logoLocal || '/logo.png';
+
+      if (pdfLogoImg) {
+        pdfLogoImg.src = rutaLogo;
         pdfLogoImg.style.display = 'block';
+      }
+      if (pdfLogoTexto) {
         pdfLogoTexto.style.display = 'none';
-      } else {
-        pdfLogoImg.style.display = 'none';
-        pdfLogoTexto.style.display = 'block';
       }
 
       const alumnoObj = alumnos.find(a => a.nombre.toLowerCase() === pagoObj.alumno.toLowerCase()) || {};
