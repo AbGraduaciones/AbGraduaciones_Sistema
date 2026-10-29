@@ -163,7 +163,7 @@ app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res)
 app.use(cors());
 app.use(express.json());
 
-// 5. Rutas de datos públicas (SIN requireAuth para permitir consulta en el portal de alumnos sin pedir contraseña)
+// 5. Rutas de datos públicas (SIN requireAuth para no bloquear la consulta al portal de alumnos)
 app.get('/api/datos', async (req, res) => {
   if (mongoose.connection.readyState === 1) {
     await sincronizarMemoriaDesdeBD();
@@ -311,8 +311,31 @@ const routerClientes = cargarRutaSegura(['./routes/clientes', './routes/Clientes
 if (routerClientes) app.use('/api/clientes', requireAuth, routerClientes);
 
 // ==========================================
-// 9. GESTOR DE ENTREGA DE FRONTEND
+// 9. ARCHIVOS ESTÁTICOS Y SERVICIO DE LOGO
 // ==========================================
+
+// Ruta prioritaria para el logotipo oficial (evita que se desvíe a la redirección)
+app.get('/logo.png', (req, res) => {
+  const posiblesRutasLogo = [
+    path.join(process.cwd(), 'public', 'logo.png'),
+    path.join(__dirname, 'public', 'logo.png'),
+    path.join(__dirname, '..', 'public', 'logo.png'),
+    path.join(__dirname, 'logo.png')
+  ];
+
+  for (const ruta of posiblesRutasLogo) {
+    if (fs.existsSync(ruta)) {
+      return res.sendFile(ruta);
+    }
+  }
+  res.status(404).send('Logo no encontrado');
+});
+
+// Servir archivos estáticos de la carpeta public sin entregar automáticamente index.html
+app.use(express.static(path.join(process.cwd(), 'public'), { index: false }));
+app.use(express.static(path.join(__dirname, 'public'), { index: false }));
+
+// Función para entregar index.html en las rutas visuales
 const entregarIndex = (res) => {
   const posiblesRutas = [
     path.join(process.cwd(), 'public', 'index.html'),
@@ -330,9 +353,9 @@ const entregarIndex = (res) => {
   res.status(500).send('Error: no se encontró index.html');
 };
 
-// Archivos estáticos auxiliares SIN entregar automáticamente index.html
-app.use(express.static(path.join(process.cwd(), 'public'), { index: false }));
-app.use(express.static(path.join(__dirname, 'public'), { index: false }));
+// ==========================================
+// 10. RUTAS VISUALES Y GESTOR DE FRONTEND
+// ==========================================
 
 // PORTAL DEL ALUMNO (PÚBLICO: Raíz y /pago) -> NUNCA pide contraseña
 app.get(['/', '/pago', '/portal'], (req, res) => {
