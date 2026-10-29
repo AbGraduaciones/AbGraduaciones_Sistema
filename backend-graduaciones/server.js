@@ -357,6 +357,12 @@ const entregarIndex = (res) => {
 // 10. RUTAS VISUALES Y GESTOR DE FRONTEND
 // ==========================================
 
+// Ruta para forzar el cierre de sesión del Administrador invalidando credenciales en el navegador
+app.get('/api/logout', (req, res) => {
+  res.setHeader('WWW-Authenticate', 'Basic realm="Panel de Administrador"');
+  res.status(401).send('Sesión cerrada');
+});
+
 // PORTAL DEL ALUMNO (PÚBLICO: Raíz y /pago) -> NUNCA pide contraseña
 app.get(['/', '/pago', '/portal'], (req, res) => {
   entregarIndex(res);
