@@ -25,11 +25,11 @@
         <div id="contenedorLogo" class="w-full flex items-center justify-start h-24 p-1">
           <img 
             id="imgLogo" 
-            src="" 
+            src="/logo.png" 
             alt="Logo Ab Graduaciones" 
-            class="max-h-full max-w-[210px] object-contain hidden"
+            class="max-h-full max-w-[210px] object-contain"
           />
-          <h1 id="textoTituloLogo" class="text-2xl font-black tracking-wider text-white drop-shadow-[0_0_10px_rgba(59,130,246,0.5)]">
+          <h1 id="textoTituloLogo" class="hidden">
             Ab Graduaciones
           </h1>
         </div>
@@ -217,8 +217,8 @@
         <tr>
           <td style="vertical-align: middle; text-align: left; width: 52%;">
             <div id="pdfLogoContenedor">
-              <img id="pdfLogoImg" src="" style="max-height: 55px; max-width: 200px; object-fit: contain; display: none;" alt="Logo" />
-              <div id="pdfLogoTexto" style="display: block;">
+             <img id="pdfLogoImg" src="/logo.png" style="max-height: 55px; max-width: 200px; object-fit: contain; display: block;" alt="Logo" />
+              <div id="pdfLogoTexto" style="display: none;">
                 <div style="color: #1e3a8a; font-size: 24px; font-weight: 900; line-height: 1; letter-spacing: 1px;">AB</div>
                 <div style="color: #2563eb; font-size: 16px; font-weight: 700; line-height: 1; letter-spacing: 0.5px; text-transform: uppercase; margin-top: 2px;">GRADUACIONES</div>
               </div>
@@ -707,19 +707,23 @@
     }
 
     function cargarLogoGuardado() {
-      const logoData = localStorage.getItem('app_logo_empresa');
-      const imgLogo = document.getElementById('imgLogo');
-      const textoTitulo = document.getElementById('textoTituloLogo');
+  const imgLogo = document.getElementById('imgLogo');
+  const pdfLogoImg = document.getElementById('pdfLogoImg');
+  const textoTitulo = document.getElementById('textoTituloLogo');
+  const pdfLogoTexto = document.getElementById('pdfLogoTexto');
 
-      if (logoData) {
-        imgLogo.src = logoData;
-        imgLogo.classList.remove('hidden');
-        textoTitulo.classList.add('hidden');
-      } else {
-        imgLogo.classList.add('hidden');
-        textoTitulo.classList.remove('hidden');
-      }
-    }
+  if (imgLogo) {
+    imgLogo.src = '/logo.png';
+    imgLogo.classList.remove('hidden');
+  }
+  if (textoTitulo) textoTitulo.classList.add('hidden');
+
+  if (pdfLogoImg) {
+    pdfLogoImg.src = '/logo.png';
+    pdfLogoImg.style.display = 'block';
+  }
+  if (pdfLogoTexto) pdfLogoTexto.style.display = 'none';
+}
 
     function subirLogoLocal(event) {
       const archivo = event.target.files[0];
