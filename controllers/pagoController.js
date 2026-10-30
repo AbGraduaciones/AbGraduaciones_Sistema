@@ -12,6 +12,146 @@ const limpiarNumero = (val) => {
   return isNaN(num) ? 0 : num;
 };
 
+// Función auxiliar para aplicar el abono y descontar el saldo en MongoDB Atlas
+async function aplicarAbonoACuenta({ cuentaId, alumnoId, nombreAlumno, monto, concepto, sessionId, customerEmail }) {
+  if (mongoose.connection.readyState !== 1) return null;
+
+  const condiciones = [];
+
+  // 1. Búsqueda por _id de MongoDB
+  if (cuentaId && mongoose.Types.ObjectId.isValid(cuentaId)) {
+    condiciones.push({ _id: new mongoose.Types.ObjectId(cuentaId) });
+  }
+
+  // 2. Búsqueda por id personalizado (String)
+  if (cuentaId) {
+    condiciones.push({ id: String(cuentaId) });
+  }
+
+  // 3. Búsqueda por ID de Alumno / Cliente
+  if (alumnoId) {
+    condiciones.push({ cliente: String(alumnoId) });
+    condiciones.push({ id: String(alumnoId) });
+  }
+
+  // 4. Búsqueda por nombre del alumno (insensible a mayúsculas/minúsculas)
+  if (nombreAlumno && nombreAlumno !== 'Alumno') {
+    const nombreLimpio = nombreAlumno.trim();
+    condiciones.push({ alumno: new RegExp(nombreLimpio, 'i') });
+    // Búsqueda tolerante de la primera palabra por si hay discrepancias de apellidos o acentos
+    const primerNombre = nombreLimpio.split(' ')[0];
+    if (primerNombre.length > 2) {
+      condiciones.push({ alumno: new RegExp(primerNombre, 'i') });
+    }
+  }
+
+  let cuentaDoc = null;
+  if (condiciones.length > 0) {
+    cuentaDoc = await Cuenta.findOne({ $or: condiciones });
+  }
+
+  if (!cuentaDoc) {
+    console.warn(`⚠️ No se encontró la cuenta con los criterios proporcionados. Criterios:`, { cuentaId, alumnoId, nombreAlumno });
+    return null;
+  }
+
+  // Asegurar que el arreglo de pagos tenga 10 posiciones numéricas
+  if (!Array.isArray(cuentaDoc.pagos) || cuentaDoc.pagos.length !== 10) {
+    const pagosActuales = Array.isArray(cuentaDoc.pagos) ? cuentaDoc.pagos : [];
+    cuentaDoc.pagos = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    for (let i = 0; i < Math.min(10, pagosActuales.length); i++) {
+      cuentaDoc.pagos[i] = limpiarNumero(pagosActuales[i]);
+    }
+  }
+
+  // Asignar el abono en el siguiente pago disponible (del 1 al 10)
+  let asignado = false;
+  for (let i = 0; i < 10; i++) {
+    if (!cuentaDoc.pagos[i] || limpiarNumero(cuentaDoc.pagos[i]) === 0) {
+      cuentaDoc.pagos[i] = monto;
+      asignado = true;
+      break;
+    }
+  }
+  if (!asignado) {
+    cuentaDoc.pagos[9] = limpiarNumero(cuentaDoc.pagos[9]) + monto;
+  }
+
+  // Recalcular saldo total pendiente
+  const montoTotal = limpiarNumero(cuentaDoc.monto || 11300);
+  const totalPagado = cuentaDoc.pagos.reduce((acc, p) => acc + limpiarNumero(p), 0);
+  cuentaDoc.saldo = Math.max(0, montoTotal - totalPagado);
+  cuentaDoc.pagada = cuentaDoc.saldo <= 0;
+
+  // AVISO EXPLICITO A MONGOOSE: Forzar guardado de campos mutados
+  cuentaDoc.markModified('pagos');
+  cuentaDoc.markModified('saldo');
+  await cuentaDoc.save();
+
+  console.log(`✅ Saldo descontado exitosamente en MongoDB Atlas para ${cuentaDoc.alumno}: Nuevo Saldo = $${cuentaDoc.saldo}`);
+
+  // Registrar el comprobante en la colección de Pagos si no existe previamente
+  const yaExistePago = await Pago.findOne({
+    $or: [
+      { notas: new RegExp(sessionId || '---', 'i') }
+    ]
+  });
+
+  if (!yaExistePago) {
+    const nuevoPagoBD = new Pago({
+      cuenta: cuentaDoc._id,
+      cliente: alumnoId || cuentaDoc.cliente || 'ALU-001',
+      alumno: cuentaDoc.alumno,
+      concepto: concepto || 'Abono en Línea (Stripe)',
+      monto: monto,
+      fecha: new Date(),
+      metodoPago: 'stripe',
+      notas: `Stripe: ${sessionId || 'MANUAL'} | Alumno: ${cuentaDoc.alumno} | Email: ${customerEmail || ''}`
+    });
+    await nuevoPagoBD.save();
+  }
+
+  // Reflejar inmediatamente en la memoria global
+  if (global.datosCompartidos) {
+    const saldos = global.datosCompartidos.saldos || [];
+    let saldoEncontrado = saldos.find(s => 
+      String(s._id) === String(cuentaDoc._id) || 
+      String(s.id) === String(cuentaDoc.id) ||
+      (s.alumno && s.alumno.toLowerCase() === cuentaDoc.alumno.toLowerCase())
+    );
+
+    if (saldoEncontrado) {
+      saldoEncontrado.pagos = [...cuentaDoc.pagos];
+      saldoEncontrado.saldo = cuentaDoc.saldo;
+      saldoEncontrado.saldoPendiente = cuentaDoc.saldo;
+    }
+
+    const nuevoFolioNum = (global.datosCompartidos.pagos || []).length + 1;
+    const folioId = 'PAG-' + String(nuevoFolioNum).padStart(3, '0');
+
+    if (!Array.isArray(global.datosCompartidos.pagos)) {
+      global.datosCompartidos.pagos = [];
+    }
+
+    const pagoYaEnMemoria = global.datosCompartidos.pagos.some(p => p.folio === sessionId || p.id === sessionId);
+    if (!pagoYaEnMemoria) {
+      global.datosCompartidos.pagos.unshift({
+        id: folioId,
+        folio: folioId,
+        alumno: cuentaDoc.alumno,
+        concepto: concepto || 'Abono en Línea (Stripe)',
+        monto: monto,
+        montoAbonado: monto,
+        fecha: new Date().toISOString().split('T')[0],
+        metodo: 'Tarjeta (Stripe)',
+        estado: 'Completado'
+      });
+    }
+  }
+
+  return cuentaDoc;
+}
+
 // Crear sesión de Stripe Checkout
 exports.crearCheckoutSession = async (req, res) => {
   try {
@@ -102,45 +242,13 @@ exports.crearPago = async (req, res) => {
     await nuevoPago.save();
 
     if (cuenta || alumno) {
-      const condiciones = [];
-      if (cuenta) {
-        condiciones.push({ id: cuenta });
-        if (mongoose.Types.ObjectId.isValid(cuenta)) condiciones.unshift({ _id: cuenta });
-      }
-      if (alumno) {
-        condiciones.push({ alumno: new RegExp(`^${alumno.trim()}$`, 'i') }, { alumno: new RegExp(alumno.trim(), 'i') });
-      }
-
-      let cuentaDoc = await Cuenta.findOne({ $or: condiciones });
-      if (!cuentaDoc && mongoose.connection.readyState === 1) {
-        cuentaDoc = await Cuenta.findOne();
-      }
-
-      if (cuentaDoc) {
-        if (!Array.isArray(cuentaDoc.pagos)) {
-          cuentaDoc.pagos = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-        }
-        let asignado = false;
-        for (let i = 0; i < 10; i++) {
-          if (!cuentaDoc.pagos[i] || limpiarNumero(cuentaDoc.pagos[i]) === 0) {
-            cuentaDoc.pagos[i] = montoNum;
-            asignado = true;
-            break;
-          }
-        }
-        if (!asignado) {
-          cuentaDoc.pagos[9] = limpiarNumero(cuentaDoc.pagos[9]) + montoNum;
-        }
-
-        const montoTotal = limpiarNumero(cuentaDoc.monto || 11300);
-        const totalPagado = cuentaDoc.pagos.reduce((acc, p) => acc + limpiarNumero(p), 0);
-        cuentaDoc.saldo = Math.max(0, montoTotal - totalPagado);
-        cuentaDoc.pagada = cuentaDoc.saldo <= 0;
-
-        // OBLIGATORIO: Notificar a Mongoose que el arreglo 'pagos' cambió
-        cuentaDoc.markModified('pagos');
-        await cuentaDoc.save();
-      }
+      await aplicarAbonoACuenta({
+        cuentaId: cuenta,
+        nombreAlumno: alumno,
+        monto: montoNum,
+        concepto: req.body.concepto || 'Abono Manual',
+        customerEmail: req.body.email || ''
+      });
     }
 
     res.status(201).json({
@@ -188,7 +296,6 @@ exports.handleStripeWebhook = async (req, res) => {
       }
     }
 
-    // Si viene el monto neto en metadata se registra el abono real del alumno, evitando abonarle la comisión
     const monto = metadata.montoNetoAbono
       ? parseFloat(metadata.montoNetoAbono)
       : (session.amount_total ? session.amount_total / 100 : (session.amount ? session.amount / 100 : 0));
@@ -200,135 +307,31 @@ exports.handleStripeWebhook = async (req, res) => {
       ''
     ).trim().toLowerCase();
 
-    let nombreAlumno = (metadata.nombreAlumno || metadata.alumno || '').trim();
-    let cuentaId = metadata.cuentaId || metadata.cuenta_id || '';
-    let clienteId = metadata.clienteId || metadata.alumnoId || '';
+    const nombreAlumno = (metadata.nombreAlumno || metadata.alumno || '').trim();
+    const cuentaId = metadata.cuentaId || metadata.cuenta_id || '';
+    const alumnoId = metadata.alumnoId || metadata.clienteId || '';
     const concepto = metadata.concepto || 'Abono en Línea (Stripe)';
 
-    // 1. Persistencia y Descuento en MongoDB Atlas
-    let cuentaDoc = null;
     try {
-      if (mongoose.connection.readyState === 1) {
-        const condiciones = [];
-        if (cuentaId) {
-          condiciones.push({ id: cuentaId });
-          if (mongoose.Types.ObjectId.isValid(cuentaId)) {
-            condiciones.unshift({ _id: cuentaId });
-          }
-        }
-        if (nombreAlumno && nombreAlumno !== 'Alumno') {
-          condiciones.push({ alumno: new RegExp(`^${nombreAlumno}$`, 'i') });
-          condiciones.push({ alumno: new RegExp(nombreAlumno, 'i') });
-        }
-
-        if (condiciones.length > 0) {
-          cuentaDoc = await Cuenta.findOne({ $or: condiciones });
-        }
-        if (!cuentaDoc && nombreAlumno) {
-          cuentaDoc = await Cuenta.findOne({ alumno: new RegExp(nombreAlumno, 'i') });
-        }
-
-        if (cuentaDoc) {
-          nombreAlumno = cuentaDoc.alumno || nombreAlumno;
-          cuentaId = cuentaDoc.id || String(cuentaDoc._id);
-
-          if (!Array.isArray(cuentaDoc.pagos) || cuentaDoc.pagos.length !== 10) {
-            cuentaDoc.pagos = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-          }
-
-          let asignado = false;
-          for (let i = 0; i < 10; i++) {
-            if (!cuentaDoc.pagos[i] || limpiarNumero(cuentaDoc.pagos[i]) === 0) {
-              cuentaDoc.pagos[i] = monto;
-              asignado = true;
-              break;
-            }
-          }
-          if (!asignado) {
-            cuentaDoc.pagos[9] = limpiarNumero(cuentaDoc.pagos[9]) + monto;
-          }
-
-          const montoTotal = limpiarNumero(cuentaDoc.monto || 11300);
-          const totalPagado = cuentaDoc.pagos.reduce((acc, p) => acc + limpiarNumero(p), 0);
-          cuentaDoc.saldo = Math.max(0, montoTotal - totalPagado);
-          cuentaDoc.pagada = cuentaDoc.saldo <= 0;
-
-          // AVISO A MONGOOSE: Forzar persistencia del arreglo de pagos y saldo
-          cuentaDoc.markModified('pagos');
-          cuentaDoc.markModified('saldo');
-          await cuentaDoc.save();
-          console.log(`✅ Saldo actualizado en Atlas para ${nombreAlumno}: Nuevo saldo = $${cuentaDoc.saldo}`);
-        } else {
-          console.warn(`⚠️ No se encontró cuenta para el pago de Stripe (Alumno: ${nombreAlumno}, Cuenta: ${cuentaId})`);
-        }
-
-        const nuevoPagoBD = new Pago({
-          cuenta: cuentaDoc ? cuentaDoc._id : (cuentaId || 'CTA-001'),
-          cliente: clienteId || 'ALU-001',
-          monto: monto,
-          metodoPago: 'stripe',
-          notas: `Stripe: ${session.id} | Alumno: ${nombreAlumno} | Email: ${customerEmail}`
-        });
-        await nuevoPagoBD.save();
-      }
-    } catch (dbError) {
-      console.error('❌ Error guardando en base de datos:', dbError.message);
-    }
-
-    // 2. Reflejo inmediato en la memoria compartida
-    if (global.datosCompartidos) {
-      const saldos = global.datosCompartidos.saldos || [];
-      let saldoEncontrado = saldos.find(s => 
-        (cuentaId && (s.id === cuentaId || s._id === cuentaId)) ||
-        (nombreAlumno && s.alumno && s.alumno.toLowerCase() === nombreAlumno.toLowerCase())
-      );
-
-      if (saldoEncontrado) {
-        if (!Array.isArray(saldoEncontrado.pagos)) {
-          saldoEncontrado.pagos = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-        }
-        let asignado = false;
-        for (let i = 0; i < 10; i++) {
-          if (!saldoEncontrado.pagos[i] || limpiarNumero(saldoEncontrado.pagos[i]) === 0) {
-            saldoEncontrado.pagos[i] = monto;
-            asignado = true;
-            break;
-          }
-        }
-        if (!asignado) {
-          saldoEncontrado.pagos[9] = limpiarNumero(saldoEncontrado.pagos[9]) + monto;
-        }
-
-        const montoTotalOriginal = limpiarNumero(saldoEncontrado.monto || 11300);
-        const totalAbonado = saldoEncontrado.pagos.reduce((acc, p) => acc + limpiarNumero(p), 0);
-        const saldoFinal = Math.max(0, montoTotalOriginal - totalAbonado);
-
-        saldoEncontrado.saldoPendiente = saldoFinal;
-        saldoEncontrado.saldo = saldoFinal;
-      }
-
-      const nuevoFolioNum = (global.datosCompartidos.pagos || []).length + 1;
-      const folioId = 'PAG-' + String(nuevoFolioNum).padStart(3, '0');
-
-      if (!Array.isArray(global.datosCompartidos.pagos)) {
-        global.datosCompartidos.pagos = [];
-      }
-      global.datosCompartidos.pagos.unshift({
-        id: folioId,
-        folio: folioId,
-        alumno: nombreAlumno || 'Alumno',
-        concepto: concepto,
-        monto: monto,
-        montoAbonado: monto,
-        fecha: new Date().toISOString().split('T')[0],
-        metodo: 'Tarjeta (Stripe)',
-        estado: 'Completado'
+      await aplicarAbonoACuenta({
+        cuentaId,
+        alumnoId,
+        nombreAlumno,
+        monto,
+        concepto,
+        sessionId: session.id,
+        customerEmail
       });
+    } catch (dbError) {
+      console.error('❌ Error guardando abono en base de datos:', dbError.message);
     }
   }
 
   return res.status(200).json({ received: true });
 };
+
+// Exportar la función para uso directo en rutas auxiliares
+exports.aplicarAbonoACuenta = aplicarAbonoACuenta;
 
 // Obtener todos los pagos
 exports.obtenerPagos = async (req, res) => {
