@@ -24,8 +24,27 @@ const normalizarBusqueda = (texto) => {
 
 // Función auxiliar para aplicar el abono y descontar el saldo en MongoDB Atlas
 async function aplicarAbonoACuenta({ cuentaId, alumnoId, nombreAlumno, monto, concepto, sessionId, customerEmail }) {
+  // Asegurar y reconectar a MongoDB Atlas si la conexión está dormida o en progreso
+  if (mongoose.connection.readyState === 0) {
+    const mongoUri = process.env.MONGODB_URI || process.env.MONGOOSE_URI;
+    if (mongoUri) {
+      console.log('🔄 Reconectando a MongoDB Atlas para procesar abono...');
+      await mongoose.connect(mongoUri, { serverSelectionTimeoutMS: 5000 });
+    }
+  }
+
+  if (mongoose.connection.readyState === 2) {
+    let intentos = 0;
+    while (mongoose.connection.readyState === 2 && intentos < 6) {
+      await new Promise(r => setTimeout(r, 500));
+      intentos++;
+    }
+  }
+
+  console.log(`📡 Estado de conexión a MongoDB para abono: readyState = ${mongoose.connection.readyState}`);
+
   if (mongoose.connection.readyState !== 1) {
-    console.warn('⚠️ MongoDB no está en estado conectado (readyState !== 1)');
+    console.warn('⚠️ No fue posible establecer conexión activa con MongoDB (readyState !== 1)');
     return null;
   }
 
@@ -316,7 +335,6 @@ exports.handleStripeWebhook = async (req, res) => {
   } catch (err) {
     console.error(`❌ Error en constructEvent de Stripe: ${err.message}`);
     try {
-      // Fallback de rescate para asegurar el procesamiento del abono
       event = typeof req.body === 'string' ? JSON.parse(req.body) : JSON.parse(req.body.toString('utf8'));
       console.log('⚠️ Evento parseado mediante JSON de rescate exitosamente');
     } catch (parseErr) {
