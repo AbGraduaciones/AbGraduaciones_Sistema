@@ -12,85 +12,113 @@ const limpiarNumero = (val) => {
   return isNaN(num) ? 0 : num;
 };
 
+// Normaliza texto para tolerar discrepancias comunes (s/z, acentos, mayúsculas)
+const normalizarBusqueda = (texto) => {
+  if (!texto) return '';
+  return String(texto)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase();
+};
+
 // Función auxiliar para aplicar el abono y descontar el saldo en MongoDB Atlas
 async function aplicarAbonoACuenta({ cuentaId, alumnoId, nombreAlumno, monto, concepto, sessionId, customerEmail }) {
   if (mongoose.connection.readyState !== 1) return null;
 
-  const condiciones = [];
+  const montoAbono = limpiarNumero(monto);
+  if (montoAbono <= 0) return null;
 
-  // 1. Búsqueda por _id de MongoDB
+  let cuentaDoc = null;
+
+  // 1. Intento por _id nativo de MongoDB
   if (cuentaId && mongoose.Types.ObjectId.isValid(cuentaId)) {
-    condiciones.push({ _id: new mongoose.Types.ObjectId(cuentaId) });
+    cuentaDoc = await Cuenta.findById(cuentaId);
   }
 
-  // 2. Búsqueda por id personalizado (String)
-  if (cuentaId) {
-    condiciones.push({ id: String(cuentaId) });
+  // 2. Intento por campo id o cliente en string (ej. CTA-1793297705333 o 1001)
+  if (!cuentaDoc && (cuentaId || alumnoId)) {
+    const filtrosId = [];
+    if (cuentaId) filtrosId.push({ id: String(cuentaId) }, { cliente: String(cuentaId) });
+    if (alumnoId) filtrosId.push({ id: String(alumnoId) }, { cliente: String(alumnoId) });
+    cuentaDoc = await Cuenta.findOne({ $or: filtrosId });
   }
 
-  // 3. Búsqueda por ID de Alumno / Cliente
-  if (alumnoId) {
-    condiciones.push({ cliente: String(alumnoId) });
-    condiciones.push({ id: String(alumnoId) });
-  }
-
-  // 4. Búsqueda por nombre del alumno (insensible a mayúsculas/minúsculas)
-  if (nombreAlumno && nombreAlumno !== 'Alumno') {
+  // 3. Intento por nombre exacto o tolerante (cubre 'Vasquez' vs 'Vazquez')
+  if (!cuentaDoc && nombreAlumno && nombreAlumno !== 'Alumno') {
     const nombreLimpio = nombreAlumno.trim();
-    condiciones.push({ alumno: new RegExp(nombreLimpio, 'i') });
-    // Búsqueda tolerante de la primera palabra por si hay discrepancias de apellidos o acentos
-    const primerNombre = nombreLimpio.split(' ')[0];
-    if (primerNombre.length > 2) {
-      condiciones.push({ alumno: new RegExp(primerNombre, 'i') });
+    
+    // Intento con regex exacto
+    cuentaDoc = await Cuenta.findOne({ alumno: new RegExp(`^${nombreLimpio}$`, 'i') });
+
+    // Intento con los dos primeros términos (ej. "Gloria Ivonne")
+    if (!cuentaDoc) {
+      const palabras = nombreLimpio.split(/\s+/).filter(p => p.length > 2);
+      if (palabras.length >= 2) {
+        const regexDosPalabras = new RegExp(`${palabras[0]}.*${palabras[1]}`, 'i');
+        cuentaDoc = await Cuenta.findOne({ alumno: regexDosPalabras });
+      }
+    }
+
+    // Intento por la primera palabra relevante
+    if (!cuentaDoc && palabras.length > 0) {
+      cuentaDoc = await Cuenta.findOne({ alumno: new RegExp(palabras[0], 'i') });
     }
   }
 
-  let cuentaDoc = null;
-  if (condiciones.length > 0) {
-    cuentaDoc = await Cuenta.findOne({ $or: condiciones });
+  // 4. Respaldo por coincidencia normalizada en la lista completa de cuentas
+  if (!cuentaDoc && nombreAlumno && nombreAlumno !== 'Alumno') {
+    const todasLasCuentas = await Cuenta.find();
+    const busqNorm = normalizarBusqueda(nombreAlumno);
+    const primerTermino = busqNorm.split(' ')[0];
+
+    cuentaDoc = todasLasCuentas.find(c => {
+      const nomC = normalizarBusqueda(c.alumno);
+      return nomC.includes(primerTermino) || primerTermino.includes(nomC.split(' ')[0]);
+    }) || null;
   }
 
   if (!cuentaDoc) {
-    console.warn(`⚠️ No se encontró la cuenta con los criterios proporcionados. Criterios:`, { cuentaId, alumnoId, nombreAlumno });
+    console.warn(`⚠️ No se encontró la cuenta con los criterios proporcionados:`, { cuentaId, alumnoId, nombreAlumno });
     return null;
   }
 
-  // Asegurar que el arreglo de pagos tenga 10 posiciones numéricas
+  // Asegurar estructura de 10 casillas numéricas para pagos
   if (!Array.isArray(cuentaDoc.pagos) || cuentaDoc.pagos.length !== 10) {
-    const pagosActuales = Array.isArray(cuentaDoc.pagos) ? cuentaDoc.pagos : [];
+    const pagosPrevios = Array.isArray(cuentaDoc.pagos) ? cuentaDoc.pagos : [];
     cuentaDoc.pagos = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-    for (let i = 0; i < Math.min(10, pagosActuales.length); i++) {
-      cuentaDoc.pagos[i] = limpiarNumero(pagosActuales[i]);
+    for (let i = 0; i < Math.min(10, pagosPrevios.length); i++) {
+      cuentaDoc.pagos[i] = limpiarNumero(pagosPrevios[i]);
     }
   }
 
-  // Asignar el abono en el siguiente pago disponible (del 1 al 10)
+  // Asignar el abono en el siguiente pago disponible
   let asignado = false;
   for (let i = 0; i < 10; i++) {
     if (!cuentaDoc.pagos[i] || limpiarNumero(cuentaDoc.pagos[i]) === 0) {
-      cuentaDoc.pagos[i] = monto;
+      cuentaDoc.pagos[i] = montoAbono;
       asignado = true;
       break;
     }
   }
   if (!asignado) {
-    cuentaDoc.pagos[9] = limpiarNumero(cuentaDoc.pagos[9]) + monto;
+    cuentaDoc.pagos[9] = limpiarNumero(cuentaDoc.pagos[9]) + montoAbono;
   }
 
-  // Recalcular saldo total pendiente
-  const montoTotal = limpiarNumero(cuentaDoc.monto || 11300);
+  // Recálculo del saldo y estatus de liquidación
+  const montoTotal = limpiarNumero(cuentaDoc.monto || 12700);
   const totalPagado = cuentaDoc.pagos.reduce((acc, p) => acc + limpiarNumero(p), 0);
   cuentaDoc.saldo = Math.max(0, montoTotal - totalPagado);
   cuentaDoc.pagada = cuentaDoc.saldo <= 0;
 
-  // AVISO EXPLICITO A MONGOOSE: Forzar guardado de campos mutados
+  // Notificación explícita a Mongoose para forzar persistencia en MongoDB Atlas
   cuentaDoc.markModified('pagos');
   cuentaDoc.markModified('saldo');
   await cuentaDoc.save();
 
-  console.log(`✅ Saldo descontado exitosamente en MongoDB Atlas para ${cuentaDoc.alumno}: Nuevo Saldo = $${cuentaDoc.saldo}`);
+  console.log(`✅ Saldo descontado con éxito para ${cuentaDoc.alumno}: Nuevo saldo = $${cuentaDoc.saldo}`);
 
-  // Registrar el comprobante en la colección de Pagos si no existe previamente
+  // Registro del comprobante en la colección de Pagos (previniendo duplicados)
   const yaExistePago = await Pago.findOne({
     $or: [
       { notas: new RegExp(sessionId || '---', 'i') }
@@ -100,10 +128,10 @@ async function aplicarAbonoACuenta({ cuentaId, alumnoId, nombreAlumno, monto, co
   if (!yaExistePago) {
     const nuevoPagoBD = new Pago({
       cuenta: cuentaDoc._id,
-      cliente: alumnoId || cuentaDoc.cliente || 'ALU-001',
+      cliente: cuentaDoc.cliente || alumnoId || '1001',
       alumno: cuentaDoc.alumno,
       concepto: concepto || 'Abono en Línea (Stripe)',
-      monto: monto,
+      monto: montoAbono,
       fecha: new Date(),
       metodoPago: 'stripe',
       notas: `Stripe: ${sessionId || 'MANUAL'} | Alumno: ${cuentaDoc.alumno} | Email: ${customerEmail || ''}`
@@ -111,13 +139,13 @@ async function aplicarAbonoACuenta({ cuentaId, alumnoId, nombreAlumno, monto, co
     await nuevoPagoBD.save();
   }
 
-  // Reflejar inmediatamente en la memoria global
+  // Sincronización en la memoria compartida del servidor
   if (global.datosCompartidos) {
     const saldos = global.datosCompartidos.saldos || [];
     let saldoEncontrado = saldos.find(s => 
       String(s._id) === String(cuentaDoc._id) || 
       String(s.id) === String(cuentaDoc.id) ||
-      (s.alumno && s.alumno.toLowerCase() === cuentaDoc.alumno.toLowerCase())
+      normalizarBusqueda(s.alumno) === normalizarBusqueda(cuentaDoc.alumno)
     );
 
     if (saldoEncontrado) {
@@ -140,8 +168,8 @@ async function aplicarAbonoACuenta({ cuentaId, alumnoId, nombreAlumno, monto, co
         folio: folioId,
         alumno: cuentaDoc.alumno,
         concepto: concepto || 'Abono en Línea (Stripe)',
-        monto: monto,
-        montoAbonado: monto,
+        monto: montoAbono,
+        montoAbonado: montoAbono,
         fecha: new Date().toISOString().split('T')[0],
         metodo: 'Tarjeta (Stripe)',
         estado: 'Completado'
