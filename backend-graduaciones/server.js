@@ -162,7 +162,9 @@ for (const ruta of rutasPosibles) {
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 // 3. Webhook de Stripe (Procesa el pago y sincroniza saldo en tiempo real)
-app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+app.post('/webhook', express.raw({ type: '*/*' }), async (req, res) => {
+  console.log('🔔 [STRIPE WEBHOOK RECIBIDO] Entrada detectada en /webhook a las:', new Date().toISOString());
+
   if (pagoController && typeof pagoController.handleStripeWebhook === 'function') {
     try {
       const resultado = await pagoController.handleStripeWebhook(req, res);
