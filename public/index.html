@@ -247,7 +247,7 @@
 
       <table style="width: 100%; margin-bottom: 18px; background-color: #f0f9ff; border: 1px solid #bae6fd; border-radius: 10px; border-collapse: collapse;">
         <tr>
-          <td style="vertical-align: top; width: 50%; padding: 14px;">
+          <td style="vertical-top: top; width: 50%; padding: 14px;">
             <div style="font-size: 10px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.05em; color: #0284c7; margin-bottom: 4px;">Datos del Alumno</div>
             <div style="font-size: 16px; font-weight: bold; color: #0f172a;" id="pdfAlumnoNombre">Alumno</div>
             <div style="font-size: 11px; color: #334155; margin-top: 4px;" id="pdfAlumnoUniversidad">Universidad: N/A</div>
@@ -365,6 +365,7 @@
     let alumnoSesionActual = null;
     let alumnoTempLogin = null;
     let codigoOtpGenerado = null;
+    let enlaceWhatsAppGenerado = null;
     let pasoLoginPortal = 1;
 
     let vistaActual = 'saldos';
@@ -1076,8 +1077,16 @@
           dinamic.innerHTML = `
             <div class="max-w-md mx-auto bg-white p-8 rounded-2xl border border-slate-200 shadow-xl text-center mt-6">
               <div class="text-4xl mb-3">📩</div>
-              <h3 class="text-2xl font-bold text-slate-900 mb-2">Código de Seguridad Enviado</h3>
-              <p class="text-xs text-slate-500 mb-4">Hemos generado tu PIN de 6 dígitos. Si elegiste correo se envió a: <strong class="text-blue-600">${emailOculto}</strong>. Si elegiste WhatsApp, se abrió tu chat para consultarlo.</p>
+              <h3 class="text-2xl font-bold text-slate-900 mb-2">Código de Seguridad Generado</h3>
+              <p class="text-xs text-slate-500 mb-4">Ingresa tu PIN de 6 dígitos. Si elegiste correo fue enviado a: <strong class="text-blue-600">${emailOculto}</strong>.</p>
+
+              ${enlaceWhatsAppGenerado ? `
+                <div class="mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
+                  <a href="${enlaceWhatsAppGenerado}" target="_blank" class="inline-block text-xs font-bold text-emerald-800 hover:text-emerald-900 underline">
+                    💬 ¿No abrió WhatsApp? Haz clic aquí para ver tu código
+                  </a>
+                </div>
+              ` : ''}
 
               <form onsubmit="verificarCodigoSeguridad(event)" class="space-y-4">
                 <input type="text" id="inputCodigoOtp" placeholder="000000" maxlength="6" required class="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-center text-2xl font-mono tracking-widest font-bold outline-none focus:border-blue-600">
@@ -1277,6 +1286,12 @@
 
     async function solicitarCodigoSeguridad(e, canal = 'email') {
       if (e) e.preventDefault();
+
+      let ventanaWa = null;
+      if (canal === 'whatsapp') {
+        ventanaWa = window.open('about:blank', '_blank');
+      }
+
       const inputVal = document.getElementById('loginAlumnoInput').value.trim();
       const val = inputVal.toLowerCase();
       
@@ -1287,6 +1302,7 @@
       );
 
       if (!encontrado) {
+        if (ventanaWa) ventanaWa.close();
         alert('No se encontró ningún alumno con esos datos.');
         return;
       }
@@ -1300,6 +1316,17 @@
       const pinGenerado = Math.floor(100000 + Math.random() * 900000).toString();
       codigoOtpGenerado = pinGenerado;
       alumnoTempLogin = encontrado;
+
+      const telLimpio = (encontrado.telefono || '').replace(/\D/g, '');
+      const textoWa = encodeURIComponent(
+        `🎓 *AB GRADUACIONES*\n\nHola *${encontrado.nombre}*, tu código de seguridad para consultar tu Estado de Cuenta es:\n\n🔑 *${pinGenerado}*\n\nIngresa este código en la pantalla para acceder.`
+      );
+      const urlWa = telLimpio ? `https://wa.me/${telLimpio}?text=${textoWa}` : `https://wa.me/?text=${textoWa}`;
+      enlaceWhatsAppGenerado = urlWa;
+
+      if (ventanaWa) {
+        ventanaWa.location.href = urlWa;
+      }
 
       try {
         await fetch('/api/enviar-codigo-seguridad', {
@@ -1315,15 +1342,6 @@
         });
       } catch (err) {
         console.warn('Servidor sin respuesta para envío directo, usando contingencia de cliente:', err);
-      }
-
-      if (canal === 'whatsapp') {
-        const telLimpio = (encontrado.telefono || '').replace(/\D/g, '');
-        const textoWa = encodeURIComponent(
-          `🎓 *AB GRADUACIONES*\n\nHola *${encontrado.nombre}*, tu código de seguridad para consultar tu Estado de Cuenta es:\n\n🔑 *${pinGenerado}*\n\nIngresa este código en la pantalla para acceder.`
-        );
-        const urlWa = telLimpio ? `https://wa.me/${telLimpio}?text=${textoWa}` : `https://wa.me/?text=${textoWa}`;
-        window.open(urlWa, '_blank');
       }
 
       pasoLoginPortal = 2;
@@ -1357,6 +1375,7 @@
           alumnoSesionActual = alumnoTempLogin;
           alumnoTempLogin = null;
           codigoOtpGenerado = null;
+          enlaceWhatsAppGenerado = null;
           pasoLoginPortal = 1;
           renderizarPortalAlumno();
           return;
@@ -1369,6 +1388,7 @@
         alumnoSesionActual = alumnoTempLogin;
         alumnoTempLogin = null;
         codigoOtpGenerado = null;
+        enlaceWhatsAppGenerado = null;
         pasoLoginPortal = 1;
         renderizarPortalAlumno();
       } else {
@@ -1383,6 +1403,7 @@
     function cancelarLoginOtp() {
       alumnoTempLogin = null;
       codigoOtpGenerado = null;
+      enlaceWhatsAppGenerado = null;
       pasoLoginPortal = 1;
       renderizarPortalAlumno();
     }
@@ -1391,6 +1412,7 @@
       alumnoSesionActual = null;
       alumnoTempLogin = null;
       codigoOtpGenerado = null;
+      enlaceWhatsAppGenerado = null;
       pasoLoginPortal = 1;
       renderizarPortalAlumno();
     }
