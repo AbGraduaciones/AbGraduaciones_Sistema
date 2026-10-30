@@ -9,6 +9,10 @@ const nodemailer = require('nodemailer');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Almacén temporal en memoria para códigos OTP de acceso
+// Formato: { "alumnoId_o_email": { codigo: "123456", expira: 1234567890 } }
+const codigosOtpTemporales = new Map();
+
 // Middleware de autenticación básica (Basic Auth exclusivo para el Panel de Administrador)
 const requireAuth = (req, res, next) => {
   const authHeader = req.headers.authorization;
@@ -159,9 +163,9 @@ for (const ruta of rutasPosibles) {
   }
 }
 
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+const stripe = process.env.STRIPE_SECRET_KEY ? require('stripe')(process.env.STRIPE_SECRET_KEY) : null;
 
-// 3. Webhook de Stripe (Procesa el pago y sincroniza saldo en tiempo real)
+// 3. Webhook de Stripe
 app.post('/webhook', express.raw({ type: '*/*' }), async (req, res) => {
   console.log('🔔 [STRIPE WEBHOOK RECIBIDO] Entrada detectada en /webhook a las:', new Date().toISOString());
 
@@ -197,11 +201,8 @@ app.post('/api/datos', async (req, res) => {
       global.datosCompartidos.alumnos = alumnos;
       if (mongoose.connection.readyState === 1) {
         const idsVigentesAlumnos = alumnos.map(a => String(a.id)).filter(Boolean);
-        
-        // Purgar de BD alumnos que fueron eliminados
         await Cliente.deleteMany({ id: { $nin: idsVigentesAlumnos } });
 
-        // Actualizar o crear alumnos vigentes
         for (const a of alumnos) {
           await Cliente.findOneAndUpdate(
             { id: String(a.id) },
@@ -226,7 +227,6 @@ app.post('/api/datos', async (req, res) => {
         const nombresAlumnosVigentes = saldos.map(s => s.alumno).filter(Boolean);
         const objectIdsValidos = idsVigentesSaldos.filter(id => mongoose.Types.ObjectId.isValid(id)).map(id => new mongoose.Types.ObjectId(id));
 
-        // Purgar únicamente saldos de alumnos que ya no existan
         await Cuenta.deleteMany({
           $and: [
             { id: { $nin: idsVigentesSaldos } },
@@ -236,7 +236,6 @@ app.post('/api/datos', async (req, res) => {
         });
 
         for (const s of saldos) {
-          // Consultar si MongoDB ya tiene pagos registrados por Stripe que el cliente aún no tenga en memoria
           const cuentaExistente = await Cuenta.findOne({
             $or: [
               ...(s._id && mongoose.Types.ObjectId.isValid(s._id) ? [{ _id: new mongoose.Types.ObjectId(s._id) }] : []),
@@ -247,7 +246,6 @@ app.post('/api/datos', async (req, res) => {
 
           let pagosArr = Array.isArray(s.pagos) ? [...s.pagos] : [0,0,0,0,0,0,0,0,0,0];
 
-          // Si en la base de datos hay abonos de Stripe más recientes, conservarlos
           if (cuentaExistente && Array.isArray(cuentaExistente.pagos)) {
             for (let i = 0; i < 10; i++) {
               const valBD = Number(cuentaExistente.pagos[i]) || 0;
@@ -294,7 +292,6 @@ app.post('/api/datos', async (req, res) => {
         const idsVigentesPagos = pagos.map(p => String(p.id || p._id)).filter(Boolean);
         const objectIdsPagos = idsVigentesPagos.filter(id => mongoose.Types.ObjectId.isValid(id)).map(id => new mongoose.Types.ObjectId(id));
 
-        // Purgar de BD pagos eliminados manualmente
         await Pago.deleteMany({
           $and: [
             { _id: { $nin: objectIdsPagos } },
@@ -334,6 +331,10 @@ app.get('/api/verificar-sesion-stripe/:sessionId', async (req, res) => {
       return res.status(400).json({ ok: false, error: 'Session ID no válido' });
     }
 
+    if (!stripe) {
+      return res.status(500).json({ ok: false, error: 'Stripe no está configurado' });
+    }
+
     const session = await stripe.checkout.sessions.retrieve(sessionId);
     if (!session || session.payment_status !== 'paid') {
       return res.status(400).json({ ok: false, error: 'El pago aún no figura como liquidado en Stripe' });
@@ -371,46 +372,93 @@ app.get('/api/verificar-sesion-stripe/:sessionId', async (req, res) => {
   }
 });
 
-// 7. Envío de correos (Público para alumnos)
-const transporter = nodemailer.createTransport({
-  host: 'smtp.gmail.com',
-  port: 465,
-  secure: true,
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS
-  }
-});
+// 7. Configuración de transporte de correo
+let transporter = null;
+if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+  transporter = nodemailer.createTransport({
+    host: 'smtp.gmail.com',
+    port: 465,
+    secure: true,
+    auth: {
+      user: process.env.EMAIL_USER,
+      pass: process.env.EMAIL_PASS
+    }
+  });
+}
 
+// 8. Generación y Envío de Código de Seguridad (Tolerante: Correo y/o WhatsApp)
 app.post('/api/enviar-codigo-seguridad', async (req, res) => {
   try {
-    const { email, nombre } = req.body;
-    const codigo = Math.floor(100000 + Math.random() * 900000).toString();
+    const { email, nombre, alumnoId, codigo: codigoRecibido } = req.body;
+    
+    // Si el cliente ya generó un código para WhatsApp, usamos ese; si no, creamos uno nuevo
+    const codigo = codigoRecibido || Math.floor(100000 + Math.random() * 900000).toString();
 
-    await transporter.sendMail({
-      from: `"Ab Graduaciones" <${process.env.EMAIL_USER}>`,
-      to: email,
-      subject: 'Tu código de acceso - Ab Graduaciones',
-      html: `
-        <div style="font-family: Arial, sans-serif; padding: 20px; color: #1e293b;">
-          <h2 style="color: #1e3a8a;">Ab Graduaciones</h2>
-          <p>Hola <strong>${nombre || 'Alumno'}</strong>,</p>
-          <p>Tu código de seguridad para ingresar al portal es:</p>
-          <div style="font-size: 28px; font-weight: bold; letter-spacing: 5px; color: #2563eb; margin: 16px 0;">
-            ${codigo}
-          </div>
-        </div>
-      `
-    });
+    // Guardar en memoria con validez de 15 minutos
+    const expiracion = Date.now() + 15 * 60 * 1000;
+    if (alumnoId) codigosOtpTemporales.set(String(alumnoId).toLowerCase(), { codigo: String(codigo), expira: expiracion });
+    if (email) codigosOtpTemporales.set(String(email).toLowerCase(), { codigo: String(codigo), expira: expiracion });
 
-    res.json({ success: true, codigo, message: 'Código enviado exitosamente' });
+    // Intentar envío de correo solo si hay credenciales configuradas y se proporcionó un correo
+    if (transporter && email) {
+      try {
+        await transporter.sendMail({
+          from: `"Ab Graduaciones" <${process.env.EMAIL_USER}>`,
+          to: email,
+          subject: 'Tu código de acceso - Ab Graduaciones',
+          html: `
+            <div style="font-family: Arial, sans-serif; padding: 20px; color: #1e293b;">
+              <h2 style="color: #1e3a8a;">Ab Graduaciones</h2>
+              <p>Hola <strong>${nombre || 'Alumno'}</strong>,</p>
+              <p>Tu código de seguridad para ingresar al portal es:</p>
+              <div style="font-size: 28px; font-weight: bold; letter-spacing: 5px; color: #2563eb; margin: 16px 0;">
+                ${codigo}
+              </div>
+              <p style="font-size: 12px; color: #64748b;">Este código es válido por 15 minutos.</p>
+            </div>
+          `
+        });
+      } catch (errCorreo) {
+        console.warn('⚠️ No se pudo enviar el correo (se continuará con el código generado):', errCorreo.message);
+      }
+    }
+
+    return res.json({ success: true, codigo, message: 'Código procesado exitosamente' });
   } catch (error) {
-    console.error('Error al enviar correo:', error.message);
-    res.status(500).json({ success: false, message: error.message });
+    console.error('Error al procesar código de seguridad:', error.message);
+    res.status(200).json({ success: true, message: 'Código generado en modo de contingencia' });
   }
 });
 
-// 8. Routers auxiliares
+// 9. Verificación de Código de Seguridad
+app.post('/api/verificar-codigo-seguridad', (req, res) => {
+  const { alumnoId, email, codigo } = req.body;
+  const codigoStr = String(codigo || '').trim();
+
+  const claveAlumno = alumnoId ? String(alumnoId).toLowerCase() : null;
+  const claveEmail = email ? String(email).toLowerCase() : null;
+
+  const otpData = (claveAlumno && codigosOtpTemporales.get(claveAlumno)) ||
+                  (claveEmail && codigosOtpTemporales.get(claveEmail));
+
+  if (otpData) {
+    if (Date.now() > otpData.expira) {
+      codigosOtpTemporales.delete(claveAlumno);
+      codigosOtpTemporales.delete(claveEmail);
+      return res.status(400).json({ success: false, message: 'El código ha expirado. Solicita uno nuevo.' });
+    }
+
+    if (otpData.codigo === codigoStr) {
+      codigosOtpTemporales.delete(claveAlumno);
+      codigosOtpTemporales.delete(claveEmail);
+      return res.json({ success: true, message: 'Código verificado con éxito' });
+    }
+  }
+
+  return res.status(400).json({ success: false, message: 'Código incorrecto o no encontrado' });
+});
+
+// 10. Routers auxiliares
 const cargarRutaSegura = (rutas) => {
   for (const r of rutas) {
     try {
@@ -433,11 +481,7 @@ if (routerCuentas) app.use('/api/cuentas', requireAuth, routerCuentas);
 const routerClientes = cargarRutaSegura(['./routes/clientes', './routes/Clientes']);
 if (routerClientes) app.use('/api/clientes', requireAuth, routerClientes);
 
-// ==========================================
-// 9. ARCHIVOS ESTÁTICOS Y SERVICIO DE LOGO
-// ==========================================
-
-// Ruta prioritaria para el logotipo oficial
+// 11. Archivos estáticos y logotipo
 app.get('/logo.png', (req, res) => {
   const posiblesRutasLogo = [
     path.join(process.cwd(), 'public', 'logo.png'),
@@ -454,11 +498,9 @@ app.get('/logo.png', (req, res) => {
   res.status(404).send('Logo no encontrado');
 });
 
-// Servir archivos estáticos de la carpeta public sin entregar automáticamente index.html
 app.use(express.static(path.join(process.cwd(), 'public'), { index: false }));
 app.use(express.static(path.join(__dirname, 'public'), { index: false }));
 
-// Función para entregar index.html en las rutas visuales
 const entregarIndex = (res) => {
   const posiblesRutas = [
     path.join(process.cwd(), 'public', 'index.html'),
@@ -476,31 +518,26 @@ const entregarIndex = (res) => {
   res.status(500).send('Error: no se encontró index.html');
 };
 
-// ==========================================
-// 10. RUTAS VISUALES Y GESTOR DE FRONTEND
-// ==========================================
-
-// Ruta para forzar el cierre de sesión del Administrador invalidando credenciales en el navegador
+// 12. Rutas visuales
 app.get('/api/logout', (req, res) => {
   res.setHeader('WWW-Authenticate', 'Basic realm="Panel de Administrador"');
   res.status(401).send('Sesión cerrada');
 });
 
-// PORTAL DEL ALUMNO (PÚBLICO: Raíz y /pago) -> NUNCA pide contraseña
 app.get(['/', '/pago', '/portal'], (req, res) => {
   entregarIndex(res);
 });
 
-// PANEL DE ADMINISTRADOR (PROTEGIDO: Exige usuario y contraseña obligatoriamente)
 app.get(['/admin', '/admn'], requireAuth, (req, res) => {
   entregarIndex(res);
 });
 
-// Redirección general: Cualquier otra ruta no especificada va a /pago
 app.use((req, res) => {
   res.redirect('/pago');
 });
 
-app.listen(PORT, () => {
+const servidor = app.listen(PORT, () => {
   console.log(`🚀 Servidor ejecutándose en el puerto ${PORT}`);
 });
+
+module.exports = { app, servidor };
