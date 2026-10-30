@@ -1055,11 +1055,18 @@
               <h3 class="text-2xl font-bold text-slate-900 mb-2">Consulta tu Estado de Cuenta</h3>
               <p class="text-xs text-slate-500 mb-6">Ingresa tu ID de Alumno (ej: 1001) o Teléfono con LADA (+52...) para recibir tu código de acceso seguro.</p>
 
-              <form onsubmit="solicitarCodigoSeguridad(event)" class="space-y-4">
+              <form onsubmit="solicitarCodigoSeguridad(event, 'email')" class="space-y-4">
                 <input type="text" id="loginAlumnoInput" placeholder="Ej: 1001 o +52 5551234567" required class="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-center text-sm font-semibold outline-none focus:border-blue-600">
-                <button type="submit" id="btnSolicitarCodigo" class="w-full py-3.5 bg-blue-700 hover:bg-blue-800 text-white font-bold rounded-xl shadow-lg shadow-blue-600/30 transition-all">
-                  Enviar Código al Correo
-                </button>
+                
+                <div class="space-y-2">
+                  <button type="submit" id="btnSolicitarCodigo" class="w-full py-3 bg-blue-700 hover:bg-blue-800 text-white font-bold rounded-xl shadow-lg shadow-blue-600/30 transition-all flex items-center justify-center gap-2">
+                    ✉️ Enviar Código al Correo
+                  </button>
+
+                  <button type="button" onclick="solicitarCodigoSeguridad(event, 'whatsapp')" class="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-lg shadow-emerald-600/30 transition-all flex items-center justify-center gap-2">
+                    💬 Abrir Código por WhatsApp
+                  </button>
+                </div>
               </form>
             </div>
           `;
@@ -1070,7 +1077,7 @@
             <div class="max-w-md mx-auto bg-white p-8 rounded-2xl border border-slate-200 shadow-xl text-center mt-6">
               <div class="text-4xl mb-3">📩</div>
               <h3 class="text-2xl font-bold text-slate-900 mb-2">Código de Seguridad Enviado</h3>
-              <p class="text-xs text-slate-500 mb-4">Hemos enviado un PIN de 6 dígitos al correo: <strong class="text-blue-600">${emailOculto}</strong></p>
+              <p class="text-xs text-slate-500 mb-4">Hemos generado tu PIN de 6 dígitos. Si elegiste correo se envió a: <strong class="text-blue-600">${emailOculto}</strong>. Si elegiste WhatsApp, se abrió tu chat para consultarlo.</p>
 
               <form onsubmit="verificarCodigoSeguridad(event)" class="space-y-4">
                 <input type="text" id="inputCodigoOtp" placeholder="000000" maxlength="6" required class="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-center text-2xl font-mono tracking-widest font-bold outline-none focus:border-blue-600">
@@ -1268,8 +1275,8 @@
       }
     }
 
-    async function solicitarCodigoSeguridad(e) {
-      e.preventDefault();
+    async function solicitarCodigoSeguridad(e, canal = 'email') {
+      if (e) e.preventDefault();
       const inputVal = document.getElementById('loginAlumnoInput').value.trim();
       const val = inputVal.toLowerCase();
       
@@ -1287,44 +1294,40 @@
       const btn = document.getElementById('btnSolicitarCodigo');
       if (btn) {
         btn.disabled = true;
-        btn.innerText = 'Enviando correo...';
+        btn.innerText = 'Generando código...';
       }
 
+      const pinGenerado = Math.floor(100000 + Math.random() * 900000).toString();
+      codigoOtpGenerado = pinGenerado;
+      alumnoTempLogin = encontrado;
+
       try {
-        const respuesta = await fetch('/api/enviar-codigo-seguridad', {
+        await fetch('/api/enviar-codigo-seguridad', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             alumnoId: encontrado.id,
             email: encontrado.email,
-            nombre: encontrado.nombre
+            telefono: encontrado.telefono,
+            nombre: encontrado.nombre,
+            codigo: pinGenerado
           })
         });
-
-        const data = await respuesta.json();
-
-        if (respuesta.ok && data.success) {
-          alumnoTempLogin = encontrado;
-          if (data.codigo) {
-            codigoOtpGenerado = String(data.codigo);
-          }
-          pasoLoginPortal = 2;
-          renderizarPortalAlumno();
-        } else {
-          alumnoTempLogin = encontrado;
-          codigoOtpGenerado = Math.floor(100000 + Math.random() * 900000).toString();
-          pasoLoginPortal = 2;
-          alert(`Aviso: ${data.message || 'El servidor procesó la solicitud'}\nCódigo (temporal): ${codigoOtpGenerado}`);
-          renderizarPortalAlumno();
-        }
       } catch (err) {
-        console.warn('Error al contactar al servidor, utilizando flujo de contingencia:', err);
-        alumnoTempLogin = encontrado;
-        codigoOtpGenerado = Math.floor(100000 + Math.random() * 900000).toString();
-        pasoLoginPortal = 2;
-        alert(`Código temporal de acceso generado: ${codigoOtpGenerado}`);
-        renderizarPortalAlumno();
+        console.warn('Servidor sin respuesta para envío directo, usando contingencia de cliente:', err);
       }
+
+      if (canal === 'whatsapp') {
+        const telLimpio = (encontrado.telefono || '').replace(/\D/g, '');
+        const textoWa = encodeURIComponent(
+          `🎓 *AB GRADUACIONES*\n\nHola *${encontrado.nombre}*, tu código de seguridad para consultar tu Estado de Cuenta es:\n\n🔑 *${pinGenerado}*\n\nIngresa este código en la pantalla para acceder.`
+        );
+        const urlWa = telLimpio ? `https://wa.me/${telLimpio}?text=${textoWa}` : `https://wa.me/?text=${textoWa}`;
+        window.open(urlWa, '_blank');
+      }
+
+      pasoLoginPortal = 2;
+      renderizarPortalAlumno();
     }
 
     async function verificarCodigoSeguridad(e) {
