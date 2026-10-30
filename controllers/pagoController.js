@@ -24,11 +24,10 @@ const normalizarBusqueda = (texto) => {
 
 // Función auxiliar para aplicar el abono y descontar el saldo en MongoDB Atlas
 async function aplicarAbonoACuenta({ cuentaId, alumnoId, nombreAlumno, monto, concepto, sessionId, customerEmail }) {
-  // Asegurar y reconectar a MongoDB Atlas si la conexión está dormida o en progreso
+  // Asegurar y reconectar a MongoDB Atlas si la conexión está inactiva o conectando
   if (mongoose.connection.readyState === 0) {
     const mongoUri = process.env.MONGODB_URI || process.env.MONGOOSE_URI;
     if (mongoUri) {
-      console.log('🔄 Reconectando a MongoDB Atlas para procesar abono...');
       await mongoose.connect(mongoUri, { serverSelectionTimeoutMS: 5000 });
     }
   }
@@ -41,10 +40,8 @@ async function aplicarAbonoACuenta({ cuentaId, alumnoId, nombreAlumno, monto, co
     }
   }
 
-  console.log(`📡 Estado de conexión a MongoDB para abono: readyState = ${mongoose.connection.readyState}`);
-
   if (mongoose.connection.readyState !== 1) {
-    console.warn('⚠️ No fue posible establecer conexión activa con MongoDB (readyState !== 1)');
+    console.warn('⚠️ No fue posible conectar con MongoDB Atlas (readyState !== 1)');
     return null;
   }
 
@@ -54,6 +51,25 @@ async function aplicarAbonoACuenta({ cuentaId, alumnoId, nombreAlumno, monto, co
     return null;
   }
 
+  // =========================================================================
+  // BLINDAJE CONTRA DOBLE PAGO (IDEMPOTENCIA):
+  // Si esta sesión de Stripe ya fue procesada, DETENER inmediatamente.
+  // =========================================================================
+  if (sessionId && sessionId !== 'MANUAL') {
+    const pagoDuplicado = await Pago.findOne({
+      $or: [
+        { notas: new RegExp(sessionId, 'i') },
+        { id: sessionId },
+        { folio: sessionId }
+      ]
+    });
+
+    if (pagoDuplicado) {
+      console.log(`🛑 Pago ${sessionId} ya fue procesado anteriormente. Omitiendo duplicado para evitar doble descuento.`);
+      return null;
+    }
+  }
+
   let cuentaDoc = null;
 
   // 1. Intento por _id nativo de MongoDB
@@ -61,7 +77,7 @@ async function aplicarAbonoACuenta({ cuentaId, alumnoId, nombreAlumno, monto, co
     cuentaDoc = await Cuenta.findById(cuentaId);
   }
 
-  // 2. Intento por campo id o cliente en string (ej. CTA-1793297705333 o 1001)
+  // 2. Intento por campo id o cliente en string
   if (!cuentaDoc && (cuentaId || alumnoId)) {
     const filtrosId = [];
     if (cuentaId) filtrosId.push({ id: String(cuentaId) }, { cliente: String(cuentaId) });
@@ -69,14 +85,11 @@ async function aplicarAbonoACuenta({ cuentaId, alumnoId, nombreAlumno, monto, co
     cuentaDoc = await Cuenta.findOne({ $or: filtrosId });
   }
 
-  // 3. Intento por nombre exacto o tolerante (cubre 'Vasquez' vs 'Vazquez')
+  // 3. Intento por nombre exacto o tolerante
   if (!cuentaDoc && nombreAlumno && nombreAlumno !== 'Alumno') {
     const nombreLimpio = nombreAlumno.trim();
-    
-    // Intento con regex exacto
     cuentaDoc = await Cuenta.findOne({ alumno: new RegExp(`^${nombreLimpio}$`, 'i') });
 
-    // Intento con los dos primeros términos (ej. "Gloria Ivonne")
     if (!cuentaDoc) {
       const palabras = nombreLimpio.split(/\s+/).filter(p => p.length > 2);
       if (palabras.length >= 2) {
@@ -106,7 +119,20 @@ async function aplicarAbonoACuenta({ cuentaId, alumnoId, nombreAlumno, monto, co
     return null;
   }
 
-  // Asegurar estructura de 10 casillas numéricas para pagos
+  // REGISTRAR EL PAGO PRIMERO (Actúa como cerrojo/bloqueo ante peticiones simultáneas)
+  const nuevoPagoBD = new Pago({
+    cuenta: cuentaDoc._id,
+    cliente: cuentaDoc.cliente || alumnoId || '1001',
+    alumno: cuentaDoc.alumno,
+    concepto: concepto || 'Abono en Línea (Stripe)',
+    monto: montoAbono,
+    fecha: new Date(),
+    metodoPago: 'stripe',
+    notas: `Stripe: ${sessionId || 'MANUAL'} | Alumno: ${cuentaDoc.alumno} | Email: ${customerEmail || ''}`
+  });
+  await nuevoPagoBD.save();
+
+  // Asegurar estructura de 10 casillas numéricas
   if (!Array.isArray(cuentaDoc.pagos) || cuentaDoc.pagos.length !== 10) {
     const pagosPrevios = Array.isArray(cuentaDoc.pagos) ? cuentaDoc.pagos : [];
     cuentaDoc.pagos = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
@@ -115,7 +141,7 @@ async function aplicarAbonoACuenta({ cuentaId, alumnoId, nombreAlumno, monto, co
     }
   }
 
-  // Asignar el abono en la primera casilla vacía disponible
+  // Asignar el abono en UNA sola casilla disponible
   let asignado = false;
   for (let i = 0; i < 10; i++) {
     if (!cuentaDoc.pagos[i] || limpiarNumero(cuentaDoc.pagos[i]) === 0) {
@@ -128,41 +154,19 @@ async function aplicarAbonoACuenta({ cuentaId, alumnoId, nombreAlumno, monto, co
     cuentaDoc.pagos[9] = limpiarNumero(cuentaDoc.pagos[9]) + montoAbono;
   }
 
-  // Recálculo del saldo y estatus de liquidación
+  // Recálculo del saldo y estatus
   const montoTotal = limpiarNumero(cuentaDoc.monto || 12700);
   const totalPagado = cuentaDoc.pagos.reduce((acc, p) => acc + limpiarNumero(p), 0);
   cuentaDoc.saldo = Math.max(0, montoTotal - totalPagado);
   cuentaDoc.pagada = cuentaDoc.saldo <= 0;
 
-  // Notificación explícita a Mongoose para forzar persistencia en MongoDB Atlas
   cuentaDoc.markModified('pagos');
   cuentaDoc.markModified('saldo');
   await cuentaDoc.save();
 
   console.log(`✅ Saldo descontado exitosamente en Atlas para ${cuentaDoc.alumno}: Nuevo Saldo = $${cuentaDoc.saldo}`);
 
-  // Registro del comprobante en la colección de Pagos
-  const yaExistePago = await Pago.findOne({
-    $or: [
-      { notas: new RegExp(sessionId || '---', 'i') }
-    ]
-  });
-
-  if (!yaExistePago) {
-    const nuevoPagoBD = new Pago({
-      cuenta: cuentaDoc._id,
-      cliente: cuentaDoc.cliente || alumnoId || '1001',
-      alumno: cuentaDoc.alumno,
-      concepto: concepto || 'Abono en Línea (Stripe)',
-      monto: montoAbono,
-      fecha: new Date(),
-      metodoPago: 'stripe',
-      notas: `Stripe: ${sessionId || 'MANUAL'} | Alumno: ${cuentaDoc.alumno} | Email: ${customerEmail || ''}`
-    });
-    await nuevoPagoBD.save();
-  }
-
-  // Sincronización en la memoria compartida del servidor
+  // Sincronización en memoria compartida
   if (global.datosCompartidos) {
     const saldos = global.datosCompartidos.saldos || [];
     let saldoEncontrado = saldos.find(s => 
@@ -184,8 +188,11 @@ async function aplicarAbonoACuenta({ cuentaId, alumnoId, nombreAlumno, monto, co
       global.datosCompartidos.pagos = [];
     }
 
-    const pagoYaEnMemoria = global.datosCompartidos.pagos.some(p => p.folio === sessionId || p.id === sessionId);
-    if (!pagoYaEnMemoria) {
+    const yaEnMemoria = global.datosCompartidos.pagos.some(p => 
+      p.folio === sessionId || p.id === sessionId || (p.notas && p.notas.includes(sessionId))
+    );
+
+    if (!yaEnMemoria) {
       global.datosCompartidos.pagos.unshift({
         id: folioId,
         folio: folioId,
@@ -220,7 +227,6 @@ exports.crearCheckoutSession = async (req, res) => {
       return res.status(400).json({ status: 'error', message: 'Monto inválido para procesar el pago' });
     }
 
-    // Cálculo inverso para transferir la comisión de Stripe (3.6% + $3.00 MXN + IVA 16%)
     const totalConComision = (montoLimpio + 3.48) / 0.95824;
     const cargoServicio = Math.max(0, Math.round((totalConComision - montoLimpio) * 100) / 100);
 
@@ -315,41 +321,35 @@ exports.crearPago = async (req, res) => {
   }
 };
 
-// Webhook de Stripe (Con diagnóstico completo y fallback de seguridad)
+// Webhook de Stripe
 exports.handleStripeWebhook = async (req, res) => {
   const sig = req.headers['stripe-signature'];
   const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
-
-  console.log('📦 Header Stripe-Signature presente:', Boolean(sig));
-  console.log('🔑 STRIPE_WEBHOOK_SECRET configurado:', Boolean(endpointSecret));
 
   let event;
   try {
     if (endpointSecret && sig) {
       event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);
-      console.log('✅ Firma de Stripe validada correctamente');
     } else {
       event = typeof req.body === 'string' ? JSON.parse(req.body) : JSON.parse(req.body.toString('utf8'));
-      console.log('ℹ️ Procesando evento directo (sin secret o sin sig)');
     }
   } catch (err) {
     console.error(`❌ Error en constructEvent de Stripe: ${err.message}`);
     try {
       event = typeof req.body === 'string' ? JSON.parse(req.body) : JSON.parse(req.body.toString('utf8'));
-      console.log('⚠️ Evento parseado mediante JSON de rescate exitosamente');
     } catch (parseErr) {
-      console.error('❌ Error crítico: no se pudo leer el cuerpo del webhook:', parseErr.message);
       return res.status(400).send(`Webhook Error: ${err.message}`);
     }
   }
 
-  console.log('🎯 Evento Stripe detectado:', event ? event.type : 'Ninguno');
-
-  if (event && (event.type === 'checkout.session.completed' || event.type === 'payment_intent.succeeded')) {
+  // =========================================================================
+  // FILTRADO ESTRICTO DE EVENTO:
+  // Solo procesar 'checkout.session.completed'. Si Stripe envía además 
+  // 'payment_intent.succeeded' para la misma compra, lo ignoramos para evitar duplicados.
+  // =========================================================================
+  if (event && event.type === 'checkout.session.completed') {
     let session = event.data.object;
     let metadata = session.metadata || {};
-
-    console.log('📋 Metadata obtenida de Stripe:', JSON.stringify(metadata));
 
     if ((!metadata.nombreAlumno && !metadata.alumnoId) && session.id && session.id.startsWith('cs_')) {
       try {
@@ -364,7 +364,7 @@ exports.handleStripeWebhook = async (req, res) => {
 
     const monto = metadata.montoNetoAbono
       ? parseFloat(metadata.montoNetoAbono)
-      : (session.amount_total ? session.amount_total / 100 : (session.amount ? session.amount / 100 : 0));
+      : (session.amount_total ? session.amount_total / 100 : 0);
     
     const customerEmail = (
       metadata.email || 
@@ -378,10 +378,8 @@ exports.handleStripeWebhook = async (req, res) => {
     const alumnoId = metadata.alumnoId || metadata.clienteId || '';
     const concepto = metadata.concepto || 'Abono en Línea (Stripe)';
 
-    console.log(`🔍 Procesando abono para: "${nombreAlumno}", Cuenta: "${cuentaId}", Monto: $${monto}`);
-
     try {
-      const cuentaActualizada = await aplicarAbonoACuenta({
+      await aplicarAbonoACuenta({
         cuentaId,
         alumnoId,
         nombreAlumno,
@@ -390,15 +388,28 @@ exports.handleStripeWebhook = async (req, res) => {
         sessionId: session.id,
         customerEmail
       });
-
-      if (!cuentaActualizada) {
-        console.warn(`⚠️ No se pudo localizar la cuenta en MongoDB para "${nombreAlumno}"`);
-      }
     } catch (dbError) {
       console.error('❌ Error guardando abono en base de datos:', dbError.message);
     }
-  } else {
-    console.log(`ℹ️ Evento ${event ? event.type : 'N/A'} no requiere descuento de saldo`);
+  } else if (event && event.type === 'payment_intent.succeeded') {
+    // Si viene solo como payment_intent fuera de checkout, verificar si tiene metadata propia
+    const pi = event.data.object;
+    const metadata = pi.metadata || {};
+    // Si ya trae prefijo cs_ en descripción o metadata, omitir porque checkout.session.completed se encarga
+    if (!pi.description || !pi.description.includes('cs_')) {
+      const monto = metadata.montoNetoAbono ? parseFloat(metadata.montoNetoAbono) : (pi.amount ? pi.amount / 100 : 0);
+      if (metadata.nombreAlumno && monto > 0) {
+        await aplicarAbonoACuenta({
+          cuentaId: metadata.cuentaId || '',
+          alumnoId: metadata.alumnoId || '',
+          nombreAlumno: metadata.nombreAlumno,
+          monto,
+          concepto: metadata.concepto || 'Abono en Línea (Stripe)',
+          sessionId: pi.id,
+          customerEmail: metadata.email || ''
+        });
+      }
+    }
   }
 
   return res.status(200).json({ received: true });
