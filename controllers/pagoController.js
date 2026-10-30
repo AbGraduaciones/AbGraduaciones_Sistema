@@ -108,7 +108,7 @@ exports.crearPago = async (req, res) => {
         if (mongoose.Types.ObjectId.isValid(cuenta)) condiciones.unshift({ _id: cuenta });
       }
       if (alumno) {
-        condiciones.push({ alumno: new RegExp(alumno, 'i') }, { nombre: new RegExp(alumno, 'i') });
+        condiciones.push({ alumno: new RegExp(`^${alumno.trim()}$`, 'i') }, { alumno: new RegExp(alumno.trim(), 'i') });
       }
 
       let cuentaDoc = await Cuenta.findOne({ $or: condiciones });
@@ -136,6 +136,9 @@ exports.crearPago = async (req, res) => {
         const totalPagado = cuentaDoc.pagos.reduce((acc, p) => acc + limpiarNumero(p), 0);
         cuentaDoc.saldo = Math.max(0, montoTotal - totalPagado);
         cuentaDoc.pagada = cuentaDoc.saldo <= 0;
+
+        // OBLIGATORIO: Notificar a Mongoose que el arreglo 'pagos' cambió
+        cuentaDoc.markModified('pagos');
         await cuentaDoc.save();
       }
     }
@@ -207,25 +210,26 @@ exports.handleStripeWebhook = async (req, res) => {
     try {
       if (mongoose.connection.readyState === 1) {
         const condiciones = [];
-        if (nombreAlumno && nombreAlumno !== 'Alumno') {
-          condiciones.push({ alumno: new RegExp(nombreAlumno, 'i') });
-        }
         if (cuentaId) {
-          condiciones.unshift({ id: cuentaId });
+          condiciones.push({ id: cuentaId });
           if (mongoose.Types.ObjectId.isValid(cuentaId)) {
             condiciones.unshift({ _id: cuentaId });
           }
+        }
+        if (nombreAlumno && nombreAlumno !== 'Alumno') {
+          condiciones.push({ alumno: new RegExp(`^${nombreAlumno}$`, 'i') });
+          condiciones.push({ alumno: new RegExp(nombreAlumno, 'i') });
         }
 
         if (condiciones.length > 0) {
           cuentaDoc = await Cuenta.findOne({ $or: condiciones });
         }
-        if (!cuentaDoc) {
-          cuentaDoc = await Cuenta.findOne();
+        if (!cuentaDoc && nombreAlumno) {
+          cuentaDoc = await Cuenta.findOne({ alumno: new RegExp(nombreAlumno, 'i') });
         }
 
         if (cuentaDoc) {
-          nombreAlumno = cuentaDoc.alumno || nombreAlumno || 'aaron';
+          nombreAlumno = cuentaDoc.alumno || nombreAlumno;
           cuentaId = cuentaDoc.id || String(cuentaDoc._id);
 
           if (!Array.isArray(cuentaDoc.pagos) || cuentaDoc.pagos.length !== 10) {
@@ -248,7 +252,14 @@ exports.handleStripeWebhook = async (req, res) => {
           const totalPagado = cuentaDoc.pagos.reduce((acc, p) => acc + limpiarNumero(p), 0);
           cuentaDoc.saldo = Math.max(0, montoTotal - totalPagado);
           cuentaDoc.pagada = cuentaDoc.saldo <= 0;
+
+          // AVISO A MONGOOSE: Forzar persistencia del arreglo de pagos y saldo
+          cuentaDoc.markModified('pagos');
+          cuentaDoc.markModified('saldo');
           await cuentaDoc.save();
+          console.log(`✅ Saldo actualizado en Atlas para ${nombreAlumno}: Nuevo saldo = $${cuentaDoc.saldo}`);
+        } else {
+          console.warn(`⚠️ No se encontró cuenta para el pago de Stripe (Alumno: ${nombreAlumno}, Cuenta: ${cuentaId})`);
         }
 
         const nuevoPagoBD = new Pago({
@@ -270,7 +281,7 @@ exports.handleStripeWebhook = async (req, res) => {
       let saldoEncontrado = saldos.find(s => 
         (cuentaId && (s.id === cuentaId || s._id === cuentaId)) ||
         (nombreAlumno && s.alumno && s.alumno.toLowerCase() === nombreAlumno.toLowerCase())
-      ) || saldos[0];
+      );
 
       if (saldoEncontrado) {
         if (!Array.isArray(saldoEncontrado.pagos)) {
@@ -305,7 +316,7 @@ exports.handleStripeWebhook = async (req, res) => {
       global.datosCompartidos.pagos.unshift({
         id: folioId,
         folio: folioId,
-        alumno: nombreAlumno || 'aaron',
+        alumno: nombreAlumno || 'Alumno',
         concepto: concepto,
         monto: monto,
         montoAbonado: monto,
