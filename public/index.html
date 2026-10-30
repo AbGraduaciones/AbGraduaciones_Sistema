@@ -247,7 +247,7 @@
 
       <table style="width: 100%; margin-bottom: 18px; background-color: #f0f9ff; border: 1px solid #bae6fd; border-radius: 10px; border-collapse: collapse;">
         <tr>
-          <td style="vertical-top: top; width: 50%; padding: 14px;">
+          <td style="vertical-align: top; width: 50%; padding: 14px;">
             <div style="font-size: 10px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.05em; color: #0284c7; margin-bottom: 4px;">Datos del Alumno</div>
             <div style="font-size: 16px; font-weight: bold; color: #0f172a;" id="pdfAlumnoNombre">Alumno</div>
             <div style="font-size: 11px; color: #334155; margin-top: 4px;" id="pdfAlumnoUniversidad">Universidad: N/A</div>
@@ -656,7 +656,6 @@
       const sessionId = urlParams.get('session_id');
       const estadoPago = urlParams.get('pago');
 
-      // Si regresa de Stripe con éxito o session_id, verificar inmediatamente antes de pintar
       if (estadoPago === 'exito' || sessionId) {
         if (sessionId) {
           try {
@@ -679,9 +678,6 @@
       actualizarDatalistAlumnos();
       actualizarOpcionesFiltroEscuelas();
 
-      // ==========================================
-      // DETECCIÓN INTELIGENTE DE RUTA (ALUMNO vs ADMIN)
-      // ==========================================
       const rutaActual = window.location.pathname.toLowerCase();
       const esAdmin = rutaActual.startsWith('/admin') || rutaActual.startsWith('/admn');
 
@@ -739,7 +735,6 @@
       }
     }
 
-    // Cierre de sesión forzado del Administrador
     async function cerrarSesionAdmin() {
       try {
         await fetch('/api/logout', {
@@ -748,7 +743,6 @@
           }
         });
       } catch (e) {
-        // Ignorar respuesta de error del 401
       }
       window.location.href = '/pago';
     }
@@ -1054,20 +1048,14 @@
             <div class="max-w-md mx-auto bg-white p-8 rounded-2xl border border-slate-200 shadow-xl text-center mt-6">
               <div class="text-4xl mb-3">🎓</div>
               <h3 class="text-2xl font-bold text-slate-900 mb-2">Consulta tu Estado de Cuenta</h3>
-              <p class="text-xs text-slate-500 mb-6">Ingresa tu ID de Alumno (ej: 1001) o Teléfono con LADA (+52...) para recibir tu código de acceso seguro.</p>
+              <p class="text-xs text-slate-500 mb-6">Ingresa tu ID de Alumno (ej: 1001) o tu número de teléfono registrado para obtener tu código de acceso.</p>
 
-              <form onsubmit="solicitarCodigoSeguridad(event, 'email')" class="space-y-4">
+              <form onsubmit="iniciarLoginPortal(event)" class="space-y-4">
                 <input type="text" id="loginAlumnoInput" placeholder="Ej: 1001 o +52 5551234567" required class="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-center text-sm font-semibold outline-none focus:border-blue-600">
                 
-                <div class="space-y-2">
-                  <button type="submit" id="btnSolicitarCodigo" class="w-full py-3 bg-blue-700 hover:bg-blue-800 text-white font-bold rounded-xl shadow-lg shadow-blue-600/30 transition-all flex items-center justify-center gap-2">
-                    ✉️ Enviar Código al Correo
-                  </button>
-
-                  <button type="button" onclick="solicitarCodigoSeguridad(event, 'whatsapp')" class="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-lg shadow-emerald-600/30 transition-all flex items-center justify-center gap-2">
-                    💬 Abrir Código por WhatsApp
-                  </button>
-                </div>
+                <button type="submit" id="btnIniciarLogin" class="w-full py-3.5 bg-blue-700 hover:bg-blue-800 text-white font-bold rounded-xl shadow-lg shadow-blue-600/30 transition-all flex items-center justify-center gap-2">
+                  🔑 Generar Código de Acceso
+                </button>
               </form>
             </div>
           `;
@@ -1076,29 +1064,38 @@
           
           dinamic.innerHTML = `
             <div class="max-w-md mx-auto bg-white p-8 rounded-2xl border border-slate-200 shadow-xl text-center mt-6">
-              <div class="text-4xl mb-3">📩</div>
-              <h3 class="text-2xl font-bold text-slate-900 mb-2">Código de Seguridad Generado</h3>
-              <p class="text-xs text-slate-500 mb-4">Ingresa tu PIN de 6 dígitos. Si elegiste correo fue enviado a: <strong class="text-blue-600">${emailOculto}</strong>.</p>
+              <div class="text-4xl mb-3">🔐</div>
+              <h3 class="text-2xl font-bold text-slate-900 mb-2">Código de Seguridad Listo</h3>
+              <p class="text-xs text-slate-500 mb-4">Elige cómo deseas ver tu PIN de 6 dígitos:</p>
 
-              ${enlaceWhatsAppGenerado ? `
-                <div class="mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
-                  <a href="${enlaceWhatsAppGenerado}" target="_blank" class="inline-block text-xs font-bold text-emerald-800 hover:text-emerald-900 underline">
-                    💬 ¿No abrió WhatsApp? Haz clic aquí para ver tu código
+              <!-- OPCIÓN 1: WHATSAPP DIRECTO COMO ENLACE NATIVO (NO POPUP) -->
+              <div class="space-y-3 mb-6">
+                ${enlaceWhatsAppGenerado ? `
+                  <a href="${enlaceWhatsAppGenerado}" target="_blank" class="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-md transition-all flex items-center justify-center gap-2 text-sm">
+                    💬 Abrir mi Código en WhatsApp
                   </a>
-                </div>
-              ` : ''}
+                ` : ''}
 
-              <form onsubmit="verificarCodigoSeguridad(event)" class="space-y-4">
-                <input type="text" id="inputCodigoOtp" placeholder="000000" maxlength="6" required class="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-center text-2xl font-mono tracking-widest font-bold outline-none focus:border-blue-600">
-                
-                <button type="submit" id="btnVerificarCodigo" class="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-lg shadow-emerald-600/30 transition-all">
-                  Verificar y Entrar
+                <!-- OPCIÓN 2: ENVIAR AL CORREO -->
+                <button type="button" id="btnEnviarCorreoPaso2" onclick="enviarCodigoPorCorreo()" class="w-full py-2.5 px-4 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded-xl border border-blue-200 transition-all text-xs flex items-center justify-center gap-2">
+                  ✉️ Enviar a mi Correo (${emailOculto})
                 </button>
+              </div>
 
-                <button type="button" onclick="cancelarLoginOtp()" class="text-xs text-slate-400 hover:text-slate-600 font-semibold underline mt-2">
-                  Volver / Cambiar ID
-                </button>
-              </form>
+              <div class="pt-4 border-t border-slate-100">
+                <p class="text-xs font-semibold text-slate-600 mb-3">Ingresa los 6 dígitos recibidos:</p>
+                <form onsubmit="verificarCodigoSeguridad(event)" class="space-y-4">
+                  <input type="text" id="inputCodigoOtp" placeholder="000000" maxlength="6" required class="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-center text-2xl font-mono tracking-widest font-bold outline-none focus:border-blue-600">
+                  
+                  <button type="submit" id="btnVerificarCodigo" class="w-full py-3.5 bg-slate-900 hover:bg-black text-white font-bold rounded-xl shadow-lg transition-all">
+                    Verificar y Entrar
+                  </button>
+
+                  <button type="button" onclick="cancelarLoginOtp()" class="text-xs text-slate-400 hover:text-slate-600 font-semibold underline mt-2 block mx-auto">
+                    ← Volver / Cambiar ID
+                  </button>
+                </form>
+              </div>
             </div>
           `;
         }
@@ -1284,13 +1281,8 @@
       }
     }
 
-    async function solicitarCodigoSeguridad(e, canal = 'email') {
+    async function iniciarLoginPortal(e) {
       if (e) e.preventDefault();
-
-      let ventanaWa = null;
-      if (canal === 'whatsapp') {
-        ventanaWa = window.open('about:blank', '_blank');
-      }
 
       const inputVal = document.getElementById('loginAlumnoInput').value.trim();
       const val = inputVal.toLowerCase();
@@ -1302,15 +1294,14 @@
       );
 
       if (!encontrado) {
-        if (ventanaWa) ventanaWa.close();
-        alert('No se encontró ningún alumno con esos datos.');
+        alert('No se encontró ningún alumno con esos datos. Verifica tu ID o teléfono.');
         return;
       }
 
-      const btn = document.getElementById('btnSolicitarCodigo');
+      const btn = document.getElementById('btnIniciarLogin');
       if (btn) {
         btn.disabled = true;
-        btn.innerText = 'Generando código...';
+        btn.innerText = 'Generando acceso...';
       }
 
       const pinGenerado = Math.floor(100000 + Math.random() * 900000).toString();
@@ -1321,12 +1312,7 @@
       const textoWa = encodeURIComponent(
         `🎓 *AB GRADUACIONES*\n\nHola *${encontrado.nombre}*, tu código de seguridad para consultar tu Estado de Cuenta es:\n\n🔑 *${pinGenerado}*\n\nIngresa este código en la pantalla para acceder.`
       );
-      const urlWa = telLimpio ? `https://wa.me/${telLimpio}?text=${textoWa}` : `https://wa.me/?text=${textoWa}`;
-      enlaceWhatsAppGenerado = urlWa;
-
-      if (ventanaWa) {
-        ventanaWa.location.href = urlWa;
-      }
+      enlaceWhatsAppGenerado = telLimpio ? `https://wa.me/${telLimpio}?text=${textoWa}` : `https://wa.me/?text=${textoWa}`;
 
       try {
         await fetch('/api/enviar-codigo-seguridad', {
@@ -1341,11 +1327,48 @@
           })
         });
       } catch (err) {
-        console.warn('Servidor sin respuesta para envío directo, usando contingencia de cliente:', err);
+        console.warn('Servidor sin respuesta para sincronizar código, usando memoria de cliente:', err);
       }
 
       pasoLoginPortal = 2;
       renderizarPortalAlumno();
+    }
+
+    async function enviarCodigoPorCorreo() {
+      if (!alumnoTempLogin || !codigoOtpGenerado) return;
+
+      const btn = document.getElementById('btnEnviarCorreoPaso2');
+      if (btn) {
+        btn.disabled = true;
+        btn.innerText = 'Enviando correo...';
+      }
+
+      try {
+        const respuesta = await fetch('/api/enviar-codigo-seguridad', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            alumnoId: alumnoTempLogin.id,
+            email: alumnoTempLogin.email,
+            telefono: alumnoTempLogin.telefono,
+            nombre: alumnoTempLogin.nombre,
+            codigo: codigoOtpGenerado
+          })
+        });
+
+        if (respuesta.ok) {
+          alert('✅ Código enviado a tu correo exitosamente.');
+        } else {
+          alert('⚠️ El servidor procesó el código. Puedes consultarlo también vía WhatsApp.');
+        }
+      } catch (e) {
+        alert('⚠️ No se pudo enviar el correo, por favor utiliza el botón de WhatsApp.');
+      }
+
+      if (btn) {
+        btn.disabled = false;
+        btn.innerText = '✉️ Reenviar al Correo';
+      }
     }
 
     async function verificarCodigoSeguridad(e) {
@@ -1941,7 +1964,6 @@
             </div>
           </div>
 
-          <!-- OPCIÓN PROMOCIONAL 5% DESCUENTO PAGO DE CONTADO EN EFECTIVO -->
           <div class="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between">
             <label class="flex items-center gap-3 cursor-pointer">
               <input type="checkbox" id="checkContadoEfectivo" onchange="actualizarPrecioModeloModal()" ${esContadoDef ? 'checked' : ''} class="w-5 h-5 text-emerald-600 rounded focus:ring-emerald-500">
@@ -2005,7 +2027,6 @@
             </div>
           </div>
 
-          <!-- UNIVERSIDAD Y CARRERA SEPARADAS (SIN CAMPOS DE DIRECCIÓN) -->
           <div class="grid grid-cols-2 gap-4">
             <div>
               <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Universidad / Institución</label>
