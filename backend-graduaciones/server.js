@@ -90,6 +90,7 @@ async function sincronizarMemoriaDesdeBD() {
         return {
           id: cta.id || String(cta._id),
           _id: String(cta._id),
+          cliente: cta.cliente ? String(cta.cliente) : '',
           alumno: cta.alumno,
           paquete: cta.paquete,
           monto: montoTotal,
@@ -236,8 +237,8 @@ app.post('/api/datos', async (req, res) => {
           // Consultar si MongoDB ya tiene pagos registrados por Stripe que el cliente aún no tenga en memoria
           const cuentaExistente = await Cuenta.findOne({
             $or: [
+              ...(s._id && mongoose.Types.ObjectId.isValid(s._id) ? [{ _id: new mongoose.Types.ObjectId(s._id) }] : []),
               { id: s.id },
-              ...(s._id && mongoose.Types.ObjectId.isValid(s._id) ? [{ _id: s._id }] : []),
               { alumno: new RegExp(`^${s.alumno}$`, 'i') }
             ]
           }).lean();
@@ -265,7 +266,7 @@ app.post('/api/datos', async (req, res) => {
             filtroCuenta,
             {
               id: s.id || (cuentaExistente ? cuentaExistente.id : 'CTA-' + Date.now()),
-              cliente: s.id || 'CLIENTE-TEMP',
+              cliente: s.cliente || (cuentaExistente ? cuentaExistente.cliente : '1001'),
               alumno: s.alumno,
               paquete: s.paquete,
               monto: montoTotal,
@@ -322,6 +323,51 @@ const procesarCheckout = (req, res) => {
 
 app.post('/api/crear-checkout', procesarCheckout);
 app.post('/api/pagos/crear-checkout-session', procesarCheckout);
+
+// Endpoint de verificación y confirmación inmediata al volver de Stripe
+app.get('/api/verificar-sesion-stripe/:sessionId', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    if (!sessionId || !sessionId.startsWith('cs_')) {
+      return res.status(400).json({ ok: false, error: 'Session ID no válido' });
+    }
+
+    const session = await stripe.checkout.sessions.retrieve(sessionId);
+    if (!session || session.payment_status !== 'paid') {
+      return res.status(400).json({ ok: false, error: 'El pago aún no figura como liquidado en Stripe' });
+    }
+
+    const metadata = session.metadata || {};
+    const nombreAlumno = (metadata.nombreAlumno || metadata.alumno || '').trim();
+    const cuentaId = metadata.cuentaId || metadata.cuenta_id || '';
+    const alumnoId = metadata.alumnoId || metadata.clienteId || '';
+    const concepto = metadata.concepto || 'Abono en Línea (Stripe)';
+    const monto = metadata.montoNetoAbono 
+      ? parseFloat(metadata.montoNetoAbono) 
+      : (session.amount_total ? session.amount_total / 100 : 0);
+
+    if (pagoController && typeof pagoController.aplicarAbonoACuenta === 'function') {
+      await pagoController.aplicarAbonoACuenta({
+        cuentaId,
+        alumnoId,
+        nombreAlumno,
+        monto,
+        concepto,
+        sessionId: session.id,
+        customerEmail: session.customer_email || metadata.email || ''
+      });
+    }
+
+    if (mongoose.connection.readyState === 1) {
+      await sincronizarMemoriaDesdeBD();
+    }
+
+    res.json({ ok: true, mensaje: 'Pago verificado y saldo aplicado' });
+  } catch (error) {
+    console.error('Error al verificar sesión directa:', error.message);
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
 
 // 7. Envío de correos (Público para alumnos)
 const transporter = nodemailer.createTransport({

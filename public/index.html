@@ -650,6 +650,29 @@
 
     document.addEventListener('DOMContentLoaded', async () => {
       cargarLogoGuardado();
+
+      const urlParams = new URLSearchParams(window.location.search);
+      const sessionId = urlParams.get('session_id');
+      const estadoPago = urlParams.get('pago');
+
+      // Si regresa de Stripe con éxito o session_id, verificar inmediatamente antes de pintar
+      if (estadoPago === 'exito' || sessionId) {
+        if (sessionId) {
+          try {
+            await fetch(`/api/verificar-sesion-stripe/${sessionId}`, { cache: 'no-store' });
+          } catch (e) {
+            console.warn('Verificación directa completada');
+          }
+        }
+        localStorage.removeItem('app_saldos_10p');
+        localStorage.removeItem('app_pagos_historial');
+        await sincronizarDesdeServidor();
+        window.history.replaceState({}, document.title, window.location.pathname);
+      } else if (estadoPago === 'cancelado') {
+        alert('❌ El proceso de pago fue cancelado o interrumpido.');
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
+
       await sincronizarDesdeServidor();
       asegurarIdsEnSaldos();
       actualizarDatalistAlumnos();
@@ -672,21 +695,6 @@
       } else {
         modoAcceso = 'admin';
         cargarContenido('saldos');
-      }
-
-      const urlParams = new URLSearchParams(window.location.search);
-      const estadoPago = urlParams.get('pago') || urlParams.get('session_id');
-
-      if (urlParams.get('pago') === 'exito' || urlParams.get('session_id')) {
-        setTimeout(async () => {
-          await sincronizarDesdeServidor();
-          cargarContenido(vistaActual);
-          alert('🎉 ¡Pago procesado con éxito en Stripe! La transacción y tu abono han sido registrados.');
-        }, 1200);
-        window.history.replaceState({}, document.title, window.location.pathname);
-      } else if (urlParams.get('pago') === 'cancelado') {
-        alert('❌ El proceso de pago fue cancelado o interrumpido.');
-        window.history.replaceState({}, document.title, window.location.pathname);
       }
     });
 
@@ -1081,7 +1089,7 @@
         return;
       }
 
-      const saldoObj = saldos.find(s => s.alumno.toLowerCase() === alumnoSesionActual.nombre.toLowerCase()) || { monto: 0, pagos: [0,0,0,0,0,0,0,0,0,0], entregas: {}, paquete: 'Sin Paquete', eleccionEspecial: '', esContadoEfectivo: false };
+      const saldoObj = saldos.find(s => s.alumno && s.alumno.toLowerCase() === alumnoSesionActual.nombre.toLowerCase()) || { monto: 0, pagos: [0,0,0,0,0,0,0,0,0,0], entregas: {}, paquete: 'Sin Paquete', eleccionEspecial: '', esContadoEfectivo: false };
       const totalPagado = calcularTotalPagado(saldoObj.pagos);
       const saldoPendiente = Math.max(0, saldoObj.monto - totalPagado);
       const porcentajeAvance = saldoObj.monto > 0 ? Math.min(100, Math.round((totalPagado / saldoObj.monto) * 100)) : 0;
@@ -1242,7 +1250,7 @@
     async function guardarEleccionAlumno(opcionElegida) {
       if (!alumnoSesionActual) return;
 
-      const saldoObj = saldos.find(s => s.alumno.toLowerCase() === alumnoSesionActual.nombre.toLowerCase());
+      const saldoObj = saldos.find(s => s.alumno && s.alumno.toLowerCase() === alumnoSesionActual.nombre.toLowerCase());
       if (!saldoObj) return;
 
       if (saldoObj.eleccionEspecial) {
@@ -1387,7 +1395,7 @@
     function abrirPasarelaPago(conceptoTag, monto) {
       if (!alumnoSesionActual) return;
       
-      const saldoObj = saldos.find(s => s.alumno.toLowerCase() === alumnoSesionActual.nombre.toLowerCase());
+      const saldoObj = saldos.find(s => s.alumno && s.alumno.toLowerCase() === alumnoSesionActual.nombre.toLowerCase());
       const totalPagado = calcularTotalPagado(saldoObj ? saldoObj.pagos : []);
       const maxPendiente = Math.max(0, (saldoObj ? saldoObj.monto : 0) - totalPagado);
 
@@ -1424,7 +1432,7 @@
         return;
       }
 
-      const saldoObj = saldos.find(s => s.alumno.toLowerCase() === alumnoSesionActual.nombre.toLowerCase());
+      const saldoObj = saldos.find(s => s.alumno && s.alumno.toLowerCase() === alumnoSesionActual.nombre.toLowerCase());
       const totalPagadoActual = calcularTotalPagado(saldoObj ? saldoObj.pagos : []);
       const saldoPendiente = Math.max(0, (saldoObj ? saldoObj.monto : 0) - totalPagadoActual);
 
@@ -1435,11 +1443,7 @@
 
       let ctaId = '';
       if (saldoObj) {
-        if (!saldoObj.id && !saldoObj._id) {
-          saldoObj.id = 'CTA-' + (alumnoSesionActual.id || Date.now());
-          guardarEnLocalStorage();
-        }
-        ctaId = saldoObj._id || saldoObj.id;
+        ctaId = saldoObj._id || saldoObj.id || ('CTA-' + (alumnoSesionActual.id || Date.now()));
       } else {
         ctaId = 'CTA-' + (alumnoSesionActual.id || Date.now());
       }
@@ -2033,9 +2037,9 @@
 
       if (vistaActual === 'saldos') {
         const alumnoInput = document.getElementById('fAlumno').value.trim();
-        const alumnoExiste = alumnos.some(a => a.nombre.toLowerCase() === alumnoInput.toLowerCase());
+        const alumnoObj = alumnos.find(a => a.nombre.toLowerCase() === alumnoInput.toLowerCase());
         
-        if (!alumnoExiste) {
+        if (!alumnoObj) {
           alertaError.innerText = `El alumno "${alumnoInput}" no está registrado. Primero debes agregarlo en la sección "Alumnos".`;
           alertaError.classList.remove('hidden');
           return;
@@ -2061,6 +2065,7 @@
 
         if (indiceEdicion !== null) {
           saldos[indiceEdicion].alumno = alumnoInput;
+          saldos[indiceEdicion].cliente = String(alumnoObj.id);
           saldos[indiceEdicion].paquete = paqueteCompleto;
           saldos[indiceEdicion].monto = monto;
           saldos[indiceEdicion].pagos = pagosCapturados;
@@ -2068,6 +2073,7 @@
         } else {
           saldos.push({ 
             id: 'CTA-' + Date.now(),
+            cliente: String(alumnoObj.id),
             alumno: alumnoInput, 
             paquete: paqueteCompleto, 
             monto, 
