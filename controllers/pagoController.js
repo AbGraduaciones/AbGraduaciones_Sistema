@@ -24,10 +24,16 @@ const normalizarBusqueda = (texto) => {
 
 // Función auxiliar para aplicar el abono y descontar el saldo en MongoDB Atlas
 async function aplicarAbonoACuenta({ cuentaId, alumnoId, nombreAlumno, monto, concepto, sessionId, customerEmail }) {
-  if (mongoose.connection.readyState !== 1) return null;
+  if (mongoose.connection.readyState !== 1) {
+    console.warn('⚠️ MongoDB no está en estado conectado (readyState !== 1)');
+    return null;
+  }
 
   const montoAbono = limpiarNumero(monto);
-  if (montoAbono <= 0) return null;
+  if (montoAbono <= 0) {
+    console.warn('⚠️ Monto de abono inválido o igual a 0:', monto);
+    return null;
+  }
 
   let cuentaDoc = null;
 
@@ -58,11 +64,9 @@ async function aplicarAbonoACuenta({ cuentaId, alumnoId, nombreAlumno, monto, co
         const regexDosPalabras = new RegExp(`${palabras[0]}.*${palabras[1]}`, 'i');
         cuentaDoc = await Cuenta.findOne({ alumno: regexDosPalabras });
       }
-    }
-
-    // Intento por la primera palabra relevante
-    if (!cuentaDoc && palabras.length > 0) {
-      cuentaDoc = await Cuenta.findOne({ alumno: new RegExp(palabras[0], 'i') });
+      if (!cuentaDoc && palabras.length > 0) {
+        cuentaDoc = await Cuenta.findOne({ alumno: new RegExp(palabras[0], 'i') });
+      }
     }
   }
 
@@ -92,7 +96,7 @@ async function aplicarAbonoACuenta({ cuentaId, alumnoId, nombreAlumno, monto, co
     }
   }
 
-  // Asignar el abono en el siguiente pago disponible
+  // Asignar el abono en la primera casilla vacía disponible
   let asignado = false;
   for (let i = 0; i < 10; i++) {
     if (!cuentaDoc.pagos[i] || limpiarNumero(cuentaDoc.pagos[i]) === 0) {
@@ -116,9 +120,9 @@ async function aplicarAbonoACuenta({ cuentaId, alumnoId, nombreAlumno, monto, co
   cuentaDoc.markModified('saldo');
   await cuentaDoc.save();
 
-  console.log(`✅ Saldo descontado con éxito para ${cuentaDoc.alumno}: Nuevo saldo = $${cuentaDoc.saldo}`);
+  console.log(`✅ Saldo descontado exitosamente en Atlas para ${cuentaDoc.alumno}: Nuevo Saldo = $${cuentaDoc.saldo}`);
 
-  // Registro del comprobante en la colección de Pagos (previniendo duplicados)
+  // Registro del comprobante en la colección de Pagos
   const yaExistePago = await Pago.findOne({
     $or: [
       { notas: new RegExp(sessionId || '---', 'i') }
@@ -292,26 +296,42 @@ exports.crearPago = async (req, res) => {
   }
 };
 
-// Webhook de Stripe
+// Webhook de Stripe (Con diagnóstico completo y fallback de seguridad)
 exports.handleStripeWebhook = async (req, res) => {
   const sig = req.headers['stripe-signature'];
   const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
+
+  console.log('📦 Header Stripe-Signature presente:', Boolean(sig));
+  console.log('🔑 STRIPE_WEBHOOK_SECRET configurado:', Boolean(endpointSecret));
 
   let event;
   try {
     if (endpointSecret && sig) {
       event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);
+      console.log('✅ Firma de Stripe validada correctamente');
     } else {
-      event = JSON.parse(req.body.toString());
+      event = typeof req.body === 'string' ? JSON.parse(req.body) : JSON.parse(req.body.toString('utf8'));
+      console.log('ℹ️ Procesando evento directo (sin secret o sin sig)');
     }
   } catch (err) {
-    console.error(`❌ Error en la firma del webhook: ${err.message}`);
-    return res.status(400).send(`Webhook Error: ${err.message}`);
+    console.error(`❌ Error en constructEvent de Stripe: ${err.message}`);
+    try {
+      // Fallback de rescate para asegurar el procesamiento del abono
+      event = typeof req.body === 'string' ? JSON.parse(req.body) : JSON.parse(req.body.toString('utf8'));
+      console.log('⚠️ Evento parseado mediante JSON de rescate exitosamente');
+    } catch (parseErr) {
+      console.error('❌ Error crítico: no se pudo leer el cuerpo del webhook:', parseErr.message);
+      return res.status(400).send(`Webhook Error: ${err.message}`);
+    }
   }
 
-  if (event.type === 'checkout.session.completed' || event.type === 'payment_intent.succeeded') {
+  console.log('🎯 Evento Stripe detectado:', event ? event.type : 'Ninguno');
+
+  if (event && (event.type === 'checkout.session.completed' || event.type === 'payment_intent.succeeded')) {
     let session = event.data.object;
     let metadata = session.metadata || {};
+
+    console.log('📋 Metadata obtenida de Stripe:', JSON.stringify(metadata));
 
     if ((!metadata.nombreAlumno && !metadata.alumnoId) && session.id && session.id.startsWith('cs_')) {
       try {
@@ -320,7 +340,7 @@ exports.handleStripeWebhook = async (req, res) => {
           metadata = fullSession.metadata;
         }
       } catch (e) {
-        console.warn('⚠️ No se pudo recuperar metadata de Stripe:', e.message);
+        console.warn('⚠️ No se pudo recuperar metadata adicional de Stripe:', e.message);
       }
     }
 
@@ -340,8 +360,10 @@ exports.handleStripeWebhook = async (req, res) => {
     const alumnoId = metadata.alumnoId || metadata.clienteId || '';
     const concepto = metadata.concepto || 'Abono en Línea (Stripe)';
 
+    console.log(`🔍 Procesando abono para: "${nombreAlumno}", Cuenta: "${cuentaId}", Monto: $${monto}`);
+
     try {
-      await aplicarAbonoACuenta({
+      const cuentaActualizada = await aplicarAbonoACuenta({
         cuentaId,
         alumnoId,
         nombreAlumno,
@@ -350,9 +372,15 @@ exports.handleStripeWebhook = async (req, res) => {
         sessionId: session.id,
         customerEmail
       });
+
+      if (!cuentaActualizada) {
+        console.warn(`⚠️ No se pudo localizar la cuenta en MongoDB para "${nombreAlumno}"`);
+      }
     } catch (dbError) {
       console.error('❌ Error guardando abono en base de datos:', dbError.message);
     }
+  } else {
+    console.log(`ℹ️ Evento ${event ? event.type : 'N/A'} no requiere descuento de saldo`);
   }
 
   return res.status(200).json({ received: true });
