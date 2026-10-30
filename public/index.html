@@ -460,7 +460,7 @@
         { modelo: "Roma Puntos", precio: 13300 },
         { modelo: "Cocodrilo", precio: 13300 },
         { modelo: "Azteca", precio: 13300 },
-        { modelo: "Frida", precio: 13300 },
+        { modelo: "Frida", entrance: 13300, precio: 13300 },
         { modelo: "Ramas", precio: 13300 }
       ],
       "Línea Deluxe 4 Fotos Calenda": [
@@ -1048,7 +1048,7 @@
             <div class="max-w-md mx-auto bg-white p-8 rounded-2xl border border-slate-200 shadow-xl text-center mt-6">
               <div class="text-4xl mb-3">🎓</div>
               <h3 class="text-2xl font-bold text-slate-900 mb-2">Consulta tu Estado de Cuenta</h3>
-              <p class="text-xs text-slate-500 mb-6">Ingresa tu ID de Alumno (ej: 1001) o tu número de teléfono registrado para obtener tu código de acceso.</p>
+              <p class="text-xs text-slate-500 mb-6">Ingresa tu ID de Alumno (ej: 1001) o tu número de teléfono registrado para recibir tu código de acceso.</p>
 
               <form onsubmit="iniciarLoginPortal(event)" class="space-y-4">
                 <input type="text" id="loginAlumnoInput" placeholder="Ej: 1001 o +52 5551234567" required class="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-center text-sm font-semibold outline-none focus:border-blue-600">
@@ -1061,38 +1061,44 @@
           `;
         } else if (pasoLoginPortal === 2 && alumnoTempLogin) {
           const emailOculto = alumnoTempLogin.email ? alumnoTempLogin.email.replace(/(.{2})(.*)(?=@)/, (gp1, gp2, gp3) => gp2 + "*".repeat(gp3.length)) : 'tu correo registrado';
-          
+          const urlWa = enlaceWhatsAppGenerado || '#';
+
           dinamic.innerHTML = `
             <div class="max-w-md mx-auto bg-white p-8 rounded-2xl border border-slate-200 shadow-xl text-center mt-6">
               <div class="text-4xl mb-3">🔐</div>
-              <h3 class="text-2xl font-bold text-slate-900 mb-2">Código de Seguridad Listo</h3>
-              <p class="text-xs text-slate-500 mb-4">Elige cómo deseas ver tu PIN de 6 dígitos:</p>
+              <h3 class="text-2xl font-bold text-slate-900 mb-2">Código de Acceso Generado</h3>
+              <p class="text-xs text-slate-500 mb-4">Alumno: <strong>${alumnoTempLogin.nombre}</strong></p>
 
-              <!-- OPCIÓN 1: WHATSAPP DIRECTO COMO ENLACE NATIVO (NO POPUP) -->
+              <!-- RECUADRO CON CÓDIGO EN PANTALLA (GARANTÍA INMEDIATA) -->
+              <div class="bg-amber-50 border border-amber-300 p-4 rounded-xl mb-5">
+                <p class="text-[11px] font-bold text-amber-800 uppercase tracking-wider mb-1">Tu PIN de Acceso</p>
+                <div class="text-3xl font-mono font-black text-amber-950 tracking-widest">${codigoOtpGenerado}</div>
+                <p class="text-[11px] text-amber-700 mt-1">Cópialo o escríbelo directamente en la casilla de abajo.</p>
+              </div>
+
+              <!-- OPCIONES DE ENVÍO DIRECTO -->
               <div class="space-y-3 mb-6">
-                ${enlaceWhatsAppGenerado ? `
-                  <a href="${enlaceWhatsAppGenerado}" target="_blank" class="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-md transition-all flex items-center justify-center gap-2 text-sm">
-                    💬 Abrir mi Código en WhatsApp
-                  </a>
-                ` : ''}
+                <a href="${urlWa}" target="_blank" rel="noopener noreferrer" class="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-md transition-all flex items-center justify-center gap-2 text-sm">
+                  💬 Abrir este Código en WhatsApp
+                </a>
 
-                <!-- OPCIÓN 2: ENVIAR AL CORREO -->
                 <button type="button" id="btnEnviarCorreoPaso2" onclick="enviarCodigoPorCorreo()" class="w-full py-2.5 px-4 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded-xl border border-blue-200 transition-all text-xs flex items-center justify-center gap-2">
                   ✉️ Enviar a mi Correo (${emailOculto})
                 </button>
               </div>
 
+              <!-- FORMULARIO DE VERIFICACIÓN -->
               <div class="pt-4 border-t border-slate-100">
-                <p class="text-xs font-semibold text-slate-600 mb-3">Ingresa los 6 dígitos recibidos:</p>
+                <p class="text-xs font-semibold text-slate-600 mb-3">Introduce tu PIN para ingresar:</p>
                 <form onsubmit="verificarCodigoSeguridad(event)" class="space-y-4">
-                  <input type="text" id="inputCodigoOtp" placeholder="000000" maxlength="6" required class="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-center text-2xl font-mono tracking-widest font-bold outline-none focus:border-blue-600">
+                  <input type="text" id="inputCodigoOtp" value="${codigoOtpGenerado}" placeholder="000000" maxlength="6" required class="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-center text-2xl font-mono tracking-widest font-bold outline-none focus:border-blue-600">
                   
                   <button type="submit" id="btnVerificarCodigo" class="w-full py-3.5 bg-slate-900 hover:bg-black text-white font-bold rounded-xl shadow-lg transition-all">
                     Verificar y Entrar
                   </button>
 
                   <button type="button" onclick="cancelarLoginOtp()" class="text-xs text-slate-400 hover:text-slate-600 font-semibold underline mt-2 block mx-auto">
-                    ← Volver / Cambiar ID
+                    ← Volver / Cambiar Alumno
                   </button>
                 </form>
               </div>
@@ -1312,6 +1318,7 @@
       const textoWa = encodeURIComponent(
         `🎓 *AB GRADUACIONES*\n\nHola *${encontrado.nombre}*, tu código de seguridad para consultar tu Estado de Cuenta es:\n\n🔑 *${pinGenerado}*\n\nIngresa este código en la pantalla para acceder.`
       );
+      
       enlaceWhatsAppGenerado = telLimpio ? `https://wa.me/${telLimpio}?text=${textoWa}` : `https://wa.me/?text=${textoWa}`;
 
       try {
@@ -1359,10 +1366,10 @@
         if (respuesta.ok) {
           alert('✅ Código enviado a tu correo exitosamente.');
         } else {
-          alert('⚠️ El servidor procesó el código. Puedes consultarlo también vía WhatsApp.');
+          alert('⚠️ El servidor procesó el código. Puedes consultarlo también vía WhatsApp o usar el que ves en pantalla.');
         }
       } catch (e) {
-        alert('⚠️ No se pudo enviar el correo, por favor utiliza el botón de WhatsApp.');
+        alert('⚠️ No se pudo enviar el correo, puedes utilizar el PIN que aparece directamente en pantalla o vía WhatsApp.');
       }
 
       if (btn) {
