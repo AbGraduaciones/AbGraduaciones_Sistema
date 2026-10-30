@@ -58,7 +58,7 @@ global.datosCompartidos = {
   pagos: []
 };
 
-// Sincronización desde MongoDB Atlas
+// Sincronización desde MongoDB Atlas hacia la Memoria Global
 async function sincronizarMemoriaDesdeBD() {
   if (mongoose.connection.readyState !== 1) return;
   try {
@@ -81,19 +81,26 @@ async function sincronizarMemoriaDesdeBD() {
     }
 
     if (cuentasBD.length > 0) {
-      global.datosCompartidos.saldos = cuentasBD.map(cta => ({
-        id: cta.id || String(cta._id),
-        _id: String(cta._id),
-        alumno: cta.alumno,
-        paquete: cta.paquete,
-        monto: cta.monto,
-        saldo: cta.saldo !== undefined ? cta.saldo : cta.monto,
-        saldoPendiente: cta.saldo !== undefined ? cta.saldo : cta.monto,
-        pagos: Array.isArray(cta.pagos) && cta.pagos.length === 10 ? cta.pagos : [0,0,0,0,0,0,0,0,0,0],
-        entregas: cta.entregas || {},
-        eleccionEspecial: cta.eleccionEspecial || '',
-        esContadoEfectivo: Boolean(cta.esContadoEfectivo)
-      }));
+      global.datosCompartidos.saldos = cuentasBD.map(cta => {
+        const montoTotal = Number(cta.monto) || 0;
+        const pagosArr = Array.isArray(cta.pagos) && cta.pagos.length === 10 ? cta.pagos : [0,0,0,0,0,0,0,0,0,0];
+        const pagado = pagosArr.reduce((acc, val) => acc + (Number(val) || 0), 0);
+        const saldoFinal = Math.max(0, montoTotal - pagado);
+
+        return {
+          id: cta.id || String(cta._id),
+          _id: String(cta._id),
+          alumno: cta.alumno,
+          paquete: cta.paquete,
+          monto: montoTotal,
+          saldo: saldoFinal,
+          saldoPendiente: saldoFinal,
+          pagos: pagosArr,
+          entregas: cta.entregas || {},
+          eleccionEspecial: cta.eleccionEspecial || '',
+          esContadoEfectivo: Boolean(cta.esContadoEfectivo)
+        };
+      });
     } else {
       global.datosCompartidos.saldos = [];
     }
@@ -104,8 +111,8 @@ async function sincronizarMemoriaDesdeBD() {
         folio: p._id ? String(p._id) : (p.id ? String(p.id) : `PAG-${String(idx + 1).padStart(3, '0')}`),
         alumno: p.alumno || 'Alumno',
         concepto: p.concepto || 'Abono de Graduación',
-        monto: p.monto,
-        montoAbonado: p.monto,
+        monto: Number(p.monto) || 0,
+        montoAbonado: Number(p.monto) || 0,
         fecha: p.fecha ? new Date(p.fecha).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
         metodo: p.metodoPago === 'stripe' ? 'Tarjeta (Stripe)' : (p.metodoPago || p.metodo || 'Efectivo'),
         estado: 'Completado'
@@ -153,11 +160,13 @@ for (const ruta of rutasPosibles) {
 
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
-// 3. Webhook de Stripe
+// 3. Webhook de Stripe (Procesa el pago y sincroniza saldo en tiempo real)
 app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
   if (pagoController && typeof pagoController.handleStripeWebhook === 'function') {
     try {
-      return await pagoController.handleStripeWebhook(req, res);
+      const resultado = await pagoController.handleStripeWebhook(req, res);
+      await sincronizarMemoriaDesdeBD();
+      return resultado;
     } catch (err) {
       console.error('Error delegando webhook:', err.message);
     }
@@ -169,7 +178,7 @@ app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res)
 app.use(cors());
 app.use(express.json());
 
-// 5. Rutas de datos públicas (Sincronización y persistencia con eliminación real en Atlas)
+// 5. Rutas de datos públicas
 app.get('/api/datos', async (req, res) => {
   if (mongoose.connection.readyState === 1) {
     await sincronizarMemoriaDesdeBD();
@@ -186,10 +195,10 @@ app.post('/api/datos', async (req, res) => {
       if (mongoose.connection.readyState === 1) {
         const idsVigentesAlumnos = alumnos.map(a => String(a.id)).filter(Boolean);
         
-        // Eliminar en MongoDB los alumnos que se quitaron en el panel
+        // Purgar de BD alumnos que fueron eliminados
         await Cliente.deleteMany({ id: { $nin: idsVigentesAlumnos } });
 
-        // Actualizar o insertar los vigentes
+        // Actualizar o crear alumnos vigentes
         for (const a of alumnos) {
           await Cliente.findOneAndUpdate(
             { id: String(a.id) },
@@ -209,30 +218,53 @@ app.post('/api/datos', async (req, res) => {
     }
 
     if (Array.isArray(saldos)) {
-      global.datosCompartidos.saldos = saldos;
       if (mongoose.connection.readyState === 1) {
         const idsVigentesSaldos = saldos.map(s => String(s.id || s._id)).filter(Boolean);
+        const nombresAlumnosVigentes = saldos.map(s => s.alumno).filter(Boolean);
         const objectIdsValidos = idsVigentesSaldos.filter(id => mongoose.Types.ObjectId.isValid(id)).map(id => new mongoose.Types.ObjectId(id));
 
-        // Eliminar en MongoDB las cuentas/saldos que ya no existen
+        // Purgar únicamente saldos de alumnos que ya no existan
         await Cuenta.deleteMany({
           $and: [
             { id: { $nin: idsVigentesSaldos } },
-            { _id: { $nin: objectIdsValidos } }
+            { _id: { $nin: objectIdsValidos } },
+            { alumno: { $nin: nombresAlumnosVigentes } }
           ]
         });
 
-        // Actualizar o insertar los vigentes
         for (const s of saldos) {
-          const montoTotal = Number(s.monto) || 11300;
-          const pagosArr = Array.isArray(s.pagos) ? s.pagos : [0,0,0,0,0,0,0,0,0,0];
+          // Consultar si MongoDB ya tiene pagos registrados por Stripe que el cliente aún no tenga en memoria
+          const cuentaExistente = await Cuenta.findOne({
+            $or: [
+              { id: s.id },
+              ...(s._id && mongoose.Types.ObjectId.isValid(s._id) ? [{ _id: s._id }] : []),
+              { alumno: new RegExp(`^${s.alumno}$`, 'i') }
+            ]
+          }).lean();
+
+          let pagosArr = Array.isArray(s.pagos) ? [...s.pagos] : [0,0,0,0,0,0,0,0,0,0];
+
+          // Si en la base de datos hay abonos de Stripe más recientes, conservarlos
+          if (cuentaExistente && Array.isArray(cuentaExistente.pagos)) {
+            for (let i = 0; i < 10; i++) {
+              const valBD = Number(cuentaExistente.pagos[i]) || 0;
+              const valLocal = Number(pagosArr[i]) || 0;
+              pagosArr[i] = Math.max(valBD, valLocal);
+            }
+          }
+
+          const montoTotal = Number(s.monto) || (cuentaExistente ? cuentaExistente.monto : 11300);
           const pagado = pagosArr.reduce((acc, val) => acc + (Number(val) || 0), 0);
           const saldoFinal = Math.max(0, montoTotal - pagado);
 
+          const filtroCuenta = cuentaExistente 
+            ? { _id: cuentaExistente._id } 
+            : { $or: [{ id: s.id }, { alumno: s.alumno }] };
+
           await Cuenta.findOneAndUpdate(
-            { $or: [{ id: s.id }, { alumno: s.alumno }] },
+            filtroCuenta,
             {
-              id: s.id,
+              id: s.id || (cuentaExistente ? cuentaExistente.id : 'CTA-' + Date.now()),
               cliente: s.id || 'CLIENTE-TEMP',
               alumno: s.alumno,
               paquete: s.paquete,
@@ -240,32 +272,40 @@ app.post('/api/datos', async (req, res) => {
               saldo: saldoFinal,
               pagos: pagosArr,
               entregas: s.entregas || {},
-              eleccionEspecial: s.eleccionEspecial || '',
+              eleccionEspecial: s.eleccionEspecial || (cuentaExistente ? cuentaExistente.eleccionEspecial : ''),
               esContadoEfectivo: Boolean(s.esContadoEfectivo),
               pagada: saldoFinal <= 0
             },
             { upsert: true, new: true }
           );
         }
+
+        await sincronizarMemoriaDesdeBD();
+      } else {
+        global.datosCompartidos.saldos = saldos;
       }
     }
 
     if (Array.isArray(pagos)) {
-      global.datosCompartidos.pagos = pagos;
       if (mongoose.connection.readyState === 1) {
         const idsVigentesPagos = pagos.map(p => String(p.id || p._id)).filter(Boolean);
         const objectIdsPagos = idsVigentesPagos.filter(id => mongoose.Types.ObjectId.isValid(id)).map(id => new mongoose.Types.ObjectId(id));
 
-        // Eliminar en MongoDB los pagos descartados
+        // Purgar de BD pagos eliminados manualmente
         await Pago.deleteMany({
           $and: [
-            { _id: { $nin: objectIdsPagos } }
+            { _id: { $nin: objectIdsPagos } },
+            { id: { $nin: idsVigentesPagos } }
           ]
         });
+
+        await sincronizarMemoriaDesdeBD();
+      } else {
+        global.datosCompartidos.pagos = pagos;
       }
     }
 
-    res.json({ ok: true, mensaje: 'Datos y eliminaciones sincronizados en MongoDB correctamente' });
+    res.json({ ok: true, mensaje: 'Datos sincronizados correctamente' });
   } catch (error) {
     console.error('Error al persistir en /api/datos:', error.message);
     res.json({ ok: true, mensaje: 'Guardado en memoria de respaldo' });
@@ -349,7 +389,7 @@ if (routerClientes) app.use('/api/clientes', requireAuth, routerClientes);
 // 9. ARCHIVOS ESTÁTICOS Y SERVICIO DE LOGO
 // ==========================================
 
-// Ruta prioritaria para el logotipo oficial (evita que se desvíe a la redirección)
+// Ruta prioritaria para el logotipo oficial
 app.get('/logo.png', (req, res) => {
   const posiblesRutasLogo = [
     path.join(process.cwd(), 'public', 'logo.png'),
