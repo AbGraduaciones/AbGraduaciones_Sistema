@@ -5,13 +5,19 @@ const path = require('path');
 const fs = require('fs');
 const mongoose = require('mongoose');
 const nodemailer = require('nodemailer');
-const bcrypt = require('bcryptjs');
+
+// Carga segura de bcryptjs
+let bcrypt;
+try {
+  bcrypt = require('bcryptjs');
+} catch (e) {
+  console.warn('⚠️ Advertencia al cargar bcryptjs:', e.message);
+}
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Almacén temporal en memoria para códigos OTP de acceso
-// Formato: { "alumnoId_o_email": { codigo: "123456", expira: 1234567890 } }
 const codigosOtpTemporales = new Map();
 
 // Carga tolerante de modelos
@@ -44,12 +50,12 @@ const requireAuth = async (req, res, next) => {
 
   const authData = Buffer.from(authHeader.split(' ')[1], 'base64').toString().split(':');
   const usuario = authData[0];
-  const password = authData.slice(1).join(':'); // Permite contraseñas que contengan dos puntos
+  const password = authData.slice(1).join(':');
 
   const adminUser = process.env.ADMIN_USER || 'admin';
   const adminPass = process.env.ADMIN_PASS;
 
-  // 1. Acceso maestro por variables de entorno
+  // 1. Acceso maestro por variables de entorno (.env)
   if (usuario === adminUser && password === adminPass) {
     req.usuarioSesion = { usuario: adminUser, rol: 'admin', nombre: 'Administrador Maestro' };
     return next();
@@ -57,7 +63,16 @@ const requireAuth = async (req, res, next) => {
 
   // 2. Acceso por base de datos MongoDB Atlas (staff y admin registrados)
   try {
-    if (mongoose.connection.readyState === 1 && Usuario) {
+    if (mongoose.connection.readyState !== 1) {
+      // Si la conexión aún está abriéndose, espera hasta 3 segundos
+      await new Promise((resolve) => {
+        if (mongoose.connection.readyState === 1) return resolve();
+        mongoose.connection.once('connected', resolve);
+        setTimeout(resolve, 3000);
+      });
+    }
+
+    if (Usuario && bcrypt) {
       const usuarioBD = await Usuario.findOne({ 
         usuario: (usuario || '').trim().toLowerCase(), 
         activo: true 
