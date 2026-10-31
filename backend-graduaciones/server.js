@@ -5,6 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const mongoose = require('mongoose');
 const nodemailer = require('nodemailer');
+const bcrypt = require('bcryptjs');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -12,30 +13,6 @@ const PORT = process.env.PORT || 3000;
 // Almacén temporal en memoria para códigos OTP de acceso
 // Formato: { "alumnoId_o_email": { codigo: "123456", expira: 1234567890 } }
 const codigosOtpTemporales = new Map();
-
-// Middleware de autenticación básica (Basic Auth exclusivo para el Panel de Administrador)
-const requireAuth = (req, res, next) => {
-  const authHeader = req.headers.authorization;
-
-  if (!authHeader) {
-    res.setHeader('WWW-Authenticate', 'Basic realm="Panel de Administrador"');
-    return res.status(401).send('Acceso denegado: se requieren credenciales');
-  }
-
-  const authData = Buffer.from(authHeader.split(' ')[1], 'base64').toString().split(':');
-  const usuario = authData[0];
-  const password = authData[1];
-
-  const adminUser = process.env.ADMIN_USER || 'admin';
-  const adminPass = process.env.ADMIN_PASS;
-
-  if (usuario === adminUser && password === adminPass) {
-    return next();
-  }
-
-  res.setHeader('WWW-Authenticate', 'Basic realm="Panel de Administrador"');
-  return res.status(401).send('Acceso denegado: usuario o contraseña incorrectos');
-};
 
 // Carga tolerante de modelos
 const cargarModelo = (rutas) => {
@@ -54,6 +31,58 @@ const cargarModelo = (rutas) => {
 const Cliente = cargarModelo(['./models/Cliente', './models/cliente', './models/Clientes', './models/clientes']) || mongoose.model('Cliente', new mongoose.Schema({}, { strict: false }));
 const Cuenta = cargarModelo(['./models/Cuenta', './models/cuenta', './models/Cuentas', './models/cuentas']) || mongoose.model('Cuenta', new mongoose.Schema({}, { strict: false }));
 const Pago = cargarModelo(['./models/Pago', './models/pago', './models/Pagos', './models/pagos']) || mongoose.model('Pago', new mongoose.Schema({}, { strict: false }));
+const Usuario = cargarModelo(['./models/Usuario', './models/usuario', './models/Usuarios', './models/usuarios']) || mongoose.model('Usuario', new mongoose.Schema({}, { strict: false }));
+
+// Middleware de autenticación (Soporta Administrador Maestro .env y Usuarios registrados en MongoDB)
+const requireAuth = async (req, res, next) => {
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader) {
+    res.setHeader('WWW-Authenticate', 'Basic realm="Panel de Administrador"');
+    return res.status(401).send('Acceso denegado: se requieren credenciales');
+  }
+
+  const authData = Buffer.from(authHeader.split(' ')[1], 'base64').toString().split(':');
+  const usuario = authData[0];
+  const password = authData.slice(1).join(':'); // Permite contraseñas que contengan dos puntos
+
+  const adminUser = process.env.ADMIN_USER || 'admin';
+  const adminPass = process.env.ADMIN_PASS;
+
+  // 1. Acceso maestro por variables de entorno
+  if (usuario === adminUser && password === adminPass) {
+    req.usuarioSesion = { usuario: adminUser, rol: 'admin', nombre: 'Administrador Maestro' };
+    return next();
+  }
+
+  // 2. Acceso por base de datos MongoDB Atlas (staff y admin registrados)
+  try {
+    if (mongoose.connection.readyState === 1 && Usuario) {
+      const usuarioBD = await Usuario.findOne({ 
+        usuario: (usuario || '').trim().toLowerCase(), 
+        activo: true 
+      }).lean();
+
+      if (usuarioBD && usuarioBD.password) {
+        const passwordCorrecta = await bcrypt.compare(password, usuarioBD.password);
+        if (passwordCorrecta) {
+          req.usuarioSesion = {
+            id: usuarioBD._id,
+            usuario: usuarioBD.usuario,
+            nombre: usuarioBD.nombre,
+            rol: usuarioBD.rol || 'staff'
+          };
+          return next();
+        }
+      }
+    }
+  } catch (errAuth) {
+    console.error('Error al validar credenciales en base de datos:', errAuth.message);
+  }
+
+  res.setHeader('WWW-Authenticate', 'Basic realm="Panel de Administrador"');
+  return res.status(401).send('Acceso denegado: usuario o contraseña incorrectos');
+};
 
 // Memoria compartida accesible globalmente
 global.datosCompartidos = {
@@ -391,15 +420,12 @@ app.post('/api/enviar-codigo-seguridad', async (req, res) => {
   try {
     const { email, nombre, alumnoId, codigo: codigoRecibido } = req.body;
     
-    // Si el cliente ya generó un código para WhatsApp, usamos ese; si no, creamos uno nuevo
     const codigo = codigoRecibido || Math.floor(100000 + Math.random() * 900000).toString();
 
-    // Guardar en memoria con validez de 15 minutos
     const expiracion = Date.now() + 15 * 60 * 1000;
     if (alumnoId) codigosOtpTemporales.set(String(alumnoId).toLowerCase(), { codigo: String(codigo), expira: expiracion });
     if (email) codigosOtpTemporales.set(String(email).toLowerCase(), { codigo: String(codigo), expira: expiracion });
 
-    // Intentar envío de correo solo si hay credenciales configuradas y se proporcionó un correo
     if (transporter && email) {
       try {
         await transporter.sendMail({
@@ -458,7 +484,7 @@ app.post('/api/verificar-codigo-seguridad', (req, res) => {
   return res.status(400).json({ success: false, message: 'Código incorrecto o no encontrado' });
 });
 
-// 10. Routers auxiliares
+// 10. Routers auxiliares y endpoints de administración
 const cargarRutaSegura = (rutas) => {
   for (const r of rutas) {
     try {
@@ -480,6 +506,17 @@ if (routerCuentas) app.use('/api/cuentas', requireAuth, routerCuentas);
 
 const routerClientes = cargarRutaSegura(['./routes/clientes', './routes/Clientes']);
 if (routerClientes) app.use('/api/clientes', requireAuth, routerClientes);
+
+// Endpoint protegido para consultar la lista de usuarios del sistema
+app.get('/api/usuarios', requireAuth, async (req, res) => {
+  try {
+    const usuarios = await Usuario.find({}, '-password').sort({ createdAt: -1 }).lean();
+    res.json({ ok: true, usuarios });
+  } catch (err) {
+    console.error('Error al consultar usuarios:', err.message);
+    res.status(500).json({ ok: false, error: 'Error al obtener usuarios' });
+  }
+});
 
 // 11. Archivos estáticos y logotipo
 app.get('/logo.png', (req, res) => {
