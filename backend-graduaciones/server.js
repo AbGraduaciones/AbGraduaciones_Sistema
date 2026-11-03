@@ -72,7 +72,6 @@ const requireAuth = async (req, res, next) => {
   // 2. Acceso por base de datos MongoDB Atlas (staff y admin registrados)
   try {
     if (mongoose.connection.readyState !== 1) {
-      // Si la conexión aún está abriéndose, espera hasta 3 segundos
       await new Promise((resolve) => {
         if (mongoose.connection.readyState === 1) return resolve();
         mongoose.connection.once('connected', resolve);
@@ -446,7 +445,7 @@ if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
   });
 }
 
-// 8. Generación y Envío de Código de Seguridad (Tolerante: Correo y/o WhatsApp)
+// 8. Generación y Envío de Código de Seguridad
 app.post('/api/enviar-codigo-seguridad', async (req, res) => {
   try {
     const { email, nombre, alumnoId, codigo: codigoRecibido } = req.body;
@@ -476,7 +475,7 @@ app.post('/api/enviar-codigo-seguridad', async (req, res) => {
           `
         });
       } catch (errCorreo) {
-        console.warn('⚠️ No se pudo enviar el correo (se continuará con el código generado):', errCorreo.message);
+        console.warn('⚠️ No se pudo enviar el correo:', errCorreo.message);
       }
     }
 
@@ -538,11 +537,21 @@ if (routerCuentas) app.use('/api/cuentas', requireAuth, routerCuentas);
 const routerClientes = cargarRutaSegura(['./routes/clientes', './routes/Clientes']);
 if (routerClientes) app.use('/api/clientes', requireAuth, routerClientes);
 
-// Endpoint protegido para consultar la lista de usuarios del sistema
-app.get('/api/usuarios', requireAuth, async (req, res) => {
+// Consulta del perfil actual en sesión (Para saber si es admin o staff)
+app.get('/api/mi-perfil', requireAuth, (req, res) => {
+  res.json({
+    ok: true,
+    usuario: req.usuarioSesion?.usuario,
+    nombre: req.usuarioSesion?.nombre,
+    rol: req.usuarioSesion?.rol || 'staff'
+  });
+});
+
+// Endpoint protegido EXCLUSIVO DE ADMIN para consultar la lista de usuarios
+app.get('/api/usuarios', requireAuth, requireAdmin, async (req, res) => {
   try {
     const usuarios = await Usuario.find({}, '-password').sort({ createdAt: -1 }).lean();
-    res.json({ ok: true, usuarios, rolActual: req.usuarioSesion?.rol || 'staff' });
+    res.json({ ok: true, usuarios, rolActual: 'admin' });
   } catch (err) {
     console.error('Error al consultar usuarios:', err.message);
     res.status(500).json({ ok: false, error: 'Error al obtener usuarios' });
@@ -564,7 +573,6 @@ app.put('/api/usuarios/:id', requireAuth, requireAdmin, async (req, res) => {
       return res.status(404).json({ ok: false, error: 'Usuario no encontrado' });
     }
 
-    // Verificar unicidad de usuario y correo en caso de haber cambiado
     if (usuario && usuario.trim().toLowerCase() !== usuarioExistente.usuario) {
       const repetido = await Usuario.findOne({ 
         usuario: usuario.trim().toLowerCase(), 
@@ -592,7 +600,6 @@ app.put('/api/usuarios/:id', requireAuth, requireAdmin, async (req, res) => {
     if (rol && ['admin', 'staff'].includes(rol)) usuarioExistente.rol = rol;
     if (activo !== undefined) usuarioExistente.activo = Boolean(activo);
 
-    // Si se especificó una nueva contraseña, generar el hash con bcrypt
     if (password && String(password).trim().length > 0) {
       if (!bcrypt) {
         return res.status(500).json({ ok: false, error: 'Módulo bcryptjs no disponible para encriptar.' });

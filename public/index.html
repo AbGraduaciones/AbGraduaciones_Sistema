@@ -55,7 +55,8 @@
         <a href="#" onclick="cargarContenido('pagos')" class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 hover:bg-blue-900/40 hover:text-blue-200 text-slate-300 font-medium">
           Historial de Pagos
         </a>
-        <a href="#" onclick="cargarContenido('usuarios')" class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 hover:bg-blue-900/40 hover:text-blue-200 text-slate-300 font-medium">
+        <!-- ENLACE A USUARIOS CON ID PARA CONTROL DE ACCESO -->
+        <a href="#" id="navLinkUsuarios" onclick="cargarContenido('usuarios')" class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 hover:bg-blue-900/40 hover:text-blue-200 text-slate-300 font-medium hidden">
           👥 Usuarios / Staff
         </a>
       </nav>
@@ -68,7 +69,7 @@
       </nav>
     </div>
 
-    <!-- SELECTOR DE PERFIL / MODO Y CIERRE DE SESIÓN (Visible solo para Administrador) -->
+    <!-- SELECTOR DE PERFIL / MODO Y CIERRE DE SESIÓN -->
     <div id="contenedorSelectorModo" class="pt-6 border-t border-slate-800 space-y-3">
       <div>
         <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">Modo de Vista</p>
@@ -270,7 +271,6 @@
         <button onclick="cerrarModalEntregas()" class="text-slate-400 hover:text-slate-600 font-bold text-lg">✕</button>
       </div>
 
-      <!-- SELECCIÓN MANUAL DE REGALÍA POR EL ADMINISTRADOR -->
       <div class="bg-blue-50/70 p-4 rounded-xl border border-blue-200 mb-4">
         <label class="block text-xs font-bold uppercase text-blue-900 mb-1">✨ Asignar / Cambiar Elección de Regalía</label>
         <select id="selectEleccionAdmin" onchange="cambiarEleccionAdmin(this.value)" class="w-full p-2.5 bg-white border border-blue-300 text-slate-800 text-sm font-semibold rounded-lg outline-none focus:border-blue-600">
@@ -435,6 +435,7 @@
 
   <script>
     let modoAcceso = 'admin';
+    let rolUsuarioConectado = 'staff'; // Control estricto de roles
     let alumnoSesionActual = null;
     let alumnoTempLogin = null;
     let codigoOtpGenerado = null;
@@ -724,6 +725,27 @@
       if (pdfLogoTexto) pdfLogoTexto.style.display = 'block';
     }
 
+    async function verificarPerfilActual() {
+      try {
+        const res = await fetch('/api/mi-perfil');
+        if (res.ok) {
+          const data = await res.json();
+          rolUsuarioConectado = data.rol || 'staff';
+        }
+      } catch (e) {
+        console.warn('No se pudo verificar el perfil en sesión:', e);
+      }
+
+      const navLink = document.getElementById('navLinkUsuarios');
+      if (navLink) {
+        if (rolUsuarioConectado === 'admin') {
+          navLink.classList.remove('hidden');
+        } else {
+          navLink.classList.add('hidden');
+        }
+      }
+    }
+
     document.addEventListener('DOMContentLoaded', async () => {
       cargarLogoGuardado();
 
@@ -766,6 +788,7 @@
         cargarContenido('portal_alumno');
       } else {
         modoAcceso = 'admin';
+        await verificarPerfilActual();
         cargarContenido('saldos');
       }
     });
@@ -802,6 +825,7 @@
       if (modoAcceso === 'admin') {
         navAdmin.classList.remove('hidden');
         navAlumno.classList.add('hidden');
+        verificarPerfilActual();
         cargarContenido('saldos');
       } else {
         navAdmin.classList.add('hidden');
@@ -964,6 +988,13 @@
     }
 
     function cargarContenido(vista) {
+      // Bloqueo estricto para colaboradores que intenten entrar a usuarios
+      if (vista === 'usuarios' && rolUsuarioConectado !== 'admin') {
+        alert('Acceso restringido: esta sección está reservada exclusivamente para el Administrador.');
+        cargarContenido('saldos');
+        return;
+      }
+
       vistaActual = vista;
       const titulo = document.getElementById('tituloSeccion');
       const btnContenedor = document.getElementById('btnContenedor');
@@ -1143,7 +1174,7 @@
         const data = await res.json();
 
         if (!res.ok || !data.ok) {
-          tbody.innerHTML = `<tr><td colspan="7" class="p-4 text-center text-red-500">No se pudieron cargar los usuarios (${data.error || 'Acceso no autorizado'}).</td></tr>`;
+          tbody.innerHTML = `<tr><td colspan="7" class="p-4 text-center text-red-500">Acceso restringido: solo administradores pueden ver esta sección.</td></tr>`;
           return;
         }
 
@@ -1153,7 +1184,6 @@
         }
 
         listaUsuariosCargados = data.usuarios;
-        const esAdminActual = data.rolActual === 'admin';
 
         tbody.innerHTML = '';
         data.usuarios.forEach((u, idx) => {
@@ -1175,13 +1205,9 @@
                 </span>
               </td>
               <td class="p-4 text-center">
-                ${esAdminActual ? `
-                  <button onclick="abrirModalEditarUsuario(${idx})" class="px-3 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs rounded-lg border border-blue-200 transition">
-                    ✏️ Editar
-                  </button>
-                ` : `
-                  <span class="text-xs text-slate-400 italic">Solo lectura</span>
-                `}
+                <button onclick="abrirModalEditarUsuario(${idx})" class="px-3 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs rounded-lg border border-blue-200 transition">
+                  ✏️ Editar
+                </button>
               </td>
             </tr>`;
         });
@@ -1304,7 +1330,6 @@
                 </p>
               </div>
 
-              <!-- OPCIONES DE CONSULTA SEGURA -->
               <div class="space-y-3 mb-6">
                 <a href="${urlWa}" target="_blank" rel="noopener noreferrer" class="w-full py-3.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-md transition-all flex items-center justify-center gap-2 text-sm">
                   💬 Ver mi Código en WhatsApp
@@ -1315,7 +1340,6 @@
                 </button>
               </div>
 
-              <!-- FORMULARIO DE VERIFICACIÓN -->
               <div class="pt-4 border-t border-slate-100">
                 <p class="text-xs font-semibold text-slate-600 mb-3">Introduce los 6 dígitos recibidos:</p>
                 <form onsubmit="verificarCodigoSeguridad(event)" class="space-y-4">
