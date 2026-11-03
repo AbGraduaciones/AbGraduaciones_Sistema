@@ -238,7 +238,7 @@ async function sincronizarMemoriaDesdeBD() {
     } else {
       global.datosCompartidos.pagos = [];
     }
-    console.log('✅ Sincronización exitosa: MongoDB -> Memoria Global (Con Grupos)');
+    console.log('✅ Sincronización exitosa: MongoDB -> Memoria Global');
   } catch (err) {
     console.error('⚠️ Error al sincronizar desde MongoDB:', err.message);
   }
@@ -315,12 +315,10 @@ app.post('/api/datos', async (req, res) => {
     }
 
     if (Array.isArray(alumnos)) {
-      global.datosCompartidos.alumnos = alumnos;
       if (mongoose.connection.readyState === 1) {
-        const idsVigentesAlumnos = alumnos.map(a => String(a.id)).filter(Boolean);
-        await Cliente.deleteMany({ id: { $nin: idsVigentesAlumnos } });
-
+        // Upsert inteligente: actualiza los que vienen del cliente sin borrar los alumnos de la BD
         for (const a of alumnos) {
+          if (!a || !a.id) continue;
           await Cliente.findOneAndUpdate(
             { id: String(a.id) },
             {
@@ -337,24 +335,15 @@ app.post('/api/datos', async (req, res) => {
             { upsert: true, new: true }
           );
         }
+      } else {
+        global.datosCompartidos.alumnos = alumnos;
       }
     }
 
     if (Array.isArray(saldos)) {
       if (mongoose.connection.readyState === 1) {
-        const idsVigentesSaldos = saldos.map(s => String(s.id || s._id)).filter(Boolean);
-        const nombresAlumnosVigentes = saldos.map(s => s.alumno).filter(Boolean);
-        const objectIdsValidos = idsVigentesSaldos.filter(id => mongoose.Types.ObjectId.isValid(id)).map(id => new mongoose.Types.ObjectId(id));
-
-        await Cuenta.deleteMany({
-          $and: [
-            { id: { $nin: idsVigentesSaldos } },
-            { _id: { $nin: objectIdsValidos } },
-            { alumno: { $nin: nombresAlumnosVigentes } }
-          ]
-        });
-
         for (const s of saldos) {
+          if (!s) continue;
           const cuentaExistente = await Cuenta.findOne({
             $or: [
               ...(s._id && mongoose.Types.ObjectId.isValid(s._id) ? [{ _id: new mongoose.Types.ObjectId(s._id) }] : []),
@@ -401,8 +390,6 @@ app.post('/api/datos', async (req, res) => {
             { upsert: true, new: true }
           );
         }
-
-        await sincronizarMemoriaDesdeBD();
       } else {
         global.datosCompartidos.saldos = saldos;
       }
@@ -410,20 +397,34 @@ app.post('/api/datos', async (req, res) => {
 
     if (Array.isArray(pagos)) {
       if (mongoose.connection.readyState === 1) {
-        const idsVigentesPagos = pagos.map(p => String(p.id || p._id)).filter(Boolean);
-        const objectIdsPagos = idsVigentesPagos.filter(id => mongoose.Types.ObjectId.isValid(id)).map(id => new mongoose.Types.ObjectId(id));
+        for (const p of pagos) {
+          if (!p) continue;
+          const filtroPago = p._id && mongoose.Types.ObjectId.isValid(p._id)
+            ? { _id: new mongoose.Types.ObjectId(p._id) }
+            : { id: p.id };
 
-        await Pago.deleteMany({
-          $and: [
-            { _id: { $nin: objectIdsPagos } },
-            { id: { $nin: idsVigentesPagos } }
-          ]
-        });
-
-        await sincronizarMemoriaDesdeBD();
+          await Pago.findOneAndUpdate(
+            filtroPago,
+            {
+              id: p.id || `PAG-${Date.now()}`,
+              alumno: p.alumno || 'Alumno',
+              concepto: p.concepto || 'Abono de Graduación',
+              monto: Number(p.monto) || 0,
+              fecha: p.fecha ? new Date(p.fecha) : new Date(),
+              metodoPago: p.metodo || p.metodoPago || 'Efectivo',
+              grupoId: p.grupoId || null
+            },
+            { upsert: true, new: true }
+          );
+        }
       } else {
         global.datosCompartidos.pagos = pagos;
       }
+    }
+
+    // Refrescar la memoria global con todo lo que hay en BD
+    if (mongoose.connection.readyState === 1) {
+      await sincronizarMemoriaDesdeBD();
     }
 
     res.json({ ok: true, mensaje: 'Datos sincronizados correctamente' });
