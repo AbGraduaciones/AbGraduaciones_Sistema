@@ -71,12 +71,10 @@
         </div>
 
         <div id="listaGruposSidebar" class="space-y-1">
-          <!-- Botón Todos -->
           <button onclick="seleccionarGrupo(null)" id="btnGrupo_todos" class="w-full text-left px-3 py-2 rounded-xl text-xs font-bold transition flex items-center justify-between bg-blue-600 text-white">
             <span>🌐 Todos los Alumnos</span>
             <span class="text-[10px] bg-white/20 px-1.5 py-0.5 rounded-full" id="conteoGrupo_todos">0</span>
           </button>
-          <!-- Se llena dinámicamente con cada grupo registrado -->
         </div>
       </div>
 
@@ -239,6 +237,8 @@
       <div id="alertaError" class="hidden mb-4 p-3.5 bg-red-50 border border-red-200 text-red-700 rounded-xl text-sm font-medium"></div>
 
       <form id="formAgregar" onsubmit="guardarRegistro(event)">
+        <!-- Almacena el ID original del registro en edición -->
+        <input type="hidden" id="editItemIdentificadorOriginal">
         <div id="camposFormulario" class="space-y-4"></div>
         <div class="flex justify-end space-x-3 mt-8 pt-4 border-t border-slate-100">
           <button type="button" onclick="cerrarModal()" class="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl transition-all">Cancelar</button>
@@ -540,7 +540,7 @@
 
     // --- GESTIÓN DE GRUPOS ---
     let grupos = JSON.parse(localStorage.getItem('app_grupos_10p')) || [];
-    let grupoSeleccionadoId = null; // null = ver todos
+    let grupoSeleccionadoId = null;
 
     const MATERIALES_ENTREGAS_COMPLETO = [
       "Panorámica con marco",
@@ -556,7 +556,6 @@
       "Personalizador"
     ];
 
-    // CATÁLOGO BASE DE PRECIOS
     const PAQUETES_CATALOGO_BASE = {
       "Línea Basic 1 Fotos Calenda After": [
         { modelo: "Bandera", precio: 8000 },
@@ -788,7 +787,6 @@
       ]
     };
 
-    // Función para obtener el catálogo de precios activo (si hay grupo seleccionado con precios especiales)
     function obtenerCatalogoPreciosActivo() {
       if (!grupoSeleccionadoId) return PAQUETES_CATALOGO_BASE;
       const g = grupos.find(gr => String(gr._id || gr.id) === String(grupoSeleccionadoId));
@@ -926,17 +924,17 @@
       }
     }
 
-    // --- LÓGICA DE BARRA LATERAL Y FILTRADO POR GRUPOS ---
     function renderizarGruposSidebar() {
       const contenedor = document.getElementById('listaGruposSidebar');
       if (!contenedor) return;
 
       const totalTodos = alumnos.length;
-      document.getElementById('conteoGrupo_todos').innerText = totalTodos;
+      const conteoTodosEl = document.getElementById('conteoGrupo_todos');
+      if (conteoTodosEl) conteoTodosEl.innerText = totalTodos;
 
       let html = `
         <button onclick="seleccionarGrupo(null)" id="btnGrupo_todos" class="w-full text-left px-3 py-2 rounded-xl text-xs font-bold transition flex items-center justify-between ${grupoSeleccionadoId === null ? 'bg-blue-600 text-white shadow' : 'text-slate-300 hover:bg-slate-800'}">
-          <span>🌐 Todos (General)</span>
+          <span>🌐 Todos los Alumnos</span>
           <span class="text-[10px] bg-white/20 px-1.5 py-0.5 rounded-full">${totalTodos}</span>
         </button>
       `;
@@ -984,7 +982,6 @@
       banner.classList.remove('hidden');
     }
 
-    // Modal Crear / Editar Grupo
     function abrirModalGrupo(idGrupo = null) {
       const alerta = document.getElementById('alertaErrorGrupo');
       alerta.classList.add('hidden');
@@ -1034,12 +1031,12 @@
       const contenedor = document.getElementById('contenedorPreciosGrupo');
       contenedor.innerHTML = '';
 
-      Object.keys(PAQUETES_CATALOGO_BASE).forEach((lineaNombre, idxLinea) => {
+      Object.keys(PAQUETES_CATALOGO_BASE).forEach((lineaNombre) => {
         const modelosBase = PAQUETES_CATALOGO_BASE[lineaNombre];
         const modelosActuales = (catalogoPrecios && catalogoPrecios[lineaNombre]) || modelosBase;
 
         let htmlModelos = '';
-        modelosBase.forEach((modBase, idxMod) => {
+        modelosBase.forEach((modBase) => {
           const modActual = modelosActuales.find(m => m.modelo === modBase.modelo) || modBase;
           htmlModelos += `
             <div class="flex items-center justify-between gap-2 p-1.5 bg-white border border-slate-200 rounded-lg text-xs">
@@ -1083,7 +1080,6 @@
         return;
       }
 
-      // Reconstruir catálogo de precios del grupo
       const preciosConstruidos = {};
       const inputs = document.querySelectorAll('.input-precio-paquete');
       inputs.forEach(inp => {
@@ -1138,7 +1134,6 @@
       btn.innerText = 'Guardar Grupo y Precios';
     }
 
-    // Funciones auxiliares para filtrar arrays de datos según el grupo seleccionado
     function obtenerAlumnosFiltrados() {
       if (!grupoSeleccionadoId) return alumnos;
       const g = grupos.find(gr => String(gr._id || gr.id) === String(grupoSeleccionadoId));
@@ -1292,6 +1287,7 @@
 
     function actualizarDatalistAlumnos() {
       const datalist = document.getElementById('listaAlumnosRegistrados');
+      if (!datalist) return;
       datalist.innerHTML = '';
       const lista = obtenerAlumnosFiltrados();
       lista.forEach(a => {
@@ -1301,6 +1297,7 @@
 
     function actualizarOpcionesFiltroEscuelas() {
       const selectEscuela = document.getElementById('filtroEscuela');
+      if (!selectEscuela) return;
       const seleccionActual = selectEscuela.value;
 
       const opcionesSet = new Set();
@@ -1327,6 +1324,7 @@
 
     function actualizarOpcionesFiltroPaquetes() {
       const selectPaquete = document.getElementById('filtroPaquete');
+      if (!selectPaquete) return;
       const paqueteSeleccionado = selectPaquete.value;
       const catalogoActivo = obtenerCatalogoPreciosActivo();
       const paquetesUnicos = Object.keys(catalogoActivo);
@@ -1653,6 +1651,7 @@
 
     function abrirModal() {
       indiceEdicion = null;
+      document.getElementById('editItemIdentificadorOriginal').value = '';
       document.getElementById('modalTitulo').innerText = vistaActual === 'saldos' ? "Nuevo Saldo" : (vistaActual === 'alumnos' ? "Nuevo Alumno" : "Registrar Pago");
       document.getElementById('alertaError').classList.add('hidden');
       construirCamposFormulario();
@@ -1661,6 +1660,8 @@
 
     function cerrarModal() {
       document.getElementById('modalFormulario').classList.add('hidden');
+      document.getElementById('editItemIdentificadorOriginal').value = '';
+      indiceEdicion = null;
     }
 
     function actualizarModelosModal() {
@@ -1734,7 +1735,6 @@
       contenedor.innerHTML = '';
       const catalogoActivo = obtenerCatalogoPreciosActivo();
 
-      // Grupo por defecto: el seleccionado actualmente en sidebar o el del registro
       const grupoActualId = datos.grupoId || grupoSeleccionadoId || '';
       let opcionesGruposHtml = '<option value="">Sin Grupo Específico (General)</option>';
       grupos.forEach(g => {
@@ -1914,232 +1914,314 @@
       alertaError.classList.add('hidden');
       alertaError.innerText = '';
 
-      if (vistaActual === 'saldos') {
-        const alumnoInput = document.getElementById('fAlumno').value.trim();
-        const alumnoObj = alumnos.find(a => a.nombre.toLowerCase() === alumnoInput.toLowerCase());
-        
-        if (!alumnoObj) {
-          alertaError.innerText = `El alumno "${alumnoInput}" no está registrado. Primero debes agregarlo en la sección "Alumnos".`;
-          alertaError.classList.remove('hidden');
-          return;
-        }
+      const btnGuardar = document.getElementById('btnGuardarModal');
+      btnGuardar.disabled = true;
 
-        const linea = document.getElementById('inputLineaModal').value;
-        const modelo = document.getElementById('inputModeloModal').value;
-        const monto = parseFloat(document.getElementById('inputMontoModal').value) || 0;
-        const paqueteCompleto = `${linea} - ${modelo}`;
-        const esContadoEfectivo = document.getElementById('checkContadoEfectivo').checked;
-        const grupoIdAsignado = document.getElementById('fSaldoGrupo').value || null;
-        const gObj = grupos.find(gr => String(gr._id || gr.id) === String(grupoIdAsignado));
+      try {
+        const idOriginal = document.getElementById('editItemIdentificadorOriginal').value;
 
-        const pagosCapturados = [];
-        for (let i = 0; i < 10; i++) {
-          pagosCapturados.push(parseFloat(document.getElementById(`fPagoItem_${i}`).value) || 0);
-        }
-
-        if (esContadoEfectivo) {
-          pagosCapturados[0] = monto;
-          for (let i = 1; i < 10; i++) {
-            pagosCapturados[i] = 0;
+        if (vistaActual === 'saldos') {
+          const alumnoInput = document.getElementById('fAlumno').value.trim();
+          const alumnoObj = alumnos.find(a => a.nombre.toLowerCase() === alumnoInput.toLowerCase());
+          
+          if (!alumnoObj) {
+            alertaError.innerText = `El alumno "${alumnoInput}" no está registrado. Primero debes agregarlo en la sección "Alumnos".`;
+            alertaError.classList.remove('hidden');
+            btnGuardar.disabled = false;
+            return;
           }
-        }
 
-        if (indiceEdicion !== null) {
-          saldos[indiceEdicion].alumno = alumnoInput;
-          saldos[indiceEdicion].cliente = String(alumnoObj.id);
-          saldos[indiceEdicion].paquete = paqueteCompleto;
-          saldos[indiceEdicion].monto = monto;
-          saldos[indiceEdicion].pagos = pagosCapturados;
-          saldos[indiceEdicion].esContadoEfectivo = esContadoEfectivo;
-          saldos[indiceEdicion].grupoId = grupoIdAsignado;
-          saldos[indiceEdicion].grupoNombre = gObj ? gObj.nombre : '';
-        } else {
-          saldos.push({ 
-            id: 'CTA-' + Date.now(),
-            cliente: String(alumnoObj.id),
-            alumno: alumnoInput, 
-            paquete: paqueteCompleto, 
-            monto, 
-            pagos: pagosCapturados, 
-            entregas: {}, 
-            eleccionEspecial: "", 
-            esContadoEfectivo,
-            grupoId: grupoIdAsignado,
-            grupoNombre: gObj ? gObj.nombre : ''
-          });
-        }
+          const linea = document.getElementById('inputLineaModal').value;
+          const modelo = document.getElementById('inputModeloModal').value;
+          const monto = parseFloat(document.getElementById('inputMontoModal').value) || 0;
+          const paqueteCompleto = `${linea} - ${modelo}`;
+          const esContadoEfectivo = document.getElementById('checkContadoEfectivo').checked;
+          const grupoSelectEl = document.getElementById('fSaldoGrupo');
+          const grupoIdAsignado = grupoSelectEl ? (grupoSelectEl.value || null) : null;
+          const gObj = grupos.find(gr => String(gr._id || gr.id) === String(grupoIdAsignado));
 
-        for (let i = 0; i < 10; i++) {
-          const abonoMonto = pagosCapturados[i];
-          if (abonoMonto > 0) {
-            const etiquetaConcepto = esContadoEfectivo ? 'Liquidación de Contado (Efectivo -5%)' : `Pago ${i + 1}`;
-            const yaRegistrado = pagos.some(p => p.alumno.toLowerCase() === alumnoInput.toLowerCase() && p.concepto === etiquetaConcepto);
-            
-            if (!yaRegistrado) {
-              pagos.unshift({
-                id: generarNuevoIdPago(),
-                alumno: alumnoInput,
-                concepto: etiquetaConcepto,
-                monto: abonoMonto,
-                fecha: new Date().toISOString().split('T')[0],
-                metodo: 'Efectivo',
-                estado: 'Completado',
-                grupoId: grupoIdAsignado
-              });
+          const pagosCapturados = [];
+          for (let i = 0; i < 10; i++) {
+            const elP = document.getElementById(`fPagoItem_${i}`);
+            pagosCapturados.push(elP ? (parseFloat(elP.value) || 0) : 0);
+          }
+
+          if (esContadoEfectivo) {
+            pagosCapturados[0] = monto;
+            for (let i = 1; i < 10; i++) {
+              pagosCapturados[i] = 0;
             }
           }
+
+          let idxEncontrado = -1;
+          if (idOriginal) {
+            idxEncontrado = saldos.findIndex(s => String(s.id || s._id) === String(idOriginal));
+          } else if (indiceEdicion !== null) {
+            idxEncontrado = indiceEdicion;
+          }
+
+          if (idxEncontrado !== -1) {
+            saldos[idxEncontrado].alumno = alumnoInput;
+            saldos[idxEncontrado].cliente = String(alumnoObj.id);
+            saldos[idxEncontrado].paquete = paqueteCompleto;
+            saldos[idxEncontrado].monto = monto;
+            saldos[idxEncontrado].pagos = pagosCapturados;
+            saldos[idxEncontrado].esContadoEfectivo = esContadoEfectivo;
+            saldos[idxEncontrado].grupoId = grupoIdAsignado;
+            saldos[idxEncontrado].grupoNombre = gObj ? gObj.nombre : '';
+          } else {
+            saldos.push({ 
+              id: 'CTA-' + Date.now(),
+              cliente: String(alumnoObj.id),
+              alumno: alumnoInput, 
+              paquete: paqueteCompleto, 
+              monto, 
+              pagos: pagosCapturados, 
+              entregas: {}, 
+              eleccionEspecial: "", 
+              esContadoEfectivo,
+              grupoId: grupoIdAsignado,
+              grupoNombre: gObj ? gObj.nombre : ''
+            });
+          }
+
+          for (let i = 0; i < 10; i++) {
+            const abonoMonto = pagosCapturados[i];
+            if (abonoMonto > 0) {
+              const etiquetaConcepto = esContadoEfectivo ? 'Liquidación de Contado (Efectivo -5%)' : `Pago ${i + 1}`;
+              const yaRegistrado = pagos.some(p => p.alumno.toLowerCase() === alumnoInput.toLowerCase() && p.concepto === etiquetaConcepto);
+              
+              if (!yaRegistrado) {
+                pagos.unshift({
+                  id: generarNuevoIdPago(),
+                  alumno: alumnoInput,
+                  concepto: etiquetaConcepto,
+                  monto: abonoMonto,
+                  fecha: new Date().toISOString().split('T')[0],
+                  metodo: 'Efectivo',
+                  estado: 'Completado',
+                  grupoId: grupoIdAsignado
+                });
+              }
+            }
+          }
+
+        } else if (vistaActual === 'alumnos') {
+          const idManual = document.getElementById('fIdManual') ? document.getElementById('fIdManual').value.trim() : generarNuevoIdAlumno();
+          const nombre = document.getElementById('fNombre').value.trim();
+          const email = document.getElementById('fEmail').value.trim();
+          const telefono = document.getElementById('fTelefono').value.trim();
+          const universidad = document.getElementById('fUniversidad').value.trim();
+          const escuela = document.getElementById('fEscuela').value.trim();
+          const grupoSelectEl = document.getElementById('fAlumnoGrupo');
+          const grupoIdAsignado = grupoSelectEl ? (grupoSelectEl.value || null) : null;
+          const gObj = grupos.find(gr => String(gr._id || gr.id) === String(grupoIdAsignado));
+
+          const regexLadaInternacional = /^\+\d{1,4}\s?\d{7,14}$/;
+          const soloNumeros = telefono.replace(/\D/g, '');
+
+          if (!telefono.startsWith('+') || soloNumeros.length < 8 || !regexLadaInternacional.test(telefono)) {
+            alertaError.innerText = `Formato de teléfono inválido. Debe incluir la LADA internacional con el signo '+' (Ejemplo: +52 5551234567 o +1 3232435251).`;
+            alertaError.classList.remove('hidden');
+            btnGuardar.disabled = false;
+            return;
+          }
+
+          // Localizar el índice real en el array maestro usando el ID original
+          let idxReal = -1;
+          if (idOriginal) {
+            idxReal = alumnos.findIndex(a => String(a.id).trim().toLowerCase() === String(idOriginal).trim().toLowerCase());
+          }
+
+          // Validar duplicados omitiendo el alumno actual que se está editando
+          const idExiste = alumnos.some((a, idx) => idx !== idxReal && String(a.id).trim().toLowerCase() === idManual.toLowerCase());
+          if (idExiste) {
+            alertaError.innerText = `El ID "${idManual}" ya está en uso. Ingresa uno distinto.`;
+            alertaError.classList.remove('hidden');
+            btnGuardar.disabled = false;
+            return;
+          }
+
+          const emailLimpio = email.toLowerCase();
+          const emailExiste = alumnos.some((a, idx) => idx !== idxReal && a.email.toLowerCase() === emailLimpio);
+          if (emailExiste) {
+            alertaError.innerText = `El correo "${email}" ya se encuentra registrado. Ingresa un correo distinto.`;
+            alertaError.classList.remove('hidden');
+            btnGuardar.disabled = false;
+            return;
+          }
+
+          const telExiste = alumnos.some((a, idx) => idx !== idxReal && a.telefono.replace(/\D/g, '') === soloNumeros);
+          if (telExiste) {
+            alertaError.innerText = `El teléfono "${telefono}" ya pertenece a otro alumno registrado.`;
+            alertaError.classList.remove('hidden');
+            btnGuardar.disabled = false;
+            return;
+          }
+
+          const datosAlumnoActualizado = {
+            id: idManual,
+            nombre,
+            email,
+            telefono,
+            universidad,
+            facultad: escuela,
+            escuela,
+            grupoId: grupoIdAsignado,
+            grupoNombre: gObj ? gObj.nombre : ''
+          };
+
+          if (idxReal !== -1) {
+            const nombreViejo = alumnos[idxReal].nombre;
+            alumnos[idxReal] = { ...alumnos[idxReal], ...datosAlumnoActualizado };
+
+            // Si cambió de nombre o grupo, mantener sincronizados sus saldos y pagos
+            saldos.forEach(s => {
+              if (s.cliente === String(idManual) || (s.alumno && s.alumno.toLowerCase() === nombreViejo.toLowerCase())) {
+                s.alumno = nombre;
+                s.cliente = String(idManual);
+                if (grupoIdAsignado) {
+                  s.grupoId = grupoIdAsignado;
+                  s.grupoNombre = gObj ? gObj.nombre : '';
+                }
+              }
+            });
+
+            pagos.forEach(p => {
+              if (p.alumno && p.alumno.toLowerCase() === nombreViejo.toLowerCase()) {
+                p.alumno = nombre;
+                if (grupoIdAsignado) p.grupoId = grupoIdAsignado;
+              }
+            });
+          } else {
+            alumnos.push(datosAlumnoActualizado);
+          }
+
+          actualizarDatalistAlumnos();
+          actualizarOpcionesFiltroEscuelas();
+          renderizarGruposSidebar();
+
+        } else if (vistaActual === 'pagos') {
+          const alumnoInput = document.getElementById('fPagoAlumno').value.trim();
+          const concepto = document.getElementById('fPagoConcepto').value;
+          const montoAbono = parseFloat(document.getElementById('fPagoMonto').value) || 0;
+          const fecha = document.getElementById('fPagoFecha').value;
+          const metodo = document.getElementById('fPagoMetodo').value;
+
+          const saldoTarget = saldos.find(s => s.alumno.toLowerCase() === alumnoInput.toLowerCase());
+
+          if (!saldoTarget) {
+            alertaError.innerText = `No se encontró una cuenta de saldo activa para "${alumnoInput}".`;
+            alertaError.classList.remove('hidden');
+            btnGuardar.disabled = false;
+            return;
+          }
+
+          const totalPagadoPrevio = calcularTotalPagado(saldoTarget.pagos);
+          const saldoPendienteActual = Math.max(0, saldoTarget.monto - totalPagadoPrevio);
+
+          let idxRealPago = -1;
+          if (idOriginal) {
+            idxRealPago = pagos.findIndex(p => String(p.id) === String(idOriginal));
+          } else if (indiceEdicion !== null) {
+            idxRealPago = indiceEdicion;
+          }
+
+          if (idxRealPago === -1) {
+            if (saldoPendienteActual <= 0) {
+              alertaError.innerText = `El alumno "${alumnoInput}" ya tiene su cuenta totalmente liquidada ($0.00 pendientes).`;
+              alertaError.classList.remove('hidden');
+              btnGuardar.disabled = false;
+              return;
+            }
+
+            if (montoAbono > saldoPendienteActual) {
+              alertaError.innerText = `El monto ingresado ($${montoAbono.toLocaleString()}) supera el saldo pendiente ($${saldoPendienteActual.toLocaleString()}).`;
+              alertaError.classList.remove('hidden');
+              btnGuardar.disabled = false;
+              return;
+            }
+          }
+
+          const nuevoPago = { 
+            id: idOriginal || generarNuevoIdPago(), 
+            alumno: alumnoInput, 
+            concepto, 
+            monto: montoAbono, 
+            fecha, 
+            metodo, 
+            estado: 'Completado',
+            grupoId: saldoTarget.grupoId || null
+          };
+
+          if (idxRealPago !== -1) {
+            pagos[idxRealPago] = nuevoPago;
+          } else {
+            pagos.unshift(nuevoPago);
+            saldoTarget.pagos = agregarNuevoAbonoArreglo(saldoTarget.pagos, montoAbono);
+          }
         }
 
-      } else if (vistaActual === 'alumnos') {
-        const idManual = document.getElementById('fIdManual') ? document.getElementById('fIdManual').value.trim() : generarNuevoIdAlumno();
-        const nombre = document.getElementById('fNombre').value.trim();
-        const email = document.getElementById('fEmail').value.trim();
-        const telefono = document.getElementById('fTelefono').value.trim();
-        const universidad = document.getElementById('fUniversidad').value.trim();
-        const escuela = document.getElementById('fEscuela').value.trim();
-        const grupoIdAsignado = document.getElementById('fAlumnoGrupo').value || null;
-        const gObj = grupos.find(gr => String(gr._id || gr.id) === String(grupoIdAsignado));
-
-        const regexLadaInternacional = /^\+\d{1,4}\s?\d{7,14}$/;
-        const soloNumeros = telefono.replace(/\D/g, '');
-
-        if (!telefono.startsWith('+') || soloNumeros.length < 8 || !regexLadaInternacional.test(telefono)) {
-          alertaError.innerText = `Formato de teléfono inválido. Debe incluir la LADA internacional con el signo '+' (Ejemplo: +52 5551234567 o +1 3232435251).`;
-          alertaError.classList.remove('hidden');
-          return;
-        }
-
-        const idExiste = alumnos.some((a, idx) => idx !== indiceEdicion && String(a.id).trim().toLowerCase() === idManual.toLowerCase());
-        if (idExiste) {
-          alertaError.innerText = `El ID "${idManual}" ya está en uso. Ingresa uno distinto.`;
-          alertaError.classList.remove('hidden');
-          return;
-        }
-
-        const emailLimpio = email.toLowerCase();
-        const emailExiste = alumnos.some((a, idx) => idx !== indiceEdicion && a.email.toLowerCase() === emailLimpio);
-        if (emailExiste) {
-          alertaError.innerText = `El correo "${email}" ya se encuentra registrado. Ingresa un correo distinto.`;
-          alertaError.classList.remove('hidden');
-          return;
-        }
-
-        const telExiste = alumnos.some((a, idx) => idx !== indiceEdicion && a.telefono.replace(/\D/g, '') === soloNumeros);
-        if (telExiste) {
-          alertaError.innerText = `El teléfono "${telefono}" ya pertenece a otro alumno registrado.`;
-          alertaError.classList.remove('hidden');
-          return;
-        }
-
-        const datosAlumnoActualizado = {
-          id: idManual,
-          nombre,
-          email,
-          telefono,
-          universidad,
-          facultad: escuela,
-          escuela,
-          grupoId: grupoIdAsignado,
-          grupoNombre: gObj ? gObj.nombre : ''
-        };
-
-        if (indiceEdicion !== null) {
-          alumnos[indiceEdicion] = { ...alumnos[indiceEdicion], ...datosAlumnoActualizado };
-        } else {
-          alumnos.push(datosAlumnoActualizado);
-        }
-        actualizarDatalistAlumnos();
-        actualizarOpcionesFiltroEscuelas();
+        await guardarEnLocalStorage();
+        cerrarModal();
         renderizarGruposSidebar();
-      } else if (vistaActual === 'pagos') {
-        const alumnoInput = document.getElementById('fPagoAlumno').value.trim();
-        const concepto = document.getElementById('fPagoConcepto').value;
-        const montoAbono = parseFloat(document.getElementById('fPagoMonto').value) || 0;
-        const fecha = document.getElementById('fPagoFecha').value;
-        const metodo = document.getElementById('fPagoMetodo').value;
-
-        const saldoTarget = saldos.find(s => s.alumno.toLowerCase() === alumnoInput.toLowerCase());
-
-        if (!saldoTarget) {
-          alertaError.innerText = `No se encontró una cuenta de saldo activa para "${alumnoInput}".`;
-          alertaError.classList.remove('hidden');
-          return;
-        }
-
-        const totalPagadoPrevio = calcularTotalPagado(saldoTarget.pagos);
-        const saldoPendienteActual = Math.max(0, saldoTarget.monto - totalPagadoPrevio);
-
-        if (saldoPendienteActual <= 0) {
-          alertaError.innerText = `El alumno "${alumnoInput}" ya tiene su cuenta totalmente liquidada ($0.00 pendientes).`;
-          alertaError.classList.remove('hidden');
-          return;
-        }
-
-        if (montoAbono > saldoPendienteActual) {
-          alertaError.innerText = `El monto ingresado ($${montoAbono.toLocaleString()}) supera el saldo pendiente ($${saldoPendienteActual.toLocaleString()}).`;
-          alertaError.classList.remove('hidden');
-          return;
-        }
-
-        const nuevoPago = { 
-          id: generarNuevoIdPago(), 
-          alumno: alumnoInput, 
-          concepto, 
-          monto: montoAbono, 
-          fecha, 
-          metodo, 
-          estado: 'Completado',
-          grupoId: saldoTarget.grupoId || null
-        };
-
-        if (indiceEdicion !== null) {
-          pagos[indiceEdicion] = nuevoPago;
-        } else {
-          pagos.unshift(nuevoPago);
-          saldoTarget.pagos = agregarNuevoAbonoArreglo(saldoTarget.pagos, montoAbono);
-        }
+        cargarContenido(vistaActual);
+      } catch (errSubmit) {
+        console.error('Error al procesar guardarRegistro:', errSubmit);
+        alertaError.innerText = 'Ocurrió un error al guardar: ' + errSubmit.message;
+        alertaError.classList.remove('hidden');
+      } finally {
+        btnGuardar.disabled = false;
       }
-
-      await guardarEnLocalStorage();
-      cerrarModal();
-      renderizarGruposSidebar();
-      cargarContenido(vistaActual);
     }
 
-    async function editarRegistro(index) {
-      indiceEdicion = index;
+    async function editarRegistro(indexFiltro) {
       document.getElementById('modalTitulo').innerText = "Editar Registro";
+      document.getElementById('alertaError').classList.add('hidden');
       
       const saldosUso = obtenerSaldosFiltrados();
       const alumnosUso = obtenerAlumnosFiltrados();
       const pagosUso = obtenerPagosFiltrados();
 
-      if (vistaActual === 'saldos') construirCamposFormulario(saldosUso[index]);
-      else if (vistaActual === 'alumnos') construirCamposFormulario(alumnosUso[index]);
-      else if (vistaActual === 'pagos') construirCamposFormulario(pagosUso[index]);
+      if (vistaActual === 'saldos') {
+        const item = saldosUso[indexFiltro];
+        document.getElementById('editItemIdentificadorOriginal').value = item.id || item._id || '';
+        indiceEdicion = saldos.indexOf(item);
+        construirCamposFormulario(item);
+      } else if (vistaActual === 'alumnos') {
+        const item = alumnosUso[indexFiltro];
+        document.getElementById('editItemIdentificadorOriginal').value = item.id;
+        indiceEdicion = alumnos.indexOf(item);
+        construirCamposFormulario(item);
+      } else if (vistaActual === 'pagos') {
+        const item = pagosUso[indexFiltro];
+        document.getElementById('editItemIdentificadorOriginal').value = item.id || '';
+        indiceEdicion = pagos.indexOf(item);
+        construirCamposFormulario(item);
+      }
 
       document.getElementById('modalFormulario').classList.remove('hidden');
     }
 
-    async function eliminarRegistro(index) {
+    async function eliminarRegistro(indexFiltro) {
       if (confirm('¿Estás seguro de que deseas eliminar este registro?')) {
         const saldosUso = obtenerSaldosFiltrados();
         const alumnosUso = obtenerAlumnosFiltrados();
         const pagosUso = obtenerPagosFiltrados();
 
         if (vistaActual === 'saldos') {
-          const itemReal = saldosUso[index];
+          const itemReal = saldosUso[indexFiltro];
           const idxReal = saldos.indexOf(itemReal);
           if (idxReal !== -1) saldos.splice(idxReal, 1);
         } else if (vistaActual === 'alumnos') {
-          const itemReal = alumnosUso[index];
+          const itemReal = alumnosUso[indexFiltro];
           const idxReal = alumnos.indexOf(itemReal);
           if (idxReal !== -1) alumnos.splice(idxReal, 1);
           actualizarDatalistAlumnos();
           actualizarOpcionesFiltroEscuelas();
           renderizarGruposSidebar();
         } else if (vistaActual === 'pagos') {
-          const itemReal = pagosUso[index];
+          const itemReal = pagosUso[indexFiltro];
           const idxReal = pagos.indexOf(itemReal);
           if (idxReal !== -1) pagos.splice(idxReal, 1);
         }
@@ -2352,7 +2434,6 @@
       }
     }
 
-    // Modal de entregas adaptado por ID de cuenta
     function abrirModalEntregasPorItem(cuentaId) {
       const saldoObj = saldos.find(s => String(s.id || s._id) === String(cuentaId));
       if (!saldoObj) return;
@@ -2603,7 +2684,6 @@
       window.location.href = `mailto:${email}?subject=${asunto}&body=${cuerpo}`;
     }
 
-    // Portal alumno y pagos
     function renderizarPortalAlumno() {
       const dinamic = document.getElementById('contenidoDinamico');
 
