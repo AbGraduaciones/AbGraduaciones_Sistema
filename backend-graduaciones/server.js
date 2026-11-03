@@ -238,7 +238,7 @@ async function sincronizarMemoriaDesdeBD() {
     } else {
       global.datosCompartidos.pagos = [];
     }
-    console.log('✅ Sincronización exitosa: MongoDB -> Memoria Global (Con Grupos)');
+    console.log('✅ Sincronización exitosa: MongoDB -> Memoria Global');
   } catch (err) {
     console.error('⚠️ Error al sincronizar desde MongoDB:', err.message);
   }
