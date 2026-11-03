@@ -55,6 +55,9 @@
         <a href="#" onclick="cargarContenido('pagos')" class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 hover:bg-blue-900/40 hover:text-blue-200 text-slate-300 font-medium">
           Historial de Pagos
         </a>
+        <a href="#" onclick="cargarContenido('usuarios')" class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 hover:bg-blue-900/40 hover:text-blue-200 text-slate-300 font-medium">
+          👥 Usuarios / Staff
+        </a>
       </nav>
 
       <!-- NAVEGACIÓN ALUMNO -->
@@ -924,6 +927,13 @@
         tabla.style.display = "block";
         actualizarOpcionesFiltroEscuelas();
         renderizarTablaAlumnos(alumnos);
+      } else if (vista === 'usuarios') {
+        titulo.innerText = "Usuarios del Sistema (Staff / Admin)";
+        btnContenedor.style.display = "none";
+        filtroEscuela.classList.add('hidden');
+        filtroPaquete.classList.add('hidden');
+        tabla.style.display = "block";
+        cargarYRenderizarUsuarios();
       } else if (vista === 'dashboard') {
         titulo.innerText = "Dashboard General y por Paquetes";
         contenedorFiltros.style.display = "none";
@@ -1036,6 +1046,63 @@
         
         dinamic.style.display = "block";
         renderizarPortalAlumno();
+      }
+    }
+
+    async function cargarYRenderizarUsuarios() {
+      const thead = document.getElementById('encabezadoTabla');
+      const tbody = document.getElementById('cuerpoTabla');
+      
+      thead.innerHTML = `
+        <tr>
+          <th class="p-4">Nombre</th>
+          <th class="p-4">Usuario</th>
+          <th class="p-4">Correo</th>
+          <th class="p-4">Teléfono</th>
+          <th class="p-4 text-center">Rol</th>
+          <th class="p-4 text-center">Estado</th>
+        </tr>`;
+      
+      tbody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-slate-500">Cargando usuarios desde MongoDB Atlas...</td></tr>`;
+
+      try {
+        const res = await fetch('/api/usuarios');
+        const data = await res.json();
+
+        if (!res.ok || !data.ok) {
+          tbody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-red-500">No se pudieron cargar los usuarios (${data.error || 'Acceso no autorizado'}).</td></tr>`;
+          return;
+        }
+
+        if (!Array.isArray(data.usuarios) || data.usuarios.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-slate-400 italic">No hay usuarios del personal registrados en la base de datos.</td></tr>`;
+          return;
+        }
+
+        tbody.innerHTML = '';
+        data.usuarios.forEach(u => {
+          const esAdmin = u.rol === 'admin';
+          tbody.innerHTML += `
+            <tr class="hover:bg-slate-50 transition-colors">
+              <td class="p-4 font-bold text-slate-900">${u.nombre || '-'}</td>
+              <td class="p-4 font-mono text-sm text-blue-700 font-bold">${u.usuario}</td>
+              <td class="p-4 text-slate-600">${u.email}</td>
+              <td class="p-4 font-mono text-slate-600">${u.telefono || '-'}</td>
+              <td class="p-4 text-center">
+                <span class="px-2.5 py-1 rounded-full text-xs font-bold ${esAdmin ? 'bg-purple-100 text-purple-800 border border-purple-200' : 'bg-blue-100 text-blue-800 border border-blue-200'}">
+                  ${(u.rol || 'staff').toUpperCase()}
+                </span>
+              </td>
+              <td class="p-4 text-center">
+                <span class="px-2.5 py-1 rounded-full text-xs font-semibold ${u.activo !== false ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-red-100 text-red-800 border border-red-200'}">
+                  ${u.activo !== false ? 'Activo' : 'Inactivo'}
+                </span>
+              </td>
+            </tr>`;
+        });
+      } catch (error) {
+        console.error('Error al obtener usuarios:', error);
+        tbody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-red-500">Error de conexión al cargar la lista de usuarios.</td></tr>`;
       }
     }
 
@@ -1956,7 +2023,7 @@
                 
                 <option value="Línea Elite 1 Fotos Calenda After" ${lineaDef === 'Línea Elite 1 Fotos Calenda After' ? 'selected' : ''}>Línea Elite 1 Fotos Calenda After</option>
                 <option value="Línea Elite 2 Fotos Calenda Cena" ${lineaDef === 'Línea Elite 2 Fotos Calenda Cena' ? 'selected' : ''}>Línea Elite 2 Fotos Calenda Cena</option>
-                <option value="Línea Elite 3 Fotos Calenda After Cena" ${lineaDef准Line = 'Línea Elite 3 Fotos Calenda After Cena' ? 'selected' : ''}>Línea Elite 3 Fotos Calenda After Cena</option>
+                <option value="Línea Elite 3 Fotos Calenda After Cena" ${lineaDef === 'Línea Elite 3 Fotos Calenda After Cena' ? 'selected' : ''}>Línea Elite 3 Fotos Calenda After Cena</option>
                 <option value="Línea Elite 4 Fotos Calenda" ${lineaDef === 'Línea Elite 4 Fotos Calenda' ? 'selected' : ''}>Línea Elite 4 Fotos Calenda</option>
                 <option value="Línea Elite 5 Fotos After" ${lineaDef === 'Línea Elite 5 Fotos After' ? 'selected' : ''}>Línea Elite 5 Fotos After</option>
                 <option value="Línea Elite 6 Solo Fotos" ${lineaDef === 'Línea Elite 6 Solo Fotos' ? 'selected' : ''}>Línea Elite 6 Solo Fotos</option>
