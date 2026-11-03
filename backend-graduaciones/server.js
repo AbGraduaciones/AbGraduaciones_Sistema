@@ -37,7 +37,15 @@ const cargarModelo = (rutas) => {
 const Cliente = cargarModelo(['./models/Cliente', './models/cliente', './models/Clientes', './models/clientes']) || mongoose.model('Cliente', new mongoose.Schema({}, { strict: false }));
 const Cuenta = cargarModelo(['./models/Cuenta', './models/cuenta', './models/Cuentas', './models/cuentas']) || mongoose.model('Cuenta', new mongoose.Schema({}, { strict: false }));
 const Pago = cargarModelo(['./models/Pago', './models/pago', './models/Pagos', './models/pagos']) || mongoose.model('Pago', new mongoose.Schema({}, { strict: false }));
-const Usuario = cargarModelo(['./models/Usuario', './models/usuario', './models/Usuarios', './models/usuarios']) || mongoose.model('Usuario', new mongoose.Schema({}, { strict: false }));
+const Usuario = cargarModelo(['./models/Usuario', './models/usuario', './models/Usuarios', './models/usuarios']) || mongoose.model('Usuario', new mongoose.Schema({
+  nombre: { type: String, required: true, trim: true },
+  usuario: { type: String, required: true, unique: true, trim: true, lowercase: true },
+  email: { type: String, required: true, unique: true, trim: true, lowercase: true },
+  telefono: { type: String, trim: true },
+  password: { type: String, required: true },
+  rol: { type: String, enum: ['admin', 'staff'], default: 'staff' },
+  activo: { type: Boolean, default: true }
+}, { timestamps: true }));
 
 // Middleware de autenticación (Soporta Administrador Maestro .env y Usuarios registrados en MongoDB)
 const requireAuth = async (req, res, next) => {
@@ -97,6 +105,14 @@ const requireAuth = async (req, res, next) => {
 
   res.setHeader('WWW-Authenticate', 'Basic realm="Panel de Administrador"');
   return res.status(401).send('Acceso denegado: usuario o contraseña incorrectos');
+};
+
+// Middleware exclusivo para acciones de Administrador
+const requireAdmin = (req, res, next) => {
+  if (req.usuarioSesion && req.usuarioSesion.rol === 'admin') {
+    return next();
+  }
+  return res.status(403).json({ ok: false, error: 'Acceso no autorizado: requiere permisos de Administrador' });
 };
 
 // Memoria compartida accesible globalmente
@@ -526,10 +542,83 @@ if (routerClientes) app.use('/api/clientes', requireAuth, routerClientes);
 app.get('/api/usuarios', requireAuth, async (req, res) => {
   try {
     const usuarios = await Usuario.find({}, '-password').sort({ createdAt: -1 }).lean();
-    res.json({ ok: true, usuarios });
+    res.json({ ok: true, usuarios, rolActual: req.usuarioSesion?.rol || 'staff' });
   } catch (err) {
     console.error('Error al consultar usuarios:', err.message);
     res.status(500).json({ ok: false, error: 'Error al obtener usuarios' });
+  }
+});
+
+// Endpoint exclusivo de administradores para actualizar un usuario
+app.put('/api/usuarios/:id', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { nombre, usuario, email, telefono, rol, activo, password } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ ok: false, error: 'ID de usuario no válido' });
+    }
+
+    const usuarioExistente = await Usuario.findById(id);
+    if (!usuarioExistente) {
+      return res.status(404).json({ ok: false, error: 'Usuario no encontrado' });
+    }
+
+    // Verificar unicidad de usuario y correo en caso de haber cambiado
+    if (usuario && usuario.trim().toLowerCase() !== usuarioExistente.usuario) {
+      const repetido = await Usuario.findOne({ 
+        usuario: usuario.trim().toLowerCase(), 
+        _id: { $ne: id } 
+      });
+      if (repetido) {
+        return res.status(400).json({ ok: false, error: `El nombre de usuario "${usuario}" ya está en uso.` });
+      }
+      usuarioExistente.usuario = usuario.trim().toLowerCase();
+    }
+
+    if (email && email.trim().toLowerCase() !== usuarioExistente.email) {
+      const repetidoEmail = await Usuario.findOne({ 
+        email: email.trim().toLowerCase(), 
+        _id: { $ne: id } 
+      });
+      if (repetidoEmail) {
+        return res.status(400).json({ ok: false, error: `El correo "${email}" ya está en uso.` });
+      }
+      usuarioExistente.email = email.trim().toLowerCase();
+    }
+
+    if (nombre) usuarioExistente.nombre = nombre.trim();
+    if (telefono !== undefined) usuarioExistente.telefono = telefono.trim();
+    if (rol && ['admin', 'staff'].includes(rol)) usuarioExistente.rol = rol;
+    if (activo !== undefined) usuarioExistente.activo = Boolean(activo);
+
+    // Si se especificó una nueva contraseña, generar el hash con bcrypt
+    if (password && String(password).trim().length > 0) {
+      if (!bcrypt) {
+        return res.status(500).json({ ok: false, error: 'Módulo bcryptjs no disponible para encriptar.' });
+      }
+      const salt = await bcrypt.genSalt(10);
+      usuarioExistente.password = await bcrypt.hash(String(password).trim(), salt);
+    }
+
+    await usuarioExistente.save();
+
+    res.json({
+      ok: true,
+      mensaje: 'Usuario actualizado correctamente',
+      usuario: {
+        _id: usuarioExistente._id,
+        nombre: usuarioExistente.nombre,
+        usuario: usuarioExistente.usuario,
+        email: usuarioExistente.email,
+        telefono: usuarioExistente.telefono,
+        rol: usuarioExistente.rol,
+        activo: usuarioExistente.activo
+      }
+    });
+  } catch (err) {
+    console.error('Error al actualizar usuario:', err.message);
+    res.status(500).json({ ok: false, error: err.message || 'Error al actualizar usuario' });
   }
 });
 
