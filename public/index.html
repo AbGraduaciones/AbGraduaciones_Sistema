@@ -71,10 +71,12 @@
         </div>
 
         <div id="listaGruposSidebar" class="space-y-1">
+          <!-- Botón Todos -->
           <button onclick="seleccionarGrupo(null)" id="btnGrupo_todos" class="w-full text-left px-3 py-2 rounded-xl text-xs font-bold transition flex items-center justify-between bg-blue-600 text-white">
-            <span>🌐 Todos (General)</span>
+            <span>🌐 Todos los Alumnos</span>
             <span class="text-[10px] bg-white/20 px-1.5 py-0.5 rounded-full" id="conteoGrupo_todos">0</span>
           </button>
+          <!-- Se llena dinámicamente con cada grupo registrado -->
         </div>
       </div>
 
@@ -237,8 +239,6 @@
       <div id="alertaError" class="hidden mb-4 p-3.5 bg-red-50 border border-red-200 text-red-700 rounded-xl text-sm font-medium"></div>
 
       <form id="formAgregar" onsubmit="guardarRegistro(event)">
-        <!-- Campo oculto para almacenar el id real del elemento que se está editando -->
-        <input type="hidden" id="editItemIdentificador">
         <div id="camposFormulario" class="space-y-4"></div>
         <div class="flex justify-end space-x-3 mt-8 pt-4 border-t border-slate-100">
           <button type="button" onclick="cerrarModal()" class="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl transition-all">Cancelar</button>
@@ -540,7 +540,7 @@
 
     // --- GESTIÓN DE GRUPOS ---
     let grupos = JSON.parse(localStorage.getItem('app_grupos_10p')) || [];
-    let grupoSeleccionadoId = null;
+    let grupoSeleccionadoId = null; // null = ver todos
 
     const MATERIALES_ENTREGAS_COMPLETO = [
       "Panorámica con marco",
@@ -556,6 +556,7 @@
       "Personalizador"
     ];
 
+    // CATÁLOGO BASE DE PRECIOS
     const PAQUETES_CATALOGO_BASE = {
       "Línea Basic 1 Fotos Calenda After": [
         { modelo: "Bandera", precio: 8000 },
@@ -787,6 +788,7 @@
       ]
     };
 
+    // Función para obtener el catálogo de precios activo (si hay grupo seleccionado con precios especiales)
     function obtenerCatalogoPreciosActivo() {
       if (!grupoSeleccionadoId) return PAQUETES_CATALOGO_BASE;
       const g = grupos.find(gr => String(gr._id || gr.id) === String(grupoSeleccionadoId));
@@ -924,6 +926,7 @@
       }
     }
 
+    // --- LÓGICA DE BARRA LATERAL Y FILTRADO POR GRUPOS ---
     function renderizarGruposSidebar() {
       const contenedor = document.getElementById('listaGruposSidebar');
       if (!contenedor) return;
@@ -981,6 +984,7 @@
       banner.classList.remove('hidden');
     }
 
+    // Modal Crear / Editar Grupo
     function abrirModalGrupo(idGrupo = null) {
       const alerta = document.getElementById('alertaErrorGrupo');
       alerta.classList.add('hidden');
@@ -1030,12 +1034,12 @@
       const contenedor = document.getElementById('contenedorPreciosGrupo');
       contenedor.innerHTML = '';
 
-      Object.keys(PAQUETES_CATALOGO_BASE).forEach((lineaNombre) => {
+      Object.keys(PAQUETES_CATALOGO_BASE).forEach((lineaNombre, idxLinea) => {
         const modelosBase = PAQUETES_CATALOGO_BASE[lineaNombre];
         const modelosActuales = (catalogoPrecios && catalogoPrecios[lineaNombre]) || modelosBase;
 
         let htmlModelos = '';
-        modelosBase.forEach((modBase) => {
+        modelosBase.forEach((modBase, idxMod) => {
           const modActual = modelosActuales.find(m => m.modelo === modBase.modelo) || modBase;
           htmlModelos += `
             <div class="flex items-center justify-between gap-2 p-1.5 bg-white border border-slate-200 rounded-lg text-xs">
@@ -1079,6 +1083,7 @@
         return;
       }
 
+      // Reconstruir catálogo de precios del grupo
       const preciosConstruidos = {};
       const inputs = document.querySelectorAll('.input-precio-paquete');
       inputs.forEach(inp => {
@@ -1133,6 +1138,7 @@
       btn.innerText = 'Guardar Grupo y Precios';
     }
 
+    // Funciones auxiliares para filtrar arrays de datos según el grupo seleccionado
     function obtenerAlumnosFiltrados() {
       if (!grupoSeleccionadoId) return alumnos;
       const g = grupos.find(gr => String(gr._id || gr.id) === String(grupoSeleccionadoId));
@@ -1647,7 +1653,6 @@
 
     function abrirModal() {
       indiceEdicion = null;
-      document.getElementById('editItemIdentificador').value = '';
       document.getElementById('modalTitulo').innerText = vistaActual === 'saldos' ? "Nuevo Saldo" : (vistaActual === 'alumnos' ? "Nuevo Alumno" : "Registrar Pago");
       document.getElementById('alertaError').classList.add('hidden');
       construirCamposFormulario();
@@ -1656,8 +1661,6 @@
 
     function cerrarModal() {
       document.getElementById('modalFormulario').classList.add('hidden');
-      document.getElementById('editItemIdentificador').value = '';
-      indiceEdicion = null;
     }
 
     function actualizarModelosModal() {
@@ -1731,6 +1734,7 @@
       contenedor.innerHTML = '';
       const catalogoActivo = obtenerCatalogoPreciosActivo();
 
+      // Grupo por defecto: el seleccionado actualmente en sidebar o el del registro
       const grupoActualId = datos.grupoId || grupoSeleccionadoId || '';
       let opcionesGruposHtml = '<option value="">Sin Grupo Específico (General)</option>';
       grupos.forEach(g => {
@@ -1910,281 +1914,233 @@
       alertaError.classList.add('hidden');
       alertaError.innerText = '';
 
-      const btnGuardar = document.getElementById('btnGuardarModal');
-      btnGuardar.disabled = true;
+      if (vistaActual === 'saldos') {
+        const alumnoInput = document.getElementById('fAlumno').value.trim();
+        const alumnoObj = alumnos.find(a => a.nombre.toLowerCase() === alumnoInput.toLowerCase());
+        
+        if (!alumnoObj) {
+          alertaError.innerText = `El alumno "${alumnoInput}" no está registrado. Primero debes agregarlo en la sección "Alumnos".`;
+          alertaError.classList.remove('hidden');
+          return;
+        }
 
-      try {
-        const itemIdentificador = document.getElementById('editItemIdentificador').value;
+        const linea = document.getElementById('inputLineaModal').value;
+        const modelo = document.getElementById('inputModeloModal').value;
+        const monto = parseFloat(document.getElementById('inputMontoModal').value) || 0;
+        const paqueteCompleto = `${linea} - ${modelo}`;
+        const esContadoEfectivo = document.getElementById('checkContadoEfectivo').checked;
+        const grupoIdAsignado = document.getElementById('fSaldoGrupo').value || null;
+        const gObj = grupos.find(gr => String(gr._id || gr.id) === String(grupoIdAsignado));
 
-        if (vistaActual === 'saldos') {
-          const alumnoInput = document.getElementById('fAlumno').value.trim();
-          const alumnoObj = alumnos.find(a => a.nombre.toLowerCase() === alumnoInput.toLowerCase());
-          
-          if (!alumnoObj) {
-            alertaError.innerText = `El alumno "${alumnoInput}" no está registrado. Primero debes agregarlo en la sección "Alumnos".`;
-            alertaError.classList.remove('hidden');
-            btnGuardar.disabled = false;
-            return;
-          }
+        const pagosCapturados = [];
+        for (let i = 0; i < 10; i++) {
+          pagosCapturados.push(parseFloat(document.getElementById(`fPagoItem_${i}`).value) || 0);
+        }
 
-          const linea = document.getElementById('inputLineaModal').value;
-          const modelo = document.getElementById('inputModeloModal').value;
-          const monto = parseFloat(document.getElementById('inputMontoModal').value) || 0;
-          const paqueteCompleto = `${linea} - ${modelo}`;
-          const esContadoEfectivo = document.getElementById('checkContadoEfectivo').checked;
-          const grupoSelectEl = document.getElementById('fSaldoGrupo');
-          const grupoIdAsignado = grupoSelectEl ? (grupoSelectEl.value || null) : null;
-          const gObj = grupos.find(gr => String(gr._id || gr.id) === String(grupoIdAsignado));
-
-          const pagosCapturados = [];
-          for (let i = 0; i < 10; i++) {
-            const campoP = document.getElementById(`fPagoItem_${i}`);
-            pagosCapturados.push(campoP ? (parseFloat(campoP.value) || 0) : 0);
-          }
-
-          if (esContadoEfectivo) {
-            pagosCapturados[0] = monto;
-            for (let i = 1; i < 10; i++) {
-              pagosCapturados[i] = 0;
-            }
-          }
-
-          const idxRealSaldo = itemIdentificador 
-            ? saldos.findIndex(s => String(s.id || s._id) === String(itemIdentificador)) 
-            : -1;
-
-          if (idxRealSaldo !== -1) {
-            saldos[idxRealSaldo].alumno = alumnoInput;
-            saldos[idxRealSaldo].cliente = String(alumnoObj.id);
-            saldos[idxRealSaldo].paquete = paqueteCompleto;
-            saldos[idxRealSaldo].monto = monto;
-            saldos[idxRealSaldo].pagos = pagosCapturados;
-            saldos[idxRealSaldo].esContadoEfectivo = esContadoEfectivo;
-            saldos[idxRealSaldo].grupoId = grupoIdAsignado;
-            saldos[idxRealSaldo].grupoNombre = gObj ? gObj.nombre : '';
-          } else {
-            saldos.push({ 
-              id: 'CTA-' + Date.now(),
-              cliente: String(alumnoObj.id),
-              alumno: alumnoInput, 
-              paquete: paqueteCompleto, 
-              monto, 
-              pagos: pagosCapturados, 
-              entregas: {}, 
-              eleccionEspecial: "", 
-              esContadoEfectivo,
-              grupoId: grupoIdAsignado,
-              grupoNombre: gObj ? gObj.nombre : ''
-            });
-          }
-
-          for (let i = 0; i < 10; i++) {
-            const abonoMonto = pagosCapturados[i];
-            if (abonoMonto > 0) {
-              const etiquetaConcepto = esContadoEfectivo ? 'Liquidación de Contado (Efectivo -5%)' : `Pago ${i + 1}`;
-              const yaRegistrado = pagos.some(p => p.alumno.toLowerCase() === alumnoInput.toLowerCase() && p.concepto === etiquetaConcepto);
-              
-              if (!yaRegistrado) {
-                pagos.unshift({
-                  id: generarNuevoIdPago(),
-                  alumno: alumnoInput,
-                  concepto: etiquetaConcepto,
-                  monto: abonoMonto,
-                  fecha: new Date().toISOString().split('T')[0],
-                  metodo: 'Efectivo',
-                  estado: 'Completado',
-                  grupoId: grupoIdAsignado
-                });
-              }
-            }
-          }
-
-        } else if (vistaActual === 'alumnos') {
-          const idManual = document.getElementById('fIdManual') ? document.getElementById('fIdManual').value.trim() : generarNuevoIdAlumno();
-          const nombre = document.getElementById('fNombre').value.trim();
-          const email = document.getElementById('fEmail').value.trim();
-          const telefono = document.getElementById('fTelefono').value.trim();
-          const universidad = document.getElementById('fUniversidad').value.trim();
-          const escuela = document.getElementById('fEscuela').value.trim();
-          const grupoSelectEl = document.getElementById('fAlumnoGrupo');
-          const grupoIdAsignado = grupoSelectEl ? (grupoSelectEl.value || null) : null;
-          const gObj = grupos.find(gr => String(gr._id || gr.id) === String(grupoIdAsignado));
-
-          const regexLadaInternacional = /^\+\d{1,4}\s?\d{7,14}$/;
-          const soloNumeros = telefono.replace(/\D/g, '');
-
-          if (!telefono.startsWith('+') || soloNumeros.length < 8 || !regexLadaInternacional.test(telefono)) {
-            alertaError.innerText = `Formato de teléfono inválido. Debe incluir la LADA internacional con el signo '+' (Ejemplo: +52 5551234567 o +1 3232435251).`;
-            alertaError.classList.remove('hidden');
-            btnGuardar.disabled = false;
-            return;
-          }
-
-          const idxRealAlumno = itemIdentificador 
-            ? alumnos.findIndex(a => String(a.id) === String(itemIdentificador)) 
-            : -1;
-
-          const idExiste = alumnos.some((a, idx) => idx !== idxRealAlumno && String(a.id).trim().toLowerCase() === idManual.toLowerCase());
-          if (idExiste) {
-            alertaError.innerText = `El ID "${idManual}" ya está en uso. Ingresa uno distinto.`;
-            alertaError.classList.remove('hidden');
-            btnGuardar.disabled = false;
-            return;
-          }
-
-          const emailLimpio = email.toLowerCase();
-          const emailExiste = alumnos.some((a, idx) => idx !== idxRealAlumno && a.email.toLowerCase() === emailLimpio);
-          if (emailExiste) {
-            alertaError.innerText = `El correo "${email}" ya se encuentra registrado. Ingresa un correo distinto.`;
-            alertaError.classList.remove('hidden');
-            btnGuardar.disabled = false;
-            return;
-          }
-
-          const telExiste = alumnos.some((a, idx) => idx !== idxRealAlumno && a.telefono.replace(/\D/g, '') === soloNumeros);
-          if (telExiste) {
-            alertaError.innerText = `El teléfono "${telefono}" ya pertenece a otro alumno registrado.`;
-            alertaError.classList.remove('hidden');
-            btnGuardar.disabled = false;
-            return;
-          }
-
-          const datosAlumnoActualizado = {
-            id: idManual,
-            nombre,
-            email,
-            telefono,
-            universidad,
-            facultad: escuela,
-            escuela,
-            grupoId: grupoIdAsignado,
-            grupoNombre: gObj ? gObj.nombre : ''
-          };
-
-          if (idxRealAlumno !== -1) {
-            alumnos[idxRealAlumno] = { ...alumnos[idxRealAlumno], ...datosAlumnoActualizado };
-          } else {
-            alumnos.push(datosAlumnoActualizado);
-          }
-          actualizarDatalistAlumnos();
-          actualizarOpcionesFiltroEscuelas();
-          renderizarGruposSidebar();
-
-        } else if (vistaActual === 'pagos') {
-          const alumnoInput = document.getElementById('fPagoAlumno').value.trim();
-          const concepto = document.getElementById('fPagoConcepto').value;
-          const montoAbono = parseFloat(document.getElementById('fPagoMonto').value) || 0;
-          const fecha = document.getElementById('fPagoFecha').value;
-          const metodo = document.getElementById('fPagoMetodo').value;
-
-          const saldoTarget = saldos.find(s => s.alumno.toLowerCase() === alumnoInput.toLowerCase());
-
-          if (!saldoTarget) {
-            alertaError.innerText = `No se encontró una cuenta de saldo activa para "${alumnoInput}".`;
-            alertaError.classList.remove('hidden');
-            btnGuardar.disabled = false;
-            return;
-          }
-
-          const totalPagadoPrevio = calcularTotalPagado(saldoTarget.pagos);
-          const saldoPendienteActual = Math.max(0, saldoTarget.monto - totalPagadoPrevio);
-
-          const idxRealPago = itemIdentificador 
-            ? pagos.findIndex(p => String(p.id) === String(itemIdentificador)) 
-            : -1;
-
-          if (idxRealPago === -1) {
-            if (saldoPendienteActual <= 0) {
-              alertaError.innerText = `El alumno "${alumnoInput}" ya tiene su cuenta totalmente liquidada ($0.00 pendientes).`;
-              alertaError.classList.remove('hidden');
-              btnGuardar.disabled = false;
-              return;
-            }
-
-            if (montoAbono > saldoPendienteActual) {
-              alertaError.innerText = `El monto ingresado ($${montoAbono.toLocaleString()}) supera el saldo pendiente ($${saldoPendienteActual.toLocaleString()}).`;
-              alertaError.classList.remove('hidden');
-              btnGuardar.disabled = false;
-              return;
-            }
-          }
-
-          const nuevoPago = { 
-            id: itemIdentificador || generarNuevoIdPago(), 
-            alumno: alumnoInput, 
-            concepto, 
-            monto: montoAbono, 
-            fecha, 
-            metodo, 
-            estado: 'Completado',
-            grupoId: saldoTarget.grupoId || null
-          };
-
-          if (idxRealPago !== -1) {
-            pagos[idxRealPago] = nuevoPago;
-          } else {
-            pagos.unshift(nuevoPago);
-            saldoTarget.pagos = agregarNuevoAbonoArreglo(saldoTarget.pagos, montoAbono);
+        if (esContadoEfectivo) {
+          pagosCapturados[0] = monto;
+          for (let i = 1; i < 10; i++) {
+            pagosCapturados[i] = 0;
           }
         }
 
-        await guardarEnLocalStorage();
-        cerrarModal();
+        if (indiceEdicion !== null) {
+          saldos[indiceEdicion].alumno = alumnoInput;
+          saldos[indiceEdicion].cliente = String(alumnoObj.id);
+          saldos[indiceEdicion].paquete = paqueteCompleto;
+          saldos[indiceEdicion].monto = monto;
+          saldos[indiceEdicion].pagos = pagosCapturados;
+          saldos[indiceEdicion].esContadoEfectivo = esContadoEfectivo;
+          saldos[indiceEdicion].grupoId = grupoIdAsignado;
+          saldos[indiceEdicion].grupoNombre = gObj ? gObj.nombre : '';
+        } else {
+          saldos.push({ 
+            id: 'CTA-' + Date.now(),
+            cliente: String(alumnoObj.id),
+            alumno: alumnoInput, 
+            paquete: paqueteCompleto, 
+            monto, 
+            pagos: pagosCapturados, 
+            entregas: {}, 
+            eleccionEspecial: "", 
+            esContadoEfectivo,
+            grupoId: grupoIdAsignado,
+            grupoNombre: gObj ? gObj.nombre : ''
+          });
+        }
+
+        for (let i = 0; i < 10; i++) {
+          const abonoMonto = pagosCapturados[i];
+          if (abonoMonto > 0) {
+            const etiquetaConcepto = esContadoEfectivo ? 'Liquidación de Contado (Efectivo -5%)' : `Pago ${i + 1}`;
+            const yaRegistrado = pagos.some(p => p.alumno.toLowerCase() === alumnoInput.toLowerCase() && p.concepto === etiquetaConcepto);
+            
+            if (!yaRegistrado) {
+              pagos.unshift({
+                id: generarNuevoIdPago(),
+                alumno: alumnoInput,
+                concepto: etiquetaConcepto,
+                monto: abonoMonto,
+                fecha: new Date().toISOString().split('T')[0],
+                metodo: 'Efectivo',
+                estado: 'Completado',
+                grupoId: grupoIdAsignado
+              });
+            }
+          }
+        }
+
+      } else if (vistaActual === 'alumnos') {
+        const idManual = document.getElementById('fIdManual') ? document.getElementById('fIdManual').value.trim() : generarNuevoIdAlumno();
+        const nombre = document.getElementById('fNombre').value.trim();
+        const email = document.getElementById('fEmail').value.trim();
+        const telefono = document.getElementById('fTelefono').value.trim();
+        const universidad = document.getElementById('fUniversidad').value.trim();
+        const escuela = document.getElementById('fEscuela').value.trim();
+        const grupoIdAsignado = document.getElementById('fAlumnoGrupo').value || null;
+        const gObj = grupos.find(gr => String(gr._id || gr.id) === String(grupoIdAsignado));
+
+        const regexLadaInternacional = /^\+\d{1,4}\s?\d{7,14}$/;
+        const soloNumeros = telefono.replace(/\D/g, '');
+
+        if (!telefono.startsWith('+') || soloNumeros.length < 8 || !regexLadaInternacional.test(telefono)) {
+          alertaError.innerText = `Formato de teléfono inválido. Debe incluir la LADA internacional con el signo '+' (Ejemplo: +52 5551234567 o +1 3232435251).`;
+          alertaError.classList.remove('hidden');
+          return;
+        }
+
+        const idExiste = alumnos.some((a, idx) => idx !== indiceEdicion && String(a.id).trim().toLowerCase() === idManual.toLowerCase());
+        if (idExiste) {
+          alertaError.innerText = `El ID "${idManual}" ya está en uso. Ingresa uno distinto.`;
+          alertaError.classList.remove('hidden');
+          return;
+        }
+
+        const emailLimpio = email.toLowerCase();
+        const emailExiste = alumnos.some((a, idx) => idx !== indiceEdicion && a.email.toLowerCase() === emailLimpio);
+        if (emailExiste) {
+          alertaError.innerText = `El correo "${email}" ya se encuentra registrado. Ingresa un correo distinto.`;
+          alertaError.classList.remove('hidden');
+          return;
+        }
+
+        const telExiste = alumnos.some((a, idx) => idx !== indiceEdicion && a.telefono.replace(/\D/g, '') === soloNumeros);
+        if (telExiste) {
+          alertaError.innerText = `El teléfono "${telefono}" ya pertenece a otro alumno registrado.`;
+          alertaError.classList.remove('hidden');
+          return;
+        }
+
+        const datosAlumnoActualizado = {
+          id: idManual,
+          nombre,
+          email,
+          telefono,
+          universidad,
+          facultad: escuela,
+          escuela,
+          grupoId: grupoIdAsignado,
+          grupoNombre: gObj ? gObj.nombre : ''
+        };
+
+        if (indiceEdicion !== null) {
+          alumnos[indiceEdicion] = { ...alumnos[indiceEdicion], ...datosAlumnoActualizado };
+        } else {
+          alumnos.push(datosAlumnoActualizado);
+        }
+        actualizarDatalistAlumnos();
+        actualizarOpcionesFiltroEscuelas();
         renderizarGruposSidebar();
-        cargarContenido(vistaActual);
-      } catch (errSubmit) {
-        console.error('Error al procesar guardarRegistro:', errSubmit);
-        alertaError.innerText = 'Ocurrió un error al guardar: ' + errSubmit.message;
-        alertaError.classList.remove('hidden');
-      } finally {
-        btnGuardar.disabled = false;
+      } else if (vistaActual === 'pagos') {
+        const alumnoInput = document.getElementById('fPagoAlumno').value.trim();
+        const concepto = document.getElementById('fPagoConcepto').value;
+        const montoAbono = parseFloat(document.getElementById('fPagoMonto').value) || 0;
+        const fecha = document.getElementById('fPagoFecha').value;
+        const metodo = document.getElementById('fPagoMetodo').value;
+
+        const saldoTarget = saldos.find(s => s.alumno.toLowerCase() === alumnoInput.toLowerCase());
+
+        if (!saldoTarget) {
+          alertaError.innerText = `No se encontró una cuenta de saldo activa para "${alumnoInput}".`;
+          alertaError.classList.remove('hidden');
+          return;
+        }
+
+        const totalPagadoPrevio = calcularTotalPagado(saldoTarget.pagos);
+        const saldoPendienteActual = Math.max(0, saldoTarget.monto - totalPagadoPrevio);
+
+        if (saldoPendienteActual <= 0) {
+          alertaError.innerText = `El alumno "${alumnoInput}" ya tiene su cuenta totalmente liquidada ($0.00 pendientes).`;
+          alertaError.classList.remove('hidden');
+          return;
+        }
+
+        if (montoAbono > saldoPendienteActual) {
+          alertaError.innerText = `El monto ingresado ($${montoAbono.toLocaleString()}) supera el saldo pendiente ($${saldoPendienteActual.toLocaleString()}).`;
+          alertaError.classList.remove('hidden');
+          return;
+        }
+
+        const nuevoPago = { 
+          id: generarNuevoIdPago(), 
+          alumno: alumnoInput, 
+          concepto, 
+          monto: montoAbono, 
+          fecha, 
+          metodo, 
+          estado: 'Completado',
+          grupoId: saldoTarget.grupoId || null
+        };
+
+        if (indiceEdicion !== null) {
+          pagos[indiceEdicion] = nuevoPago;
+        } else {
+          pagos.unshift(nuevoPago);
+          saldoTarget.pagos = agregarNuevoAbonoArreglo(saldoTarget.pagos, montoAbono);
+        }
       }
+
+      await guardarEnLocalStorage();
+      cerrarModal();
+      renderizarGruposSidebar();
+      cargarContenido(vistaActual);
     }
 
-    async function editarRegistro(indexFiltro) {
+    async function editarRegistro(index) {
+      indiceEdicion = index;
+      document.getElementById('modalTitulo').innerText = "Editar Registro";
+      
       const saldosUso = obtenerSaldosFiltrados();
       const alumnosUso = obtenerAlumnosFiltrados();
       const pagosUso = obtenerPagosFiltrados();
 
-      document.getElementById('modalTitulo').innerText = "Editar Registro";
-      
-      if (vistaActual === 'saldos') {
-        const item = saldosUso[indexFiltro];
-        document.getElementById('editItemIdentificador').value = item.id || item._id;
-        construirCamposFormulario(item);
-      } else if (vistaActual === 'alumnos') {
-        const item = alumnosUso[indexFiltro];
-        document.getElementById('editItemIdentificador').value = item.id;
-        construirCamposFormulario(item);
-      } else if (vistaActual === 'pagos') {
-        const item = pagosUso[indexFiltro];
-        document.getElementById('editItemIdentificador').value = item.id;
-        construirCamposFormulario(item);
-      }
+      if (vistaActual === 'saldos') construirCamposFormulario(saldosUso[index]);
+      else if (vistaActual === 'alumnos') construirCamposFormulario(alumnosUso[index]);
+      else if (vistaActual === 'pagos') construirCamposFormulario(pagosUso[index]);
 
       document.getElementById('modalFormulario').classList.remove('hidden');
     }
 
-    async function eliminarRegistro(indexFiltro) {
+    async function eliminarRegistro(index) {
       if (confirm('¿Estás seguro de que deseas eliminar este registro?')) {
         const saldosUso = obtenerSaldosFiltrados();
         const alumnosUso = obtenerAlumnosFiltrados();
         const pagosUso = obtenerPagosFiltrados();
 
         if (vistaActual === 'saldos') {
-          const itemReal = saldosUso[indexFiltro];
-          const idxReal = saldos.findIndex(s => String(s.id || s._id) === String(itemReal.id || itemReal._id));
+          const itemReal = saldosUso[index];
+          const idxReal = saldos.indexOf(itemReal);
           if (idxReal !== -1) saldos.splice(idxReal, 1);
         } else if (vistaActual === 'alumnos') {
-          const itemReal = alumnosUso[indexFiltro];
-          const idxReal = alumnos.findIndex(a => String(a.id) === String(itemReal.id));
+          const itemReal = alumnosUso[index];
+          const idxReal = alumnos.indexOf(itemReal);
           if (idxReal !== -1) alumnos.splice(idxReal, 1);
           actualizarDatalistAlumnos();
           actualizarOpcionesFiltroEscuelas();
           renderizarGruposSidebar();
         } else if (vistaActual === 'pagos') {
-          const itemReal = pagosUso[indexFiltro];
-          const idxReal = pagos.findIndex(p => String(p.id) === String(itemReal.id));
+          const itemReal = pagosUso[index];
+          const idxReal = pagos.indexOf(itemReal);
           if (idxReal !== -1) pagos.splice(idxReal, 1);
         }
 
@@ -2193,6 +2149,210 @@
       }
     }
 
+    function renderizarTablaSaldos(data) {
+      let encabezados = `
+        <tr>
+          <th class="p-3 sticky left-0 bg-slate-100 z-10 border-r border-slate-200">Alumno</th>
+          <th class="p-3">Grupo</th>
+          <th class="p-3">Paquete</th>
+          <th class="p-3">Monto Total</th>`;
+      
+      for (let i = 1; i <= 10; i++) {
+        encabezados += `<th class="p-3 text-center bg-blue-50/50">Pago ${i}</th>`;
+      }
+
+      encabezados += `
+          <th class="p-3">Saldo Pendiente</th>
+          <th class="p-3 text-center">Entregas y Regalías</th>
+          <th class="p-3">Estado</th>
+          <th class="p-3 text-center">Acciones</th>
+        </tr>`;
+
+      document.getElementById('encabezadoTabla').innerHTML = encabezados;
+      const tbody = document.getElementById('cuerpoTabla');
+      tbody.innerHTML = '';
+
+      if (data.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="17" class="p-6 text-center text-slate-400 italic">No hay saldos registrados para este grupo.</td></tr>`;
+        return;
+      }
+
+      data.forEach((item, indexFiltro) => {
+        const totalPagado = calcularTotalPagado(item.pagos);
+        const saldoPendiente = Math.max(0, item.monto - totalPagado);
+        const estaPagado = saldoPendiente <= 0;
+
+        const estadoTexto = estaPagado ? 'Liquidado' : 'Pendiente';
+        const estadoClase = estaPagado 
+          ? 'bg-emerald-100 text-emerald-800 border border-emerald-200 font-semibold' 
+          : 'bg-amber-100 text-amber-800 border border-amber-200 font-semibold';
+
+        const entregasObj = item.entregas || {};
+        const totalEntregados = Object.values(entregasObj).filter(Boolean).length;
+        const totalMateriales = MATERIALES_ENTREGAS_COMPLETO.length;
+
+        const g = grupos.find(gr => String(gr._id || gr.id) === String(item.grupoId));
+        const nombreGrupoLabel = g ? g.nombre : (item.grupoNombre || 'General');
+
+        let fila = `<tr class="hover:bg-slate-50 transition-colors">
+          <td class="p-3 font-bold text-slate-800 sticky left-0 bg-white z-10 border-r border-slate-100">
+            <div>${item.alumno}</div>
+            ${item.esContadoEfectivo ? '<span class="inline-block text-[10px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded font-bold mt-0.5">Contado Efectivo (-5%)</span>' : ''}
+          </td>
+          <td class="p-3 font-semibold text-xs text-blue-700">
+            <span class="bg-blue-50 px-2 py-1 rounded-md border border-blue-200">${nombreGrupoLabel}</span>
+          </td>
+          <td class="p-3 text-slate-600 font-medium">${item.paquete}</td>
+          <td class="p-3 font-extrabold text-slate-900">$${parseFloat(item.monto).toLocaleString()}</td>`;
+
+        for (let i = 0; i < 10; i++) {
+          const pagoVal = item.pagos[i] || 0;
+          fila += `<td class="p-3 text-center text-slate-600 font-mono ${pagoVal > 0 ? 'bg-blue-50/30 font-bold text-blue-700' : ''}">${pagoVal > 0 ? '$' + parseFloat(pagoVal).toLocaleString() : '-'}</td>`;
+        }
+
+        fila += `
+          <td class="p-3 font-bold ${estaPagado ? 'text-emerald-600 font-black' : 'text-amber-600'}">$${saldoPendiente.toLocaleString()}</td>
+          <td class="p-3 text-center">
+            <button onclick="abrirModalEntregasPorItem('${item.id || item._id}')" class="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded-lg border border-blue-200 text-xs transition inline-flex items-center gap-1">
+              📦 ${totalEntregados}/${totalMateriales}
+            </button>
+          </td>
+          <td class="p-3"><span class="px-2.5 py-1 rounded-full text-xs ${estadoClase}">${estadoTexto}</span></td>
+          <td class="p-3 text-center">
+            <button onclick="editarRegistro(${indexFiltro})" class="text-blue-600 hover:text-blue-800 font-bold text-xs mr-2">Editar</button>
+            <button onclick="eliminarRegistro(${indexFiltro})" class="text-red-500 hover:text-red-700 font-bold text-xs">Eliminar</button>
+          </td>
+        </tr>`;
+
+        tbody.innerHTML += fila;
+      });
+    }
+
+    function renderizarTablaAlumnos(data) {
+      let encabezados = `
+        <tr>
+          <th class="p-4">ID</th>
+          <th class="p-4">Nombre Completo</th>
+          <th class="p-4">Grupo</th>
+          <th class="p-4">Correo Electrónico</th>
+          <th class="p-4">Teléfono y Acciones</th>
+          <th class="p-4">Universidad</th>
+          <th class="p-4">Facultad / Carrera</th>
+          <th class="p-4 text-center">Acciones</th>
+        </tr>`;
+
+      document.getElementById('encabezadoTabla').innerHTML = encabezados;
+      const tbody = document.getElementById('cuerpoTabla');
+      tbody.innerHTML = '';
+
+      if (data.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="8" class="p-6 text-center text-slate-400 italic">No hay alumnos registrados en este grupo.</td></tr>`;
+        return;
+      }
+
+      data.forEach((item, indexFiltro) => {
+        const telLimpio = (item.telefono || '').replace(/\D/g, '');
+        const g = grupos.find(gr => String(gr._id || gr.id) === String(item.grupoId));
+        const nombreGrupoLabel = g ? g.nombre : (item.grupoNombre || 'General');
+
+        tbody.innerHTML += `
+          <tr class="hover:bg-slate-50 transition-colors">
+            <td class="p-4 font-mono text-sm text-blue-700 font-extrabold">${item.id}</td>
+            <td class="p-4 font-bold text-slate-900">${item.nombre}</td>
+            <td class="p-4 font-semibold text-xs text-blue-700">
+              <span class="bg-blue-50 px-2 py-1 rounded-md border border-blue-200">${nombreGrupoLabel}</span>
+            </td>
+            <td class="p-4 text-slate-600">${item.email}</td>
+            <td class="p-4 font-mono text-slate-700">
+              <div class="flex items-center gap-2">
+                <span class="font-bold text-blue-900">${item.telefono}</span>
+                ${telLimpio ? `
+                  <div class="flex items-center gap-1 ml-1">
+                    <a href="tel:${telLimpio}" title="Llamar" class="p-1 bg-slate-100 hover:bg-blue-100 text-blue-600 rounded-lg transition-colors text-xs">📞</a>
+                    <a href="https://wa.me/${telLimpio}" target="_blank" title="Enviar WhatsApp" class="p-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 rounded-lg transition-colors text-xs">💬</a>
+                    <a href="sms:${telLimpio}" title="Enviar SMS" class="p-1 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg transition-colors text-xs">✉️</a>
+                  </div>
+                ` : ''}
+              </div>
+            </td>
+            <td class="p-4 font-medium text-slate-700">${item.universidad || '-'}</td>
+            <td class="p-4 text-slate-600">${item.facultad || item.escuela || '-'}</td>
+            <td class="p-4 text-center">
+              <button onclick="editarRegistro(${indexFiltro})" class="text-blue-600 hover:text-blue-800 font-bold text-xs mr-2">Editar</button>
+              <button onclick="eliminarRegistro(${indexFiltro})" class="text-red-500 hover:text-red-700 font-bold text-xs">Eliminar</button>
+            </td>
+          </tr>`;
+      });
+    }
+
+    function renderizarTablaPagos(data) {
+      let encabezados = `
+        <tr>
+          <th class="p-4">Folio</th>
+          <th class="p-4">Alumno</th>
+          <th class="p-4">Concepto</th>
+          <th class="p-4">Monto Abonado</th>
+          <th class="p-4">Fecha</th>
+          <th class="p-4">Método</th>
+          <th class="p-4">Estado</th>
+          <th class="p-4 text-center">Acciones</th>
+        </tr>`;
+
+      document.getElementById('encabezadoTabla').innerHTML = encabezados;
+      const tbody = document.getElementById('cuerpoTabla');
+      tbody.innerHTML = '';
+
+      if (data.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="8" class="p-6 text-center text-slate-400 italic">No hay abonos registrados para este grupo.</td></tr>`;
+        return;
+      }
+
+      data.forEach((item, indexFiltro) => {
+        tbody.innerHTML += `
+          <tr class="hover:bg-slate-50 transition-colors">
+            <td class="p-4 font-mono text-xs text-slate-400 font-semibold">${item.id || 'PAG-000'}</td>
+            <td class="p-4 font-bold text-slate-900">${item.alumno}</td>
+            <td class="p-4 text-slate-600 font-medium">${item.concepto}</td>
+            <td class="p-4 font-bold text-emerald-600">$${parseFloat(item.monto).toLocaleString()}</td>
+            <td class="p-4 text-slate-500 text-xs">${item.fecha}</td>
+            <td class="p-4 text-slate-600">${item.metodo}</td>
+            <td class="p-4"><span class="bg-emerald-100 text-emerald-800 text-xs px-2.5 py-1 rounded-full font-semibold border border-emerald-200">${item.estado}</span></td>
+            <td class="p-4 text-center flex justify-center items-center gap-2">
+              <button onclick="descargarReciboPDF(obtenerPagosFiltrados()[${indexFiltro}])" class="bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1 rounded text-xs font-bold transition">📄 PDF</button>
+              <button onclick="enviarWhatsappYPdf(obtenerPagosFiltrados()[${indexFiltro}])" class="bg-emerald-100 hover:bg-emerald-200 text-emerald-700 px-2 py-1 rounded text-xs font-bold transition">💬 WA</button>
+              <button onclick="enviarEmailYPdf(obtenerPagosFiltrados()[${indexFiltro}])" class="bg-blue-100 hover:bg-blue-200 text-blue-700 px-2 py-1 rounded text-xs font-bold transition">✉️ Email</button>
+              <button onclick="eliminarRegistro(${indexFiltro})" class="text-red-500 hover:text-red-700 font-bold text-xs ml-1">Eliminar</button>
+            </td>
+          </tr>`;
+      });
+    }
+
+    function filtrarTabla() {
+      const query = document.getElementById('inputBuscar').value.trim().toLowerCase();
+      const escuelaSel = document.getElementById('filtroEscuela').value.trim().toLowerCase();
+      const paqueteSel = document.getElementById('filtroPaquete').value.trim().toLowerCase();
+
+      if (vistaActual === 'saldos') {
+        const filtrados = obtenerSaldosFiltrados().filter(s => {
+          const coincideTexto = (s.alumno || '').toLowerCase().includes(query) || (s.paquete || '').toLowerCase().includes(query);
+          const coincidePaquete = !paqueteSel || (s.paquete || '').toLowerCase().startsWith(paqueteSel);
+          return coincideTexto && coincidePaquete;
+        });
+        renderizarTablaSaldos(filtrados);
+      } else if (vistaActual === 'alumnos') {
+        const filtrados = obtenerAlumnosFiltrados().filter(a => {
+          const coincideTexto = !query || (a.id && String(a.id).toLowerCase().includes(query)) || (a.nombre && a.nombre.toLowerCase().includes(query)) || (a.telefono && a.telefono.includes(query));
+          const coincideEscuela = !escuelaSel || (a.escuela && a.escuela.toLowerCase() === escuelaSel) || (a.universidad && a.universidad.toLowerCase() === escuelaSel) || (a.facultad && a.facultad.toLowerCase() === escuelaSel);
+          return coincideTexto && coincideEscuela;
+        });
+        renderizarTablaAlumnos(filtrados);
+      } else if (vistaActual === 'pagos') {
+        const filtrados = obtenerPagosFiltrados().filter(p => (p.alumno || '').toLowerCase().includes(query) || (p.concepto || '').toLowerCase().includes(query));
+        renderizarTablaPagos(filtrados);
+      }
+    }
+
+    // Modal de entregas adaptado por ID de cuenta
     function abrirModalEntregasPorItem(cuentaId) {
       const saldoObj = saldos.find(s => String(s.id || s._id) === String(cuentaId));
       if (!saldoObj) return;
