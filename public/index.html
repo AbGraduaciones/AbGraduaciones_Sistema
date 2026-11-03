@@ -1844,8 +1844,8 @@
           </div>
           <div class="grid grid-cols-2 gap-4">
             <div>
-              <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Correo Electrónico</label>
-              <input type="email" id="fEmail" value="${datos.email || ''}" required class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-600 focus:bg-white transition-all">
+              <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Correo Electrónico (Opcional)</label>
+              <input type="email" id="fEmail" value="${datos.email || ''}" placeholder="ejemplo@correo.com (opcional)" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-600 focus:bg-white transition-all">
             </div>
             <div>
               <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Teléfono con LADA (*Obligatorio +)</label>
@@ -2042,16 +2042,19 @@
             return;
           }
 
-          const emailLimpio = email.toLowerCase();
-          const emailExiste = alumnos.some((a, idx) => idx !== idxReal && a.email.toLowerCase() === emailLimpio);
-          if (emailExiste) {
-            alertaError.innerText = `El correo "${email}" ya se encuentra registrado. Ingresa un correo distinto.`;
-            alertaError.classList.remove('hidden');
-            btnGuardar.disabled = false;
-            return;
+          // Validar duplicado de correo SOLO si el usuario escribió uno
+          if (email.length > 0) {
+            const emailLimpio = email.toLowerCase();
+            const emailExiste = alumnos.some((a, idx) => idx !== idxReal && (a.email || '').toLowerCase() === emailLimpio);
+            if (emailExiste) {
+              alertaError.innerText = `El correo "${email}" ya se encuentra registrado. Ingresa un correo distinto.`;
+              alertaError.classList.remove('hidden');
+              btnGuardar.disabled = false;
+              return;
+            }
           }
 
-          const telExiste = alumnos.some((a, idx) => idx !== idxReal && a.telefono.replace(/\D/g, '') === soloNumeros);
+          const telExiste = alumnos.some((a, idx) => idx !== idxReal && (a.telefono || '').replace(/\D/g, '') === soloNumeros);
           if (telExiste) {
             alertaError.innerText = `El teléfono "${telefono}" ya pertenece a otro alumno registrado.`;
             alertaError.classList.remove('hidden');
@@ -2062,7 +2065,7 @@
           const datosAlumnoActualizado = {
             id: idManual,
             nombre,
-            email,
+            email: email || '',
             telefono,
             universidad,
             facultad: escuela,
@@ -2344,7 +2347,7 @@
             <td class="p-4 font-semibold text-xs text-blue-700">
               <span class="bg-blue-50 px-2 py-1 rounded-md border border-blue-200">${nombreGrupoLabel}</span>
             </td>
-            <td class="p-4 text-slate-600">${item.email}</td>
+            <td class="p-4 text-slate-600">${item.email || '<span class="text-slate-400 italic">Sin correo</span>'}</td>
             <td class="p-4 font-mono text-slate-700">
               <div class="flex items-center gap-2">
                 <span class="font-bold text-blue-900">${item.telefono}</span>
@@ -2668,10 +2671,15 @@
     }
 
     async function enviarEmailYPdf(pagoObj) {
-      await descargarReciboPDF(pagoObj);
-
       const alumnoObj = alumnos.find(a => a.nombre.toLowerCase() === pagoObj.alumno.toLowerCase());
       const email = alumnoObj && alumnoObj.email ? alumnoObj.email : '';
+
+      if (!email) {
+        alert('Este alumno no cuenta con un correo electrónico registrado.');
+        return;
+      }
+
+      await descargarReciboPDF(pagoObj);
 
       const asunto = encodeURIComponent(`Recibo de Pago - Ab Graduaciones (${pagoObj.concepto})`);
       const cuerpo = encodeURIComponent(
@@ -2705,7 +2713,7 @@
             </div>
           `;
         } else if (pasoLoginPortal === 2 && alumnoTempLogin) {
-          const emailOculto = alumnoTempLogin.email ? alumnoTempLogin.email.replace(/(.{2})(.*)(?=@)/, (gp1, gp2, gp3) => gp2 + "*".repeat(gp3.length)) : 'tu correo registrado';
+          const emailOculto = alumnoTempLogin.email ? alumnoTempLogin.email.replace(/(.{2})(.*)(?=@)/, (gp1, gp2, gp3) => gp2 + "*".repeat(gp3.length)) : null;
           const urlWa = enlaceWhatsAppGenerado || '#';
 
           dinamic.innerHTML = `
@@ -2725,9 +2733,11 @@
                   💬 Ver mi Código en WhatsApp
                 </a>
 
-                <button type="button" id="btnEnviarCorreoPaso2" onclick="enviarCodigoPorCorreo()" class="w-full py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl border border-slate-200 transition-all text-xs flex items-center justify-center gap-2">
-                  ✉️ Enviar a mi Correo (${emailOculto})
-                </button>
+                ${emailOculto ? `
+                  <button type="button" id="btnEnviarCorreoPaso2" onclick="enviarCodigoPorCorreo()" class="w-full py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl border border-slate-200 transition-all text-xs flex items-center justify-center gap-2">
+                    ✉️ Enviar a mi Correo (${emailOculto})
+                  </button>
+                ` : ''}
               </div>
 
               <div class="pt-4 border-t border-slate-100">
@@ -2969,7 +2979,7 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             alumnoId: encontrado.id,
-            email: encontrado.email,
+            email: encontrado.email || '',
             telefono: encontrado.telefono,
             nombre: encontrado.nombre,
             codigo: pinGenerado
@@ -2985,6 +2995,11 @@
 
     async function enviarCodigoPorCorreo() {
       if (!alumnoTempLogin || !codigoOtpGenerado) return;
+
+      if (!alumnoTempLogin.email) {
+        alert('Este alumno no tiene un correo registrado. Utiliza el enlace de WhatsApp.');
+        return;
+      }
 
       const btn = document.getElementById('btnEnviarCorreoPaso2');
       if (btn) {
@@ -3036,7 +3051,7 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             alumnoId: alumnoTempLogin.id,
-            email: alumnoTempLogin.email,
+            email: alumnoTempLogin.email || '',
             codigo: codigoIngresado
           })
         });

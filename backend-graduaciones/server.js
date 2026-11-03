@@ -48,7 +48,7 @@ const Grupo = cargarModelo(['./models/Grupo', './models/grupo']) || mongoose.mod
 const Cliente = cargarModelo(['./models/Cliente', './models/cliente', './models/Clientes', './models/clientes']) || mongoose.model('Cliente', new mongoose.Schema({
   id: String,
   nombre: String,
-  email: String,
+  email: { type: String, default: '' },
   telefono: String,
   universidad: String,
   facultad: String,
@@ -182,7 +182,7 @@ async function sincronizarMemoriaDesdeBD() {
       global.datosCompartidos.alumnos = clientesBD.map(c => ({
         id: c.id ? String(c.id) : (c._id ? String(c._id) : '1001'),
         nombre: c.nombre,
-        email: c.email,
+        email: c.email || '',
         telefono: c.telefono || '',
         universidad: c.universidad || '',
         facultad: c.facultad || '',
@@ -326,7 +326,7 @@ app.post('/api/datos', async (req, res) => {
             {
               id: String(a.id),
               nombre: a.nombre,
-              email: a.email,
+              email: a.email || '',
               telefono: a.telefono,
               universidad: a.universidad,
               facultad: a.facultad || a.escuela,
