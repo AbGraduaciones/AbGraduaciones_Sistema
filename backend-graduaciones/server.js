@@ -34,9 +34,47 @@ const cargarModelo = (rutas) => {
   return null;
 };
 
-const Cliente = cargarModelo(['./models/Cliente', './models/cliente', './models/Clientes', './models/clientes']) || mongoose.model('Cliente', new mongoose.Schema({}, { strict: false }));
-const Cuenta = cargarModelo(['./models/Cuenta', './models/cuenta', './models/Cuentas', './models/cuentas']) || mongoose.model('Cuenta', new mongoose.Schema({}, { strict: false }));
+// Modelo Grupo
+const GrupoSchema = new mongoose.Schema({
+  nombre: { type: String, required: true, trim: true },
+  institucion: { type: String, trim: true, default: '' },
+  carrera: { type: String, trim: true, default: '' },
+  preciosPaquetes: { type: mongoose.Schema.Types.Mixed, default: {} },
+  activo: { type: Boolean, default: true }
+}, { timestamps: true });
+
+const Grupo = cargarModelo(['./models/Grupo', './models/grupo']) || mongoose.model('Grupo', GrupoSchema);
+
+const Cliente = cargarModelo(['./models/Cliente', './models/cliente', './models/Clientes', './models/clientes']) || mongoose.model('Cliente', new mongoose.Schema({
+  id: String,
+  nombre: String,
+  email: String,
+  telefono: String,
+  universidad: String,
+  facultad: String,
+  escuela: String,
+  grupoId: { type: mongoose.Schema.Types.Mixed, default: null },
+  grupoNombre: { type: String, default: '' }
+}, { strict: false, timestamps: true }));
+
+const Cuenta = cargarModelo(['./models/Cuenta', './models/cuenta', './models/Cuentas', './models/cuentas']) || mongoose.model('Cuenta', new mongoose.Schema({
+  id: String,
+  cliente: mongoose.Schema.Types.Mixed,
+  alumno: String,
+  paquete: String,
+  monto: Number,
+  saldo: Number,
+  pagos: [Number],
+  entregas: mongoose.Schema.Types.Mixed,
+  eleccionEspecial: String,
+  esContadoEfectivo: Boolean,
+  pagada: Boolean,
+  grupoId: { type: mongoose.Schema.Types.Mixed, default: null },
+  grupoNombre: { type: String, default: '' }
+}, { strict: false, timestamps: true }));
+
 const Pago = cargarModelo(['./models/Pago', './models/pago', './models/Pagos', './models/pagos']) || mongoose.model('Pago', new mongoose.Schema({}, { strict: false }));
+
 const Usuario = cargarModelo(['./models/Usuario', './models/usuario', './models/Usuarios', './models/usuarios']) || mongoose.model('Usuario', new mongoose.Schema({
   nombre: { type: String, required: true, trim: true },
   usuario: { type: String, required: true, unique: true, trim: true, lowercase: true },
@@ -118,7 +156,8 @@ const requireAdmin = (req, res, next) => {
 global.datosCompartidos = {
   alumnos: [],
   saldos: [],
-  pagos: []
+  pagos: [],
+  grupos: []
 };
 
 // Sincronización desde MongoDB Atlas hacia la Memoria Global
@@ -128,6 +167,16 @@ async function sincronizarMemoriaDesdeBD() {
     const clientesBD = await Cliente.find().lean();
     const cuentasBD = await Cuenta.find().lean();
     const pagosBD = await Pago.find().sort({ fecha: -1, createdAt: -1 }).lean();
+    const gruposBD = await Grupo.find({ activo: true }).sort({ createdAt: 1 }).lean();
+
+    global.datosCompartidos.grupos = gruposBD.map(g => ({
+      _id: String(g._id),
+      id: String(g._id),
+      nombre: g.nombre,
+      institucion: g.institucion || '',
+      carrera: g.carrera || '',
+      preciosPaquetes: g.preciosPaquetes || {}
+    }));
 
     if (clientesBD.length > 0) {
       global.datosCompartidos.alumnos = clientesBD.map(c => ({
@@ -137,7 +186,9 @@ async function sincronizarMemoriaDesdeBD() {
         telefono: c.telefono || '',
         universidad: c.universidad || '',
         facultad: c.facultad || '',
-        escuela: c.facultad || c.universidad || c.escuela || ''
+        escuela: c.facultad || c.universidad || c.escuela || '',
+        grupoId: c.grupoId ? String(c.grupoId) : null,
+        grupoNombre: c.grupoNombre || ''
       }));
     } else {
       global.datosCompartidos.alumnos = [];
@@ -162,7 +213,9 @@ async function sincronizarMemoriaDesdeBD() {
           pagos: pagosArr,
           entregas: cta.entregas || {},
           eleccionEspecial: cta.eleccionEspecial || '',
-          esContadoEfectivo: Boolean(cta.esContadoEfectivo)
+          esContadoEfectivo: Boolean(cta.esContadoEfectivo),
+          grupoId: cta.grupoId ? String(cta.grupoId) : null,
+          grupoNombre: cta.grupoNombre || ''
         };
       });
     } else {
@@ -179,12 +232,13 @@ async function sincronizarMemoriaDesdeBD() {
         montoAbonado: Number(p.monto) || 0,
         fecha: p.fecha ? new Date(p.fecha).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
         metodo: p.metodoPago === 'stripe' ? 'Tarjeta (Stripe)' : (p.metodoPago || p.metodo || 'Efectivo'),
-        estado: 'Completado'
+        estado: 'Completado',
+        grupoId: p.grupoId ? String(p.grupoId) : null
       }));
     } else {
       global.datosCompartidos.pagos = [];
     }
-    console.log('✅ Sincronización exitosa: MongoDB -> Memoria Global');
+    console.log('✅ Sincronización exitosa: MongoDB -> Memoria Global (Con Grupos)');
   } catch (err) {
     console.error('⚠️ Error al sincronizar desde MongoDB:', err.message);
   }
@@ -254,7 +308,11 @@ app.get('/api/datos', async (req, res) => {
 
 app.post('/api/datos', async (req, res) => {
   try {
-    const { alumnos, saldos, pagos } = req.body;
+    const { alumnos, saldos, pagos, grupos } = req.body;
+
+    if (Array.isArray(grupos)) {
+      global.datosCompartidos.grupos = grupos;
+    }
 
     if (Array.isArray(alumnos)) {
       global.datosCompartidos.alumnos = alumnos;
@@ -272,7 +330,9 @@ app.post('/api/datos', async (req, res) => {
               telefono: a.telefono,
               universidad: a.universidad,
               facultad: a.facultad || a.escuela,
-              escuela: a.escuela || a.facultad
+              escuela: a.escuela || a.facultad,
+              grupoId: a.grupoId || null,
+              grupoNombre: a.grupoNombre || ''
             },
             { upsert: true, new: true }
           );
@@ -334,7 +394,9 @@ app.post('/api/datos', async (req, res) => {
               entregas: s.entregas || {},
               eleccionEspecial: s.eleccionEspecial || (cuentaExistente ? cuentaExistente.eleccionEspecial : ''),
               esContadoEfectivo: Boolean(s.esContadoEfectivo),
-              pagada: saldoFinal <= 0
+              pagada: saldoFinal <= 0,
+              grupoId: s.grupoId || (cuentaExistente ? cuentaExistente.grupoId : null),
+              grupoNombre: s.grupoNombre || (cuentaExistente ? cuentaExistente.grupoNombre : '')
             },
             { upsert: true, new: true }
           );
@@ -537,7 +599,7 @@ if (routerCuentas) app.use('/api/cuentas', requireAuth, routerCuentas);
 const routerClientes = cargarRutaSegura(['./routes/clientes', './routes/Clientes']);
 if (routerClientes) app.use('/api/clientes', requireAuth, routerClientes);
 
-// Consulta del perfil actual en sesión (Para saber si es admin o staff)
+// Consulta del perfil actual en sesión
 app.get('/api/mi-perfil', requireAuth, (req, res) => {
   res.json({
     ok: true,
@@ -547,7 +609,102 @@ app.get('/api/mi-perfil', requireAuth, (req, res) => {
   });
 });
 
-// Endpoint protegido EXCLUSIVO DE ADMIN para consultar la lista de usuarios
+// --- RUTAS DE GESTIÓN DE GRUPOS ---
+app.get('/api/grupos', requireAuth, async (req, res) => {
+  try {
+    if (mongoose.connection.readyState === 1) {
+      const grupos = await Grupo.find({ activo: true }).sort({ createdAt: 1 }).lean();
+      res.json({ ok: true, grupos });
+    } else {
+      res.json({ ok: true, grupos: global.datosCompartidos.grupos || [] });
+    }
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.post('/api/grupos', requireAuth, async (req, res) => {
+  try {
+    const { nombre, institucion, carrera, preciosPaquetes } = req.body;
+    if (!nombre || !nombre.trim()) {
+      return res.status(400).json({ ok: false, error: 'El nombre del grupo es obligatorio.' });
+    }
+
+    if (mongoose.connection.readyState === 1) {
+      const nuevoGrupo = new Grupo({
+        nombre: nombre.trim(),
+        institucion: institucion ? institucion.trim() : '',
+        carrera: carrera ? carrera.trim() : '',
+        preciosPaquetes: preciosPaquetes || {}
+      });
+      await nuevoGrupo.save();
+      await sincronizarMemoriaDesdeBD();
+      res.json({ ok: true, grupo: nuevoGrupo });
+    } else {
+      const gLocal = {
+        _id: 'GRP-' + Date.now(),
+        id: 'GRP-' + Date.now(),
+        nombre: nombre.trim(),
+        institucion: institucion || '',
+        carrera: carrera || '',
+        preciosPaquetes: preciosPaquetes || {}
+      };
+      global.datosCompartidos.grupos.push(gLocal);
+      res.json({ ok: true, grupo: gLocal });
+    }
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.put('/api/grupos/:id', requireAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { nombre, institucion, carrera, preciosPaquetes } = req.body;
+
+    if (mongoose.connection.readyState === 1 && mongoose.Types.ObjectId.isValid(id)) {
+      const g = await Grupo.findById(id);
+      if (!g) return res.status(404).json({ ok: false, error: 'Grupo no encontrado' });
+
+      if (nombre) g.nombre = nombre.trim();
+      if (institucion !== undefined) g.institucion = institucion.trim();
+      if (carrera !== undefined) g.carrera = carrera.trim();
+      if (preciosPaquetes) g.preciosPaquetes = preciosPaquetes;
+
+      await g.save();
+      await sincronizarMemoriaDesdeBD();
+      res.json({ ok: true, grupo: g });
+    } else {
+      const idx = global.datosCompartidos.grupos.findIndex(gr => String(gr._id || gr.id) === String(id));
+      if (idx !== -1) {
+        if (nombre) global.datosCompartidos.grupos[idx].nombre = nombre.trim();
+        if (institucion !== undefined) global.datosCompartidos.grupos[idx].institucion = institucion;
+        if (carrera !== undefined) global.datosCompartidos.grupos[idx].carrera = carrera;
+        if (preciosPaquetes) global.datosCompartidos.grupos[idx].preciosPaquetes = preciosPaquetes;
+      }
+      res.json({ ok: true, grupo: global.datosCompartidos.grupos[idx] });
+    }
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.delete('/api/grupos/:id', requireAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (mongoose.connection.readyState === 1 && mongoose.Types.ObjectId.isValid(id)) {
+      await Grupo.findByIdAndUpdate(id, { activo: false });
+      await sincronizarMemoriaDesdeBD();
+    } else {
+      global.datosCompartidos.grupos = global.datosCompartidos.grupos.filter(g => String(g._id || g.id) !== String(id));
+    }
+    res.json({ ok: true, mensaje: 'Grupo eliminado' });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Endpoint protegido EXCLUSIVO DE ADMIN para consultar usuarios
 app.get('/api/usuarios', requireAuth, requireAdmin, async (req, res) => {
   try {
     const usuarios = await Usuario.find({}, '-password').sort({ createdAt: -1 }).lean();
