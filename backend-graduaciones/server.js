@@ -461,7 +461,7 @@ app.delete('/api/alumnos/:id', async (req, res) => {
   }
 });
 
-// Eliminar un Pago del Historial
+// Eliminar un Pago del Historial y sincronizar Cuenta
 app.delete('/api/historial-pagos/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -470,7 +470,32 @@ app.delete('/api/historial-pagos/:id', async (req, res) => {
       if (mongoose.Types.ObjectId.isValid(id)) {
         orFiltro.push({ _id: new mongoose.Types.ObjectId(id) });
       }
+
+      const pagoABorrar = await Pago.findOne({ $or: orFiltro }).lean();
       await Pago.deleteMany({ $or: orFiltro });
+
+      if (pagoABorrar && pagoABorrar.alumno) {
+        const pagosRestantes = await Pago.find({ 
+          alumno: new RegExp(`^${pagoABorrar.alumno}$`, 'i') 
+        }).sort({ fecha: 1 }).lean();
+
+        const nuevosAbonos = [0,0,0,0,0,0,0,0,0,0];
+        pagosRestantes.slice(0, 10).forEach((p, i) => {
+          nuevosAbonos[i] = Number(p.monto) || 0;
+        });
+
+        const totalPagado = nuevosAbonos.reduce((a, b) => a + b, 0);
+        const cuentaObj = await Cuenta.findOne({ alumno: new RegExp(`^${pagoABorrar.alumno}$`, 'i') });
+        if (cuentaObj) {
+          const montoTotal = Number(cuentaObj.monto) || 0;
+          const saldoFinal = Math.max(0, montoTotal - totalPagado);
+          cuentaObj.pagos = nuevosAbonos;
+          cuentaObj.saldo = saldoFinal;
+          cuentaObj.pagada = saldoFinal <= 0;
+          await cuentaObj.save();
+        }
+      }
+
       await sincronizarMemoriaDesdeBD();
     } else {
       global.datosCompartidos.pagos = global.datosCompartidos.pagos.filter(p => String(p.id || p._id) !== String(id));
@@ -482,7 +507,7 @@ app.delete('/api/historial-pagos/:id', async (req, res) => {
   }
 });
 
-// Editar un Pago del Historial
+// Editar un Pago del Historial y sincronizar Cuenta
 app.put('/api/historial-pagos/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -504,6 +529,27 @@ app.put('/api/historial-pagos/:id', async (req, res) => {
           metodoPago: metodo
         }
       );
+
+      const pagosRestantes = await Pago.find({ 
+        alumno: new RegExp(`^${alumno}$`, 'i') 
+      }).sort({ fecha: 1 }).lean();
+
+      const nuevosAbonos = [0,0,0,0,0,0,0,0,0,0];
+      pagosRestantes.slice(0, 10).forEach((p, i) => {
+        nuevosAbonos[i] = Number(p.monto) || 0;
+      });
+
+      const totalPagado = nuevosAbonos.reduce((a, b) => a + b, 0);
+      const cuentaObj = await Cuenta.findOne({ alumno: new RegExp(`^${alumno}$`, 'i') });
+      if (cuentaObj) {
+        const montoTotal = Number(cuentaObj.monto) || 0;
+        const saldoFinal = Math.max(0, montoTotal - totalPagado);
+        cuentaObj.pagos = nuevosAbonos;
+        cuentaObj.saldo = saldoFinal;
+        cuentaObj.pagada = saldoFinal <= 0;
+        await cuentaObj.save();
+      }
+
       await sincronizarMemoriaDesdeBD();
     } else {
       const idx = global.datosCompartidos.pagos.findIndex(p => String(p.id || p._id) === String(id));
