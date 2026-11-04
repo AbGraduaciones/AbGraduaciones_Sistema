@@ -73,7 +73,15 @@ const Cuenta = cargarModelo(['./models/Cuenta', './models/cuenta', './models/Cue
   grupoNombre: { type: String, default: '' }
 }, { strict: false, timestamps: true }));
 
-const Pago = cargarModelo(['./models/Pago', './models/pago', './models/Pagos', './models/pagos']) || mongoose.model('Pago', new mongoose.Schema({}, { strict: false }));
+const Pago = cargarModelo(['./models/Pago', './models/pago', './models/Pagos', './models/pagos']) || mongoose.model('Pago', new mongoose.Schema({
+  id: String,
+  alumno: String,
+  concepto: String,
+  monto: Number,
+  fecha: Date,
+  metodoPago: String,
+  grupoId: { type: mongoose.Schema.Types.Mixed, default: null }
+}, { strict: false, timestamps: true }));
 
 const Usuario = cargarModelo(['./models/Usuario', './models/usuario', './models/Usuarios', './models/usuarios']) || mongoose.model('Usuario', new mongoose.Schema({
   nombre: { type: String, required: true, trim: true },
@@ -85,7 +93,7 @@ const Usuario = cargarModelo(['./models/Usuario', './models/usuario', './models/
   activo: { type: Boolean, default: true }
 }, { timestamps: true }));
 
-// Middleware de autenticación (Soporta Administrador Maestro .env y Usuarios registrados en MongoDB)
+// Middleware de autenticación
 const requireAuth = async (req, res, next) => {
   const authHeader = req.headers.authorization;
 
@@ -101,13 +109,11 @@ const requireAuth = async (req, res, next) => {
   const adminUser = process.env.ADMIN_USER || 'admin';
   const adminPass = process.env.ADMIN_PASS;
 
-  // 1. Acceso maestro por variables de entorno (.env)
   if (usuario === adminUser && password === adminPass) {
     req.usuarioSesion = { usuario: adminUser, rol: 'admin', nombre: 'Administrador Maestro' };
     return next();
   }
 
-  // 2. Acceso por base de datos MongoDB Atlas (staff y admin registrados)
   try {
     if (mongoose.connection.readyState !== 1) {
       await new Promise((resolve) => {
@@ -144,7 +150,6 @@ const requireAuth = async (req, res, next) => {
   return res.status(401).send('Acceso denegado: usuario o contraseña incorrectos');
 };
 
-// Middleware exclusivo para acciones de Administrador
 const requireAdmin = (req, res, next) => {
   if (req.usuarioSesion && req.usuarioSesion.rol === 'admin') {
     return next();
@@ -178,66 +183,57 @@ async function sincronizarMemoriaDesdeBD() {
       preciosPaquetes: g.preciosPaquetes || {}
     }));
 
-    if (clientesBD.length > 0) {
-      global.datosCompartidos.alumnos = clientesBD.map(c => ({
-        id: c.id ? String(c.id) : (c._id ? String(c._id) : '1001'),
-        nombre: c.nombre,
-        email: c.email || '',
-        telefono: c.telefono || '',
-        universidad: c.universidad || '',
-        facultad: c.facultad || '',
-        escuela: c.facultad || c.universidad || c.escuela || '',
-        grupoId: c.grupoId ? String(c.grupoId) : null,
-        grupoNombre: c.grupoNombre || ''
-      }));
-    } else {
-      global.datosCompartidos.alumnos = [];
-    }
+    global.datosCompartidos.alumnos = clientesBD.map(c => ({
+      _id: String(c._id),
+      id: c.id ? String(c.id) : (c._id ? String(c._id) : '1001'),
+      nombre: c.nombre,
+      email: c.email || '',
+      telefono: c.telefono || '',
+      universidad: c.universidad || '',
+      facultad: c.facultad || '',
+      escuela: c.facultad || c.universidad || c.escuela || '',
+      grupoId: c.grupoId ? String(c.grupoId) : null,
+      grupoNombre: c.grupoNombre || ''
+    }));
 
-    if (cuentasBD.length > 0) {
-      global.datosCompartidos.saldos = cuentasBD.map(cta => {
-        const montoTotal = Number(cta.monto) || 0;
-        const pagosArr = Array.isArray(cta.pagos) && cta.pagos.length === 10 ? cta.pagos : [0,0,0,0,0,0,0,0,0,0];
-        const pagado = pagosArr.reduce((acc, val) => acc + (Number(val) || 0), 0);
-        const saldoFinal = Math.max(0, montoTotal - pagado);
+    global.datosCompartidos.saldos = cuentasBD.map(cta => {
+      const montoTotal = Number(cta.monto) || 0;
+      const pagosArr = Array.isArray(cta.pagos) && cta.pagos.length === 10 ? cta.pagos : [0,0,0,0,0,0,0,0,0,0];
+      const pagado = pagosArr.reduce((acc, val) => acc + (Number(val) || 0), 0);
+      const saldoFinal = Math.max(0, montoTotal - pagado);
 
-        return {
-          id: cta.id || String(cta._id),
-          _id: String(cta._id),
-          cliente: cta.cliente ? String(cta.cliente) : '',
-          alumno: cta.alumno,
-          paquete: cta.paquete,
-          monto: montoTotal,
-          saldo: saldoFinal,
-          saldoPendiente: saldoFinal,
-          pagos: pagosArr,
-          entregas: cta.entregas || {},
-          eleccionEspecial: cta.eleccionEspecial || '',
-          esContadoEfectivo: Boolean(cta.esContadoEfectivo),
-          grupoId: cta.grupoId ? String(cta.grupoId) : null,
-          grupoNombre: cta.grupoNombre || ''
-        };
-      });
-    } else {
-      global.datosCompartidos.saldos = [];
-    }
+      return {
+        id: cta.id || String(cta._id),
+        _id: String(cta._id),
+        cliente: cta.cliente ? String(cta.cliente) : '',
+        alumno: cta.alumno,
+        paquete: cta.paquete,
+        monto: montoTotal,
+        saldo: saldoFinal,
+        saldoPendiente: saldoFinal,
+        pagos: pagosArr,
+        entregas: cta.entregas || {},
+        eleccionEspecial: cta.eleccionEspecial || '',
+        esContadoEfectivo: Boolean(cta.esContadoEfectivo),
+        grupoId: cta.grupoId ? String(cta.grupoId) : null,
+        grupoNombre: cta.grupoNombre || ''
+      };
+    });
 
-    if (pagosBD.length > 0) {
-      global.datosCompartidos.pagos = pagosBD.map((p, idx) => ({
-        id: p._id ? String(p._id) : (p.id ? String(p.id) : `PAG-${String(idx + 1).padStart(3, '0')}`),
-        folio: p._id ? String(p._id) : (p.id ? String(p.id) : `PAG-${String(idx + 1).padStart(3, '0')}`),
-        alumno: p.alumno || 'Alumno',
-        concepto: p.concepto || 'Abono de Graduación',
-        monto: Number(p.monto) || 0,
-        montoAbonado: Number(p.monto) || 0,
-        fecha: p.fecha ? new Date(p.fecha).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
-        metodo: p.metodoPago === 'stripe' ? 'Tarjeta (Stripe)' : (p.metodoPago || p.metodo || 'Efectivo'),
-        estado: 'Completado',
-        grupoId: p.grupoId ? String(p.grupoId) : null
-      }));
-    } else {
-      global.datosCompartidos.pagos = [];
-    }
+    global.datosCompartidos.pagos = pagosBD.map((p, idx) => ({
+      _id: String(p._id),
+      id: p.id || String(p._id) || `PAG-${String(idx + 1).padStart(3, '0')}`,
+      folio: p.id || String(p._id) || `PAG-${String(idx + 1).padStart(3, '0')}`,
+      alumno: p.alumno || 'Alumno',
+      concepto: p.concepto || 'Abono de Graduación',
+      monto: Number(p.monto) || 0,
+      montoAbonado: Number(p.monto) || 0,
+      fecha: p.fecha ? new Date(p.fecha).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+      metodo: p.metodoPago === 'stripe' ? 'Tarjeta (Stripe)' : (p.metodoPago || p.metodo || 'Efectivo'),
+      estado: 'Completado',
+      grupoId: p.grupoId ? String(p.grupoId) : null
+    }));
+
     console.log('✅ Sincronización exitosa: MongoDB -> Memoria Global');
   } catch (err) {
     console.error('⚠️ Error al sincronizar desde MongoDB:', err.message);
@@ -280,8 +276,6 @@ const stripe = process.env.STRIPE_SECRET_KEY ? require('stripe')(process.env.STR
 
 // 3. Webhook de Stripe
 app.post('/webhook', express.raw({ type: '*/*' }), async (req, res) => {
-  console.log('🔔 [STRIPE WEBHOOK RECIBIDO] Entrada detectada en /webhook a las:', new Date().toISOString());
-
   if (pagoController && typeof pagoController.handleStripeWebhook === 'function') {
     try {
       const resultado = await pagoController.handleStripeWebhook(req, res);
@@ -294,11 +288,11 @@ app.post('/webhook', express.raw({ type: '*/*' }), async (req, res) => {
   return res.status(200).json({ received: true });
 });
 
-// 4. Middlewares de datos
+// 4. Middlewares
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 
-// 5. Rutas de datos públicas
+// 5. Rutas de sincronización general
 app.get('/api/datos', async (req, res) => {
   if (mongoose.connection.readyState === 1) {
     await sincronizarMemoriaDesdeBD();
@@ -316,7 +310,6 @@ app.post('/api/datos', async (req, res) => {
 
     if (Array.isArray(alumnos)) {
       if (mongoose.connection.readyState === 1) {
-        // Upsert inteligente: actualiza los que vienen del cliente sin borrar los alumnos de la BD
         for (const a of alumnos) {
           if (!a || !a.id) continue;
           await Cliente.findOneAndUpdate(
@@ -353,16 +346,7 @@ app.post('/api/datos', async (req, res) => {
           }).lean();
 
           let pagosArr = Array.isArray(s.pagos) ? [...s.pagos] : [0,0,0,0,0,0,0,0,0,0];
-
-          if (cuentaExistente && Array.isArray(cuentaExistente.pagos)) {
-            for (let i = 0; i < 10; i++) {
-              const valBD = Number(cuentaExistente.pagos[i]) || 0;
-              const valLocal = Number(pagosArr[i]) || 0;
-              pagosArr[i] = Math.max(valBD, valLocal);
-            }
-          }
-
-          const montoTotal = Number(s.monto) || (cuentaExistente ? cuentaExistente.monto : 11300);
+          const montoTotal = Number(s.monto) || (cuentaExistente ? cuentaExistente.monto : 0);
           const pagado = pagosArr.reduce((acc, val) => acc + (Number(val) || 0), 0);
           const saldoFinal = Math.max(0, montoTotal - pagado);
 
@@ -422,7 +406,6 @@ app.post('/api/datos', async (req, res) => {
       }
     }
 
-    // Refrescar la memoria global con todo lo que hay en BD
     if (mongoose.connection.readyState === 1) {
       await sincronizarMemoriaDesdeBD();
     }
@@ -431,6 +414,114 @@ app.post('/api/datos', async (req, res) => {
   } catch (error) {
     console.error('Error al persistir en /api/datos:', error.message);
     res.json({ ok: true, mensaje: 'Guardado en memoria de respaldo' });
+  }
+});
+
+// --- RUTAS DE BORRADO Y EDICIÓN REAL EN BASE DE DATOS ---
+
+// Eliminar un Saldo / Cuenta
+app.delete('/api/saldos/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (mongoose.connection.readyState === 1) {
+      const orFiltro = [{ id: id }];
+      if (mongoose.Types.ObjectId.isValid(id)) {
+        orFiltro.push({ _id: new mongoose.Types.ObjectId(id) });
+      }
+      await Cuenta.deleteMany({ $or: orFiltro });
+      await sincronizarMemoriaDesdeBD();
+    } else {
+      global.datosCompartidos.saldos = global.datosCompartidos.saldos.filter(s => String(s.id || s._id) !== String(id));
+    }
+    res.json({ ok: true, mensaje: 'Saldo eliminado permanentemente' });
+  } catch (err) {
+    console.error('Error eliminando saldo:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Eliminar un Alumno
+app.delete('/api/alumnos/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (mongoose.connection.readyState === 1) {
+      const orFiltro = [{ id: String(id) }];
+      if (mongoose.Types.ObjectId.isValid(id)) {
+        orFiltro.push({ _id: new mongoose.Types.ObjectId(id) });
+      }
+      await Cliente.deleteMany({ $or: orFiltro });
+      await sincronizarMemoriaDesdeBD();
+    } else {
+      global.datosCompartidos.alumnos = global.datosCompartidos.alumnos.filter(a => String(a.id || a._id) !== String(id));
+    }
+    res.json({ ok: true, mensaje: 'Alumno eliminado permanentemente' });
+  } catch (err) {
+    console.error('Error eliminando alumno:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Eliminar un Pago del Historial
+app.delete('/api/historial-pagos/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (mongoose.connection.readyState === 1) {
+      const orFiltro = [{ id: id }];
+      if (mongoose.Types.ObjectId.isValid(id)) {
+        orFiltro.push({ _id: new mongoose.Types.ObjectId(id) });
+      }
+      await Pago.deleteMany({ $or: orFiltro });
+      await sincronizarMemoriaDesdeBD();
+    } else {
+      global.datosCompartidos.pagos = global.datosCompartidos.pagos.filter(p => String(p.id || p._id) !== String(id));
+    }
+    res.json({ ok: true, mensaje: 'Pago eliminado permanentemente' });
+  } catch (err) {
+    console.error('Error eliminando pago:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Editar un Pago del Historial
+app.put('/api/historial-pagos/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { alumno, concepto, monto, fecha, metodo } = req.body;
+
+    if (mongoose.connection.readyState === 1) {
+      const orFiltro = [{ id: id }];
+      if (mongoose.Types.ObjectId.isValid(id)) {
+        orFiltro.push({ _id: new mongoose.Types.ObjectId(id) });
+      }
+
+      await Pago.updateMany(
+        { $or: orFiltro },
+        {
+          alumno,
+          concepto,
+          monto: Number(monto) || 0,
+          fecha: fecha ? new Date(fecha) : new Date(),
+          metodoPago: metodo
+        }
+      );
+      await sincronizarMemoriaDesdeBD();
+    } else {
+      const idx = global.datosCompartidos.pagos.findIndex(p => String(p.id || p._id) === String(id));
+      if (idx !== -1) {
+        global.datosCompartidos.pagos[idx] = {
+          ...global.datosCompartidos.pagos[idx],
+          alumno,
+          concepto,
+          monto: Number(monto) || 0,
+          fecha,
+          metodo
+        };
+      }
+    }
+    res.json({ ok: true, mensaje: 'Pago actualizado permanentemente' });
+  } catch (err) {
+    console.error('Error actualizando pago:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
   }
 });
 
@@ -445,7 +536,7 @@ const procesarCheckout = (req, res) => {
 app.post('/api/crear-checkout', procesarCheckout);
 app.post('/api/pagos/crear-checkout-session', procesarCheckout);
 
-// Endpoint de verificación y confirmación inmediata al volver de Stripe
+// Verificación sesión Stripe
 app.get('/api/verificar-sesion-stripe/:sessionId', async (req, res) => {
   try {
     const { sessionId } = req.params;
@@ -508,14 +599,13 @@ if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
   });
 }
 
-// 8. Generación y Envío de Código de Seguridad
+// 8. Envío de Código OTP
 app.post('/api/enviar-codigo-seguridad', async (req, res) => {
   try {
     const { email, nombre, alumnoId, codigo: codigoRecibido } = req.body;
-    
     const codigo = codigoRecibido || Math.floor(100000 + Math.random() * 900000).toString();
-
     const expiracion = Date.now() + 15 * 60 * 1000;
+
     if (alumnoId) codigosOtpTemporales.set(String(alumnoId).toLowerCase(), { codigo: String(codigo), expira: expiracion });
     if (email) codigosOtpTemporales.set(String(email).toLowerCase(), { codigo: String(codigo), expira: expiracion });
 
@@ -549,7 +639,7 @@ app.post('/api/enviar-codigo-seguridad', async (req, res) => {
   }
 });
 
-// 9. Verificación de Código de Seguridad
+// 9. Verificación de Código OTP
 app.post('/api/verificar-codigo-seguridad', (req, res) => {
   const { alumnoId, email, codigo } = req.body;
   const codigoStr = String(codigo || '').trim();
@@ -577,30 +667,7 @@ app.post('/api/verificar-codigo-seguridad', (req, res) => {
   return res.status(400).json({ success: false, message: 'Código incorrecto o no encontrado' });
 });
 
-// 10. Routers auxiliares y endpoints de administración
-const cargarRutaSegura = (rutas) => {
-  for (const r of rutas) {
-    try {
-      return require(r);
-    } catch (e) {
-      if (e.code !== 'MODULE_NOT_FOUND') {
-        console.warn(`Aviso al cargar ruta ${r}:`, e.message);
-      }
-    }
-  }
-  return null;
-};
-
-const routerPagos = cargarRutaSegura(['./routes/pagoRoutes', './routes/PagoRoutes']);
-if (routerPagos) app.use('/api/pagos', routerPagos);
-
-const routerCuentas = cargarRutaSegura(['./routes/cuentas', './routes/Cuentas']);
-if (routerCuentas) app.use('/api/cuentas', requireAuth, routerCuentas);
-
-const routerClientes = cargarRutaSegura(['./routes/clientes', './routes/Clientes']);
-if (routerClientes) app.use('/api/clientes', requireAuth, routerClientes);
-
-// Consulta del perfil actual en sesión
+// 10. Perfil y Grupos
 app.get('/api/mi-perfil', requireAuth, (req, res) => {
   res.json({
     ok: true,
@@ -610,7 +677,6 @@ app.get('/api/mi-perfil', requireAuth, (req, res) => {
   });
 });
 
-// --- RUTAS DE GESTIÓN DE GRUPOS ---
 app.get('/api/grupos', requireAuth, async (req, res) => {
   try {
     if (mongoose.connection.readyState === 1) {
@@ -705,18 +771,16 @@ app.delete('/api/grupos/:id', requireAuth, async (req, res) => {
   }
 });
 
-// Endpoint protegido EXCLUSIVO DE ADMIN para consultar usuarios
+// Usuarios
 app.get('/api/usuarios', requireAuth, requireAdmin, async (req, res) => {
   try {
     const usuarios = await Usuario.find({}, '-password').sort({ createdAt: -1 }).lean();
     res.json({ ok: true, usuarios, rolActual: 'admin' });
   } catch (err) {
-    console.error('Error al consultar usuarios:', err.message);
     res.status(500).json({ ok: false, error: 'Error al obtener usuarios' });
   }
 });
 
-// Endpoint exclusivo de administradores para actualizar un usuario
 app.put('/api/usuarios/:id', requireAuth, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
@@ -782,12 +846,11 @@ app.put('/api/usuarios/:id', requireAuth, requireAdmin, async (req, res) => {
       }
     });
   } catch (err) {
-    console.error('Error al actualizar usuario:', err.message);
     res.status(500).json({ ok: false, error: err.message || 'Error al actualizar usuario' });
   }
 });
 
-// 11. Archivos estáticos y logotipo
+// 11. Archivos estáticos
 app.get('/logo.png', (req, res) => {
   const posiblesRutasLogo = [
     path.join(process.cwd(), 'public', 'logo.png'),
