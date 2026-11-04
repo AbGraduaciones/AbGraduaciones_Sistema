@@ -1413,7 +1413,7 @@
         tabla.style.display = "block";
         cargarYRenderizarUsuarios();
       } else if (vista === 'dashboard') {
-        titulo.innerText = "Dashboard General y por Paquetes";
+        titulo.innerText = "Dashboard General, Grupos y Paquetes";
         contenedorFiltros.style.display = "none";
         dinamic.style.display = "block";
         
@@ -1423,6 +1423,102 @@
         const totalRecaudado = saldosUso.reduce((acc, s) => acc + calcularTotalPagado(s.pagos), 0);
         const totalPendiente = totalMonto - totalRecaudado;
 
+        // 1. DESGLOSE FINANCIERO POR CADA GRUPO
+        const desgloseGrupos = {};
+
+        // Inicializar cada grupo registrado
+        grupos.forEach(g => {
+          const gid = String(g._id || g.id);
+          desgloseGrupos[gid] = {
+            nombre: g.nombre,
+            institucion: g.institucion || '',
+            carrera: g.carrera || '',
+            cantidad: 0,
+            montoTotal: 0,
+            cobrado: 0
+          };
+        });
+
+        // Contenedor para cuentas sin grupo específico asignado
+        desgloseGrupos['sin_grupo'] = {
+          nombre: 'Sin Grupo / General',
+          institucion: '',
+          carrera: '',
+          cantidad: 0,
+          montoTotal: 0,
+          cobrado: 0
+        };
+
+        // Acumular los saldos en cada grupo
+        saldos.forEach(s => {
+          const gKey = s.grupoId ? String(s.grupoId) : 'sin_grupo';
+          if (!desgloseGrupos[gKey]) {
+            desgloseGrupos[gKey] = {
+              nombre: s.grupoNombre || 'General',
+              institucion: '',
+              carrera: '',
+              cantidad: 0,
+              montoTotal: 0,
+              cobrado: 0
+            };
+          }
+
+          desgloseGrupos[gKey].cantidad += 1;
+          desgloseGrupos[gKey].montoTotal += (Number(s.monto) || 0);
+          desgloseGrupos[gKey].cobrado += calcularTotalPagado(s.pagos);
+        });
+
+        let htmlTarjetasGrupos = '';
+        Object.keys(desgloseGrupos).forEach(gid => {
+          const gData = desgloseGrupos[gid];
+          if (gData.cantidad === 0 && gid === 'sin_grupo') return; // Omitir si no hay cuentas huérfanas
+
+          const gPendiente = gData.montoTotal - gData.cobrado;
+          const pctCobrado = gData.montoTotal > 0 ? Math.round((gData.cobrado / gData.montoTotal) * 100) : 0;
+
+          htmlTarjetasGrupos += `
+            <div class="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between hover:border-blue-400 transition-all">
+              <div>
+                <div class="flex justify-between items-start gap-2 mb-2">
+                  <div>
+                    <h4 class="font-extrabold text-slate-900 text-base leading-tight">${gData.nombre}</h4>
+                    ${gData.carrera || gData.institucion ? `<p class="text-[11px] font-semibold text-slate-500 mt-0.5">${gData.institucion ? gData.institucion + ' • ' : ''}${gData.carrera}</p>` : ''}
+                  </div>
+                  <span class="bg-indigo-100 text-indigo-800 text-xs font-bold px-2.5 py-1 rounded-full shrink-0">
+                    ${gData.cantidad} ${gData.cantidad === 1 ? 'alumno' : 'alumnos'}
+                  </span>
+                </div>
+
+                <div class="space-y-1.5 mt-4 text-xs">
+                  <div class="flex justify-between text-slate-600">
+                    <span>Monto Contratado:</span>
+                    <span class="font-bold text-slate-900">$${gData.montoTotal.toLocaleString()}</span>
+                  </div>
+                  <div class="flex justify-between text-emerald-700 font-semibold">
+                    <span>Recaudado:</span>
+                    <span>$${gData.cobrado.toLocaleString()}</span>
+                  </div>
+                  <div class="flex justify-between text-amber-700 font-semibold">
+                    <span>Saldo Pendiente:</span>
+                    <span>$${gPendiente.toLocaleString()}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="mt-4 pt-3 border-t border-slate-100">
+                <div class="flex justify-between text-[11px] font-bold text-slate-500 mb-1">
+                  <span>Avance de Cobro</span>
+                  <span class="text-blue-700">${pctCobrado}%</span>
+                </div>
+                <div class="w-full bg-slate-100 rounded-full h-2">
+                  <div class="bg-indigo-600 h-2 rounded-full transition-all duration-300" style="width: ${pctCobrado}%"></div>
+                </div>
+              </div>
+            </div>
+          `;
+        });
+
+        // 2. DESGLOSE POR PAQUETES
         const desglosePaquetes = {};
         saldosUso.forEach(s => {
           const paqCompleto = s.paquete || 'Sin Paquete';
@@ -1445,10 +1541,10 @@
             <div class="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between">
               <div>
                 <div class="flex justify-between items-start mb-2">
-                  <h4 class="font-bold text-slate-800 text-lg">${lineaNombre}</h4>
-                  <span class="bg-blue-100 text-blue-800 text-xs font-bold px-2.5 py-1 rounded-full">${pData.cantidad} vendid${pData.cantidad === 1 ? 'o' : 'os'}</span>
+                  <h4 class="font-bold text-slate-800 text-sm">${lineaNombre}</h4>
+                  <span class="bg-blue-100 text-blue-800 text-xs font-bold px-2 py-0.5 rounded-full">${pData.cantidad}</span>
                 </div>
-                <div class="space-y-1 mt-4 text-sm">
+                <div class="space-y-1 mt-3 text-xs">
                   <div class="flex justify-between text-slate-600">
                     <span>Monto Total:</span>
                     <span class="font-bold text-slate-800">$${pData.montoTotal.toLocaleString()}</span>
@@ -1466,7 +1562,7 @@
 
               <div class="mt-4 pt-3 border-t border-slate-100">
                 <div class="flex justify-between text-xs font-bold text-slate-500 mb-1">
-                  <span>Avance de Cobro</span>
+                  <span>Avance</span>
                   <span>${porcentajeCobrado}%</span>
                 </div>
                 <div class="w-full bg-slate-100 rounded-full h-2">
@@ -1479,7 +1575,7 @@
 
         dinamic.innerHTML = `
           <div>
-            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">Métricas (${grupoSeleccionadoId ? 'Grupo Activo' : 'Gran Total'})</h3>
+            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">Métricas Globales</h3>
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               <div class="bg-slate-900 text-white p-6 rounded-2xl shadow-md">
                 <p class="text-slate-400 text-xs font-bold uppercase tracking-wider">Total Cuentas</p>
@@ -1501,9 +1597,16 @@
           </div>
 
           <div class="pt-6">
-            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">Desglose por Paquetes</h3>
+            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">📁 Totales por Grupo</h3>
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              ${htmlTarjetasPaquetes || '<p class="text-slate-400 italic">No hay paquetes registrados aún en esta vista.</p>'}
+              ${htmlTarjetasGrupos || '<p class="text-slate-400 italic">No hay grupos activos con datos registrados.</p>'}
+            </div>
+          </div>
+
+          <div class="pt-6">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">🏷️ Desglose por Paquetes</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              ${htmlTarjetasPaquetes || '<p class="text-slate-400 italic">No hay paquetes registrados aún.</p>'}
             </div>
           </div>
         `;
