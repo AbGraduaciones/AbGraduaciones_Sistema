@@ -2690,19 +2690,26 @@
       await new Promise(r => setTimeout(r, 300));
 
       const elemento = document.getElementById('reciboPdfPlantilla');
+      const esMovil = window.innerWidth < 768;
       
+      const configHtml2Canvas = {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        scrollX: 0,
+        scrollY: 0
+      };
+
+      // Solo forzamos el ancho de viewport virtual en celulares
+      if (esMovil) {
+        configHtml2Canvas.windowWidth = 800;
+      }
+
       const opciones = {
         margin:       [6, 6, 6, 6],
         filename:     `Recibo_${pagoObj.id || 'pago'}_${(pagoObj.alumno || 'alumno').replace(/\s+/g, '_')}.pdf`,
         image:        { type: 'jpeg', quality: 0.98 },
-        html2canvas:  { 
-          scale: 2, 
-          useCORS: true, 
-          logging: false,
-          scrollX: 0,
-          scrollY: 0,
-          windowWidth: 800
-        },
+        html2canvas:  configHtml2Canvas,
         jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' },
         pagebreak:    { mode: ['css', 'legacy'] }
       };
