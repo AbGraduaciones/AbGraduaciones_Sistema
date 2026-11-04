@@ -185,8 +185,8 @@ async function sincronizarMemoriaDesdeBD() {
 
     global.datosCompartidos.alumnos = clientesBD.map(c => ({
       _id: String(c._id),
-      id: c.id ? String(c.id) : (c._id ? String(c._id) : '1001'),
-      nombre: c.nombre,
+      id: c.id ? String(c.id) : String(c._id),
+      nombre: (c.nombre || '').trim(),
       email: c.email || '',
       telefono: c.telefono || '',
       universidad: c.universidad || '',
@@ -206,7 +206,7 @@ async function sincronizarMemoriaDesdeBD() {
         id: cta.id || String(cta._id),
         _id: String(cta._id),
         cliente: cta.cliente ? String(cta.cliente) : '',
-        alumno: cta.alumno,
+        alumno: (cta.alumno || '').trim(),
         paquete: cta.paquete,
         monto: montoTotal,
         saldo: saldoFinal,
@@ -224,7 +224,7 @@ async function sincronizarMemoriaDesdeBD() {
       _id: String(p._id),
       id: p.id || String(p._id) || `PAG-${String(idx + 1).padStart(3, '0')}`,
       folio: p.id || String(p._id) || `PAG-${String(idx + 1).padStart(3, '0')}`,
-      alumno: p.alumno || 'Alumno',
+      alumno: (p.alumno || 'Alumno').trim(),
       concepto: p.concepto || 'Abono de Graduación',
       monto: Number(p.monto) || 0,
       montoAbonado: Number(p.monto) || 0,
@@ -263,7 +263,6 @@ const rutasPosibles = [
 for (const ruta of rutasPosibles) {
   try {
     pagoController = require(ruta);
-    console.log(`✅ Controlador cargado desde: ${ruta}`);
     break;
   } catch (err) {
     if (err.code !== 'MODULE_NOT_FOUND') {
@@ -302,7 +301,7 @@ app.get('/api/datos', async (req, res) => {
 
 app.post('/api/datos', async (req, res) => {
   try {
-    const { alumnos, saldos, pagos, grupos } = req.body;
+    const { alumnos, saldos, grupos } = req.body;
 
     if (Array.isArray(grupos)) {
       global.datosCompartidos.grupos = grupos;
@@ -316,7 +315,7 @@ app.post('/api/datos', async (req, res) => {
             { id: String(a.id) },
             {
               id: String(a.id),
-              nombre: a.nombre,
+              nombre: (a.nombre || '').trim(),
               email: a.email || '',
               telefono: a.telefono,
               universidad: a.universidad,
@@ -341,7 +340,7 @@ app.post('/api/datos', async (req, res) => {
             $or: [
               ...(s._id && mongoose.Types.ObjectId.isValid(s._id) ? [{ _id: new mongoose.Types.ObjectId(s._id) }] : []),
               { id: s.id },
-              { alumno: new RegExp(`^${s.alumno}$`, 'i') }
+              { alumno: new RegExp(`^${(s.alumno || '').trim()}$`, 'i') }
             ]
           }).lean();
 
@@ -352,14 +351,14 @@ app.post('/api/datos', async (req, res) => {
 
           const filtroCuenta = cuentaExistente 
             ? { _id: cuentaExistente._id } 
-            : { $or: [{ id: s.id }, { alumno: s.alumno }] };
+            : { $or: [{ id: s.id }, { alumno: (s.alumno || '').trim() }] };
 
           await Cuenta.findOneAndUpdate(
             filtroCuenta,
             {
               id: s.id || (cuentaExistente ? cuentaExistente.id : 'CTA-' + Date.now()),
               cliente: s.cliente || (cuentaExistente ? cuentaExistente.cliente : '1001'),
-              alumno: s.alumno,
+              alumno: (s.alumno || '').trim(),
               paquete: s.paquete,
               monto: montoTotal,
               saldo: saldoFinal,
@@ -379,33 +378,6 @@ app.post('/api/datos', async (req, res) => {
       }
     }
 
-    if (Array.isArray(pagos)) {
-      if (mongoose.connection.readyState === 1) {
-        for (const p of pagos) {
-          if (!p) continue;
-          const filtroPago = p._id && mongoose.Types.ObjectId.isValid(p._id)
-            ? { _id: new mongoose.Types.ObjectId(p._id) }
-            : { id: p.id };
-
-          await Pago.findOneAndUpdate(
-            filtroPago,
-            {
-              id: p.id || `PAG-${Date.now()}`,
-              alumno: p.alumno || 'Alumno',
-              concepto: p.concepto || 'Abono de Graduación',
-              monto: Number(p.monto) || 0,
-              fecha: p.fecha ? new Date(p.fecha) : new Date(),
-              metodoPago: p.metodo || p.metodoPago || 'Efectivo',
-              grupoId: p.grupoId || null
-            },
-            { upsert: true, new: true }
-          );
-        }
-      } else {
-        global.datosCompartidos.pagos = pagos;
-      }
-    }
-
     if (mongoose.connection.readyState === 1) {
       await sincronizarMemoriaDesdeBD();
     }
@@ -417,7 +389,20 @@ app.post('/api/datos', async (req, res) => {
   }
 });
 
-// --- RUTAS DE BORRADO Y EDICIÓN REAL EN BASE DE DATOS ---
+// --- RUTA PARA VACIAR TODO EL HISTORIAL DE PAGOS DE LA BASE DE DATOS ---
+app.delete('/api/historial-pagos-vaciar-todo', requireAuth, async (req, res) => {
+  try {
+    if (mongoose.connection.readyState === 1) {
+      await Pago.deleteMany({});
+      await sincronizarMemoriaDesdeBD();
+    }
+    global.datosCompartidos.pagos = [];
+    res.json({ ok: true, mensaje: 'Historial de pagos vaciado por completo' });
+  } catch (err) {
+    console.error('Error vaciando historial de pagos:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
 
 // Eliminar un Saldo / Cuenta
 app.delete('/api/saldos/:id', async (req, res) => {
@@ -461,7 +446,7 @@ app.delete('/api/alumnos/:id', async (req, res) => {
   }
 });
 
-// Eliminar un Pago del Historial y sincronizar Cuenta
+// Eliminar un Pago del Historial
 app.delete('/api/historial-pagos/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -476,7 +461,7 @@ app.delete('/api/historial-pagos/:id', async (req, res) => {
 
       if (pagoABorrar && pagoABorrar.alumno) {
         const pagosRestantes = await Pago.find({ 
-          alumno: new RegExp(`^${pagoABorrar.alumno}$`, 'i') 
+          alumno: new RegExp(`^${pagoABorrar.alumno.trim()}$`, 'i') 
         }).sort({ fecha: 1 }).lean();
 
         const nuevosAbonos = [0,0,0,0,0,0,0,0,0,0];
@@ -485,7 +470,7 @@ app.delete('/api/historial-pagos/:id', async (req, res) => {
         });
 
         const totalPagado = nuevosAbonos.reduce((a, b) => a + b, 0);
-        const cuentaObj = await Cuenta.findOne({ alumno: new RegExp(`^${pagoABorrar.alumno}$`, 'i') });
+        const cuentaObj = await Cuenta.findOne({ alumno: new RegExp(`^${pagoABorrar.alumno.trim()}$`, 'i') });
         if (cuentaObj) {
           const montoTotal = Number(cuentaObj.monto) || 0;
           const saldoFinal = Math.max(0, montoTotal - totalPagado);
@@ -507,7 +492,7 @@ app.delete('/api/historial-pagos/:id', async (req, res) => {
   }
 });
 
-// Editar un Pago del Historial y sincronizar Cuenta
+// Editar un Pago del Historial
 app.put('/api/historial-pagos/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -522,7 +507,7 @@ app.put('/api/historial-pagos/:id', async (req, res) => {
       await Pago.updateMany(
         { $or: orFiltro },
         {
-          alumno,
+          alumno: (alumno || '').trim(),
           concepto,
           monto: Number(monto) || 0,
           fecha: fecha ? new Date(fecha) : new Date(),
@@ -531,7 +516,7 @@ app.put('/api/historial-pagos/:id', async (req, res) => {
       );
 
       const pagosRestantes = await Pago.find({ 
-        alumno: new RegExp(`^${alumno}$`, 'i') 
+        alumno: new RegExp(`^${(alumno || '').trim()}$`, 'i') 
       }).sort({ fecha: 1 }).lean();
 
       const nuevosAbonos = [0,0,0,0,0,0,0,0,0,0];
@@ -540,7 +525,7 @@ app.put('/api/historial-pagos/:id', async (req, res) => {
       });
 
       const totalPagado = nuevosAbonos.reduce((a, b) => a + b, 0);
-      const cuentaObj = await Cuenta.findOne({ alumno: new RegExp(`^${alumno}$`, 'i') });
+      const cuentaObj = await Cuenta.findOne({ alumno: new RegExp(`^${(alumno || '').trim()}$`, 'i') });
       if (cuentaObj) {
         const montoTotal = Number(cuentaObj.monto) || 0;
         const saldoFinal = Math.max(0, montoTotal - totalPagado);
@@ -556,7 +541,7 @@ app.put('/api/historial-pagos/:id', async (req, res) => {
       if (idx !== -1) {
         global.datosCompartidos.pagos[idx] = {
           ...global.datosCompartidos.pagos[idx],
-          alumno,
+          alumno: (alumno || '').trim(),
           concepto,
           monto: Number(monto) || 0,
           fecha,
