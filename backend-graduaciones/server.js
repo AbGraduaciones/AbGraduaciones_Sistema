@@ -389,14 +389,70 @@ app.post('/api/datos', async (req, res) => {
   }
 });
 
-// --- RUTA PARA VACIAR TODO EL HISTORIAL DE PAGOS DE LA BASE DE DATOS ---
+// --- RUTA PARA BORRAR EL HISTORIAL COMPLETO DE UN ALUMNO ESPECÍFICO ---
+app.delete('/api/historial-pagos-alumno/:nombreAlumno', async (req, res) => {
+  try {
+    const nombre = decodeURIComponent(req.params.nombreAlumno || '').trim();
+    if (!nombre) {
+      return res.status(400).json({ ok: false, error: 'Nombre de alumno no especificado' });
+    }
+
+    const reg = new RegExp(`^${nombre}$`, 'i');
+
+    if (mongoose.connection.readyState === 1) {
+      await Pago.deleteMany({ alumno: reg });
+
+      // Resetear abonos en la cuenta del alumno a 0
+      const cta = await Cuenta.findOne({ alumno: reg });
+      if (cta) {
+        cta.pagos = [0,0,0,0,0,0,0,0,0,0];
+        cta.saldo = Number(cta.monto) || 0;
+        cta.pagada = false;
+        await cta.save();
+      }
+      await sincronizarMemoriaDesdeBD();
+    } else {
+      global.datosCompartidos.pagos = global.datosCompartidos.pagos.filter(p => !reg.test((p.alumno || '').trim()));
+      const s = global.datosCompartidos.saldos.find(s => reg.test((s.alumno || '').trim()));
+      if (s) {
+        s.pagos = [0,0,0,0,0,0,0,0,0,0];
+        s.saldo = Number(s.monto) || 0;
+        s.saldoPendiente = s.saldo;
+      }
+    }
+
+    res.json({ ok: true, mensaje: `Historial de pagos de "${nombre}" eliminado permanentemente.` });
+  } catch (err) {
+    console.error('Error al borrar historial de alumno:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// --- RUTA PARA VACIAR TODO EL HISTORIAL GENERAL ---
 app.delete('/api/historial-pagos-vaciar-todo', requireAuth, async (req, res) => {
   try {
     if (mongoose.connection.readyState === 1) {
       await Pago.deleteMany({});
+      await Cuenta.updateMany({}, {
+        $set: {
+          pagos: [0,0,0,0,0,0,0,0,0,0],
+          pagada: false
+        }
+      });
+      // Sincronizar campo saldo con monto en todas las cuentas
+      const cuentas = await Cuenta.find({});
+      for (const c of cuentas) {
+        c.saldo = Number(c.monto) || 0;
+        await c.save();
+      }
       await sincronizarMemoriaDesdeBD();
     }
     global.datosCompartidos.pagos = [];
+    global.datosCompartidos.saldos.forEach(s => {
+      s.pagos = [0,0,0,0,0,0,0,0,0,0];
+      s.saldo = Number(s.monto) || 0;
+      s.saldoPendiente = s.saldo;
+    });
     res.json({ ok: true, mensaje: 'Historial de pagos vaciado por completo' });
   } catch (err) {
     console.error('Error vaciando historial de pagos:', err.message);
@@ -446,7 +502,7 @@ app.delete('/api/alumnos/:id', async (req, res) => {
   }
 });
 
-// Eliminar un Pago del Historial
+// Eliminar un Abono Individual
 app.delete('/api/historial-pagos/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -492,7 +548,7 @@ app.delete('/api/historial-pagos/:id', async (req, res) => {
   }
 });
 
-// Editar un Pago del Historial
+// Editar un Abono Individual
 app.put('/api/historial-pagos/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -616,7 +672,7 @@ app.get('/api/verificar-sesion-stripe/:sessionId', async (req, res) => {
   }
 });
 
-// 7. Configuración de transporte de correo
+// 7. Transporte de correo
 let transporter = null;
 if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
   transporter = nodemailer.createTransport({

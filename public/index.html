@@ -177,6 +177,44 @@
     <div id="contenidoDinamico" class="space-y-6" style="display: none;"></div>
   </main>
 
+  <!-- MODAL DESGLOSE DE ABONOS DEL ALUMNO (HISTORIAL CONSOLIDADO) -->
+  <div id="modalDesglosePagos" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center hidden z-50 overflow-y-auto p-4">
+    <div class="bg-white p-8 rounded-2xl w-full max-w-3xl border border-slate-100 shadow-2xl transform transition-all my-8 max-h-[90vh] overflow-y-auto">
+      <div class="flex justify-between items-center mb-4">
+        <div>
+          <h3 class="text-xl font-bold text-slate-900">📑 Desglose de Abonos del Alumno</h3>
+          <p id="desgloseSubtitulo" class="text-xs text-blue-600 font-bold mt-0.5">Alumno: -</p>
+        </div>
+        <button onclick="cerrarModalDesglose()" class="text-slate-400 hover:text-slate-600 font-bold text-lg">✕</button>
+      </div>
+
+      <div class="overflow-x-auto border border-slate-200 rounded-xl mb-4">
+        <table class="w-full text-left text-xs border-collapse">
+          <thead class="bg-slate-100 text-slate-600 font-bold uppercase">
+            <tr>
+              <th class="p-3">Folio</th>
+              <th class="p-3">Concepto</th>
+              <th class="p-3">Fecha</th>
+              <th class="p-3">Método</th>
+              <th class="p-3 text-right">Monto</th>
+              <th class="p-3 text-center">Acciones</th>
+            </tr>
+          </thead>
+          <tbody id="cuerpoTablaDesglose" class="divide-y divide-slate-100"></tbody>
+        </table>
+      </div>
+
+      <div class="flex justify-between items-center pt-3 border-t border-slate-100">
+        <button type="button" id="btnBorrarHistorialAlumnoModal" class="px-4 py-2 bg-red-100 hover:bg-red-200 text-red-700 font-bold text-xs rounded-xl transition">
+          🗑️ Borrar Historial de este Alumno
+        </button>
+        <button type="button" onclick="cerrarModalDesglose()" class="px-5 py-2 bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs rounded-xl transition">
+          Cerrar
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- MODAL CREAR / EDITAR GRUPO -->
   <div id="modalGrupo" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center hidden z-50 overflow-y-auto p-4">
     <div class="bg-white p-8 rounded-2xl w-full max-w-3xl border border-slate-100 shadow-2xl transform transition-all my-8 max-h-[90vh] overflow-y-auto">
@@ -227,7 +265,7 @@
     </div>
   </div>
 
-  <!-- MODAL AGREGAR / EDITAR SALDO, ALUMNO O PAGO -->
+  <!-- MODAL AGREGAR / EDITAR SALDO O ALUMNO -->
   <div id="modalFormulario" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center hidden z-50 overflow-y-auto p-4">
     <div class="bg-white p-8 rounded-2xl w-full max-w-2xl border border-slate-100 shadow-2xl transform transition-all my-8 max-h-[90vh] overflow-y-auto">
       <h3 id="modalTitulo" class="text-2xl font-bold mb-4 text-slate-900">Agregar Nuevo</h3>
@@ -1235,7 +1273,7 @@
         const res = await fetch('/api/datos', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ alumnos, saldos, pagos, grupos })
+          body: JSON.stringify({ alumnos, saldos, grupos })
         });
         if (!res.ok) {
           throw new Error(`Respuesta fallida del servidor: ${res.status}`);
@@ -1251,22 +1289,6 @@
       return pagosArray.reduce((acc, p) => acc + (parseFloat(p) || 0), 0);
     }
 
-    function agregarNuevoAbonoArreglo(arregloPagosActuales, nuevoMonto) {
-      const nuevoArreglo = [...(arregloPagosActuales || [0,0,0,0,0,0,0,0,0,0])];
-      let asignado = false;
-      for (let i = 0; i < 10; i++) {
-        if (!nuevoArreglo[i] || nuevoArreglo[i] === 0) {
-          nuevoArreglo[i] = nuevoMonto;
-          asignado = true;
-          break;
-        }
-      }
-      if (!asignado) {
-        nuevoArreglo[9] = (parseFloat(nuevoArreglo[9]) || 0) + nuevoMonto;
-      }
-      return nuevoArreglo;
-    }
-
     function generarNuevoIdAlumno() {
       if (!alumnos || alumnos.length === 0) return "1001";
       const numeros = alumnos
@@ -1274,13 +1296,6 @@
         .filter(n => !isNaN(n) && n >= 1000);
       const max = numeros.length > 0 ? Math.max(...numeros) : 1000;
       return String(max + 1);
-    }
-
-    function generarNuevoIdPago() {
-      if (pagos.length === 0) return "PAG-001";
-      const numeros = pagos.map(p => parseInt((p.id || "PAG-0").replace('PAG-', ''), 10)).filter(n => !isNaN(n));
-      const max = Math.max(...numeros, 0);
-      return "PAG-" + String(max + 1).padStart(3, '0');
     }
 
     function actualizarDatalistAlumnos() {
@@ -1347,7 +1362,9 @@
       vistaActual = vista;
       const titulo = document.getElementById('tituloSeccion');
       const btnContenedor = document.getElementById('btnContenedor');
+      const btnAccion = document.getElementById('btnAccion');
       const textoBtn = document.getElementById('textoBtn');
+      const iconoBtn = document.getElementById('iconoBtn');
       const tabla = document.getElementById('contenedorTabla');
       const dinamic = document.getElementById('contenidoDinamico');
       const filtroEscuela = document.getElementById('filtroEscuela');
@@ -1367,6 +1384,9 @@
       if (vista === 'saldos') {
         titulo.innerText = "Saldos y Productos";
         textoBtn.innerText = "Nuevo Saldo";
+        iconoBtn.innerText = "+";
+        btnAccion.onclick = abrirModal;
+        btnAccion.className = "bg-blue-700 hover:bg-blue-800 text-white px-5 py-2.5 rounded-xl font-semibold shadow-lg shadow-blue-600/30 transition-all duration-200 flex items-center gap-2 hover:scale-[1.02]";
         btnContenedor.style.display = "block";
         filtroEscuela.classList.add('hidden');
         filtroPaquete.classList.remove('hidden');
@@ -1376,6 +1396,9 @@
       } else if (vista === 'alumnos') {
         titulo.innerText = "Alumnos";
         textoBtn.innerText = "Nuevo Alumno";
+        iconoBtn.innerText = "+";
+        btnAccion.onclick = abrirModal;
+        btnAccion.className = "bg-blue-700 hover:bg-blue-800 text-white px-5 py-2.5 rounded-xl font-semibold shadow-lg shadow-blue-600/30 transition-all duration-200 flex items-center gap-2 hover:scale-[1.02]";
         btnContenedor.style.display = "block";
         filtroEscuela.classList.remove('hidden');
         filtroPaquete.classList.add('hidden');
@@ -1486,7 +1509,10 @@
         `;
       } else if (vista === 'pagos') {
         titulo.innerText = "Historial de Pagos";
-        textoBtn.innerText = "Registrar Pago";
+        textoBtn.innerText = "Vaciar Todo";
+        iconoBtn.innerText = "🗑️";
+        btnAccion.onclick = vaciarTodoHistorialPagos;
+        btnAccion.className = "bg-red-700 hover:bg-red-800 text-white px-4 py-2 rounded-xl font-semibold shadow-lg shadow-red-600/30 transition-all duration-200 flex items-center gap-2 hover:scale-[1.02] text-xs";
         btnContenedor.style.display = "block";
         filtroEscuela.classList.add('hidden');
         filtroPaquete.classList.add('hidden');
@@ -1502,6 +1528,23 @@
         
         dinamic.style.display = "block";
         renderizarPortalAlumno();
+      }
+    }
+
+    async function vaciarTodoHistorialPagos() {
+      const confirma = confirm("⚠️ ¿ESTÁS SEGURO?\n\nEsta acción borrará de forma PERMANENTE todos los pagos del historial y pondrá los abonos a cero en MongoDB Atlas.");
+      if (!confirma) return;
+
+      try {
+        const res = await fetch('/api/historial-pagos-vaciar-todo', { method: 'DELETE' });
+        if (!res.ok) throw new Error('Error al vaciar');
+        pagos = [];
+        localStorage.removeItem('app_pagos_historial');
+        await sincronizarDesdeServidor();
+        renderizarTablaPagos([]);
+        alert("✅ Historial de pagos vaciado por completo.");
+      } catch (e) {
+        alert("Error al vaciar historial: " + e.message);
       }
     }
 
@@ -1650,7 +1693,7 @@
     function abrirModal() {
       indiceEdicion = null;
       document.getElementById('editItemIdentificadorOriginal').value = '';
-      document.getElementById('modalTitulo').innerText = vistaActual === 'saldos' ? "Nuevo Saldo" : (vistaActual === 'alumnos' ? "Nuevo Alumno" : "Registrar Pago");
+      document.getElementById('modalTitulo').innerText = vistaActual === 'saldos' ? "Nuevo Saldo" : "Nuevo Alumno";
       document.getElementById('alertaError').classList.add('hidden');
       construirCamposFormulario();
       document.getElementById('modalFormulario').classList.remove('hidden');
@@ -1869,40 +1912,6 @@
             </div>
           </div>
         `;
-      } else if (vistaActual === 'pagos') {
-        contenedor.innerHTML = `
-          <div>
-            <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Alumno</label>
-            <input type="text" id="fPagoAlumno" list="listaAlumnosRegistrados" value="${datos.alumno || ''}" required placeholder="Escribe o selecciona un alumno..." class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-600 focus:bg-white transition-all">
-          </div>
-          <div class="grid grid-cols-2 gap-4">
-            <div>
-              <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Concepto</label>
-              <select id="fPagoConcepto" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-600 focus:bg-white transition-all">
-                <option value="Abono Parcial / Liquidación">Abono Parcial / Liquidación</option>
-                ${Array.from({length: 10}, (_, i) => `<option value="Pago ${i+1}" ${datos.concepto === `Pago ${i+1}` ? 'selected' : ''}>Pago ${i+1}</option>`).join('')}
-              </select>
-            </div>
-            <div>
-              <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Monto Abonado ($)</label>
-              <input type="number" id="fPagoMonto" value="${datos.monto || ''}" required class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-600 focus:bg-white transition-all">
-            </div>
-          </div>
-          <div class="grid grid-cols-2 gap-4">
-            <div>
-              <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Fecha</label>
-              <input type="date" id="fPagoFecha" value="${datos.fecha || new Date().toISOString().split('T')[0]}" required class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-600 focus:bg-white transition-all">
-            </div>
-            <div>
-              <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Método de Pago</label>
-              <select id="fPagoMetodo" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-600 focus:bg-white transition-all">
-                <option value="Efectivo" ${datos.metodo === 'Efectivo' ? 'selected' : ''}>Efectivo</option>
-                <option value="Transferencia" ${datos.metodo === 'Transferencia' ? 'selected' : ''}>Transferencia</option>
-                <option value="Tarjeta" ${datos.metodo === 'Tarjeta' ? 'selected' : ''}>Tarjeta</option>
-              </select>
-            </div>
-          </div>
-        `;
       }
     }
 
@@ -1981,27 +1990,6 @@
               grupoId: grupoIdAsignado,
               grupoNombre: gObj ? gObj.nombre : ''
             });
-          }
-
-          for (let i = 0; i < 10; i++) {
-            const abonoMonto = pagosCapturados[i];
-            if (abonoMonto > 0) {
-              const etiquetaConcepto = esContadoEfectivo ? 'Liquidación de Contado (Efectivo -5%)' : `Pago ${i + 1}`;
-              const yaRegistrado = pagos.some(p => p.alumno.toLowerCase() === alumnoInput.toLowerCase() && p.concepto === etiquetaConcepto);
-              
-              if (!yaRegistrado) {
-                pagos.unshift({
-                  id: generarNuevoIdPago(),
-                  alumno: alumnoInput,
-                  concepto: etiquetaConcepto,
-                  monto: abonoMonto,
-                  fecha: new Date().toISOString().split('T')[0],
-                  metodo: 'Efectivo',
-                  estado: 'Completado',
-                  grupoId: grupoIdAsignado
-                });
-              }
-            }
           }
 
         } else if (vistaActual === 'alumnos') {
@@ -2097,54 +2085,6 @@
           actualizarDatalistAlumnos();
           actualizarOpcionesFiltroEscuelas();
           renderizarGruposSidebar();
-
-        } else if (vistaActual === 'pagos') {
-          const alumnoInput = document.getElementById('fPagoAlumno').value.trim();
-          const concepto = document.getElementById('fPagoConcepto').value;
-          const montoAbono = parseFloat(document.getElementById('fPagoMonto').value) || 0;
-          const fecha = document.getElementById('fPagoFecha').value;
-          const metodo = document.getElementById('fPagoMetodo').value;
-
-          const saldoTarget = saldos.find(s => s.alumno.toLowerCase() === alumnoInput.toLowerCase());
-
-          if (!saldoTarget) {
-            alertaError.innerText = `No se encontró una cuenta de saldo activa para "${alumnoInput}".`;
-            alertaError.classList.remove('hidden');
-            btnGuardar.disabled = false;
-            return;
-          }
-
-          let idxRealPago = -1;
-          if (idOriginal) {
-            idxRealPago = pagos.findIndex(p => String(p.id || p._id) === String(idOriginal));
-          } else if (indiceEdicion !== null) {
-            idxRealPago = indiceEdicion;
-          }
-
-          const nuevoPago = { 
-            id: idOriginal || generarNuevoIdPago(), 
-            alumno: alumnoInput, 
-            concepto, 
-            monto: montoAbono, 
-            fecha, 
-            metodo, 
-            estado: 'Completado',
-            grupoId: saldoTarget.grupoId || null
-          };
-
-          if (idxRealPago !== -1) {
-            pagos[idxRealPago] = { ...pagos[idxRealPago], ...nuevoPago };
-            if (idOriginal) {
-              await fetch(`/api/historial-pagos/${encodeURIComponent(idOriginal)}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(nuevoPago)
-              });
-            }
-          } else {
-            pagos.unshift(nuevoPago);
-            saldoTarget.pagos = agregarNuevoAbonoArreglo(saldoTarget.pagos, montoAbono);
-          }
         }
 
         await guardarEnLocalStorage();
@@ -2166,7 +2106,6 @@
       
       const saldosUso = obtenerSaldosFiltrados();
       const alumnosUso = obtenerAlumnosFiltrados();
-      const pagosUso = obtenerPagosFiltrados();
 
       if (vistaActual === 'saldos') {
         const item = saldosUso[indexFiltro];
@@ -2177,11 +2116,6 @@
         const item = alumnosUso[indexFiltro];
         document.getElementById('editItemIdentificadorOriginal').value = item.id;
         indiceEdicion = alumnos.indexOf(item);
-        construirCamposFormulario(item);
-      } else if (vistaActual === 'pagos') {
-        const item = pagosUso[indexFiltro];
-        document.getElementById('editItemIdentificadorOriginal').value = item.id || item._id || '';
-        indiceEdicion = pagos.indexOf(item);
         construirCamposFormulario(item);
       }
 
@@ -2195,7 +2129,6 @@
 
       const saldosUso = obtenerSaldosFiltrados();
       const alumnosUso = obtenerAlumnosFiltrados();
-      const pagosUso = obtenerPagosFiltrados();
 
       try {
         if (vistaActual === 'saldos') {
@@ -2222,17 +2155,6 @@
           actualizarDatalistAlumnos();
           actualizarOpcionesFiltroEscuelas();
           renderizarGruposSidebar();
-
-        } else if (vistaActual === 'pagos') {
-          const itemReal = pagosUso[indexFiltro];
-          const idABorrar = itemReal.id || itemReal._id;
-
-          if (idABorrar) {
-            await fetch(`/api/historial-pagos/${encodeURIComponent(idABorrar)}`, { method: 'DELETE' });
-          }
-
-          const idxReal = pagos.indexOf(itemReal);
-          if (idxReal !== -1) pagos.splice(idxReal, 1);
         }
 
         await guardarEnLocalStorage();
@@ -2379,15 +2301,17 @@
       });
     }
 
+    // CONSOLIDACIÓN ESTRICTA: 1 SOLA FILA POR ALUMNO
     function renderizarTablaPagos(data) {
       let encabezados = `
         <tr>
-          <th class="p-4">Folio</th>
+          <th class="p-4">Folio Reciente</th>
           <th class="p-4">Alumno</th>
-          <th class="p-4">Concepto</th>
-          <th class="p-4 text-right">Monto</th>
-          <th class="p-4">Fecha</th>
-          <th class="p-4">Método</th>
+          <th class="p-4 text-center">Abonos Realizados</th>
+          <th class="p-4">Total Pagado</th>
+          <th class="p-4">Último Pago</th>
+          <th class="p-4">Método Reciente</th>
+          <th class="p-4">Estado</th>
           <th class="p-4 text-center">Acciones</th>
         </tr>`;
 
@@ -2396,48 +2320,228 @@
       tbody.innerHTML = '';
 
       if (!data || data.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="7" class="p-6 text-center text-slate-400 italic">No hay abonos registrados para este grupo.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="8" class="p-6 text-center text-slate-400 italic">No hay abonos registrados en el historial.</td></tr>`;
         return;
       }
 
-      pagosConsolidadosCache = data;
+      // Normalización estricta por alumno (sin acentos, minúsculas, espacios colapsados)
+      const mapaAlumnos = new Map();
 
-      pagosConsolidadosCache.forEach((pagoItem, idx) => {
+      data.forEach(p => {
+        const nombreLimpio = (p.alumno || 'Alumno').trim().replace(/\s+/g, ' ');
+        const key = nombreLimpio.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+        if (!mapaAlumnos.has(key)) {
+          mapaAlumnos.set(key, {
+            id: p.id || p.folio || 'PAG-000',
+            alumno: nombreLimpio,
+            montoTotal: 0,
+            conteoPagos: 0,
+            ultimoPagoObj: p,
+            fechaReciente: p.fecha,
+            metodoReciente: p.metodo || p.metodoPago || 'Efectivo',
+            estado: p.estado || 'Completado',
+            grupoId: p.grupoId || null
+          });
+        }
+
+        const itemGrupo = mapaAlumnos.get(key);
+        itemGrupo.montoTotal += parseFloat(p.monto || p.montoAbonado || 0);
+        itemGrupo.conteoPagos += 1;
+
+        if (!itemGrupo.fechaReciente || new Date(p.fecha) >= new Date(itemGrupo.fechaReciente)) {
+          itemGrupo.fechaReciente = p.fecha;
+          itemGrupo.metodoReciente = p.metodo || p.metodoPago || 'Efectivo';
+          itemGrupo.ultimoPagoObj = p;
+        }
+      });
+
+      pagosConsolidadosCache = Array.from(mapaAlumnos.values());
+
+      pagosConsolidadosCache.forEach((item, idx) => {
+        const nombreEscapado = item.alumno.replace(/'/g, "\\'");
         tbody.innerHTML += `
           <tr class="hover:bg-slate-50 transition-colors">
-            <td class="p-4 font-mono text-xs text-slate-500 font-semibold">${pagoItem.id || pagoItem.folio || '-'}</td>
-            <td class="p-4 font-bold text-slate-900">${pagoItem.alumno}</td>
-            <td class="p-4 text-slate-600 text-xs font-semibold">${pagoItem.concepto || 'Abono'}</td>
-            <td class="p-4 font-extrabold text-emerald-600 text-right text-base">$${Number(pagoItem.monto || pagoItem.montoAbonado || 0).toLocaleString()}</td>
-            <td class="p-4 text-slate-500 text-xs">${pagoItem.fecha || '-'}</td>
-            <td class="p-4 text-slate-600 text-xs">${pagoItem.metodo || 'Efectivo'}</td>
+            <td class="p-4 font-mono text-xs text-slate-400 font-semibold">${item.id}</td>
+            <td class="p-4 font-bold text-slate-900">${item.alumno}</td>
             <td class="p-4 text-center">
-              <div class="flex justify-center items-center gap-2">
-                <button onclick="ejecutarPdfConsolidado(${idx})" class="bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1 rounded text-xs font-bold transition">📄 PDF</button>
-                <button onclick="ejecutarWaConsolidado(${idx})" class="bg-emerald-100 hover:bg-emerald-200 text-emerald-700 px-2 py-1 rounded text-xs font-bold transition">💬 WA</button>
-                <button onclick="editarRegistro(${idx})" class="text-blue-600 hover:text-blue-800 font-bold text-xs px-1">✏️ Editar</button>
-                <button onclick="eliminarRegistro(${idx})" class="text-red-500 hover:text-red-700 font-bold text-xs px-1">🗑️ Borrar</button>
+              <span class="bg-blue-50 text-blue-700 text-xs px-2.5 py-1 rounded-full font-bold border border-blue-200">
+                ${item.conteoPagos} ${item.conteoPagos === 1 ? 'abono' : 'abonos'}
+              </span>
+            </td>
+            <td class="p-4 font-extrabold text-emerald-600 text-base">$${item.montoTotal.toLocaleString()}</td>
+            <td class="p-4 text-slate-500 text-xs">${item.fechaReciente || '-'}</td>
+            <td class="p-4 text-slate-600">${item.metodoReciente}</td>
+            <td class="p-4">
+              <span class="bg-emerald-100 text-emerald-800 text-xs px-2.5 py-1 rounded-full font-semibold border border-emerald-200">
+                ${item.estado}
+              </span>
+            </td>
+            <td class="p-4 text-center">
+              <div class="flex justify-center items-center gap-1.5 flex-wrap">
+                <button onclick="abrirModalDesglose('${nombreEscapado}')" class="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 px-2 py-1 rounded-lg text-xs font-bold transition">
+                  🔍 Desglose
+                </button>
+                <button onclick="ejecutarPdfConsolidado(${idx})" class="bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1 rounded-lg text-xs font-bold transition">📄 PDF</button>
+                <button onclick="ejecutarWaConsolidado(${idx})" class="bg-emerald-100 hover:bg-emerald-200 text-emerald-700 px-2 py-1 rounded-lg text-xs font-bold transition">💬 WA</button>
+                <button onclick="borrarHistorialCompletoAlumno('${nombreEscapado}')" class="bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 px-2 py-1 rounded-lg text-xs font-bold transition" title="Borrar todo el historial de este alumno">
+                  🗑️ Borrar Historial
+                </button>
               </div>
             </td>
           </tr>`;
       });
     }
 
+    function abrirModalDesglose(nombreAlumno) {
+      document.getElementById('desgloseSubtitulo').innerText = `Alumno: ${nombreAlumno}`;
+      const btnBorrarTodo = document.getElementById('btnBorrarHistorialAlumnoModal');
+      if (btnBorrarTodo) {
+        btnBorrarTodo.onclick = () => borrarHistorialCompletoAlumno(nombreAlumno);
+      }
+
+      const tbody = document.getElementById('cuerpoTablaDesglose');
+      tbody.innerHTML = '';
+
+      const keyTarget = nombreAlumno.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      const abonosAlumno = pagos.filter(p => (p.alumno || '').trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "") === keyTarget);
+
+      if (abonosAlumno.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-slate-400 italic">No hay abonos individuales para este alumno.</td></tr>`;
+      } else {
+        abonosAlumno.forEach((abono) => {
+          const abonoId = abono.id || abono._id;
+          tbody.innerHTML += `
+            <tr class="hover:bg-slate-50">
+              <td class="p-2.5 font-mono text-slate-500 font-bold">${abonoId}</td>
+              <td class="p-2.5 font-semibold text-slate-800">${abono.concepto || 'Abono'}</td>
+              <td class="p-2.5 text-slate-500">${abono.fecha || '-'}</td>
+              <td class="p-2.5 text-slate-600">${abono.metodo || abono.metodoPago || 'Efectivo'}</td>
+              <td class="p-2.5 font-extrabold text-emerald-600 text-right">$${Number(abono.monto || 0).toLocaleString()}</td>
+              <td class="p-2.5 text-center">
+                <div class="flex items-center justify-center gap-2">
+                  <button onclick="abrirEdicionAbonoIndividual('${abonoId}')" class="text-blue-600 hover:text-blue-800 font-bold">Editar</button>
+                  <button onclick="eliminarAbonoIndividual('${abonoId}', '${nombreAlumno.replace(/'/g, "\\'")}')" class="text-red-500 hover:text-red-700 font-bold">Borrar</button>
+                </div>
+              </td>
+            </tr>
+          `;
+        });
+      }
+
+      document.getElementById('modalDesglosePagos').classList.remove('hidden');
+    }
+
+    function cerrarModalDesglose() {
+      document.getElementById('modalDesglosePagos').classList.add('hidden');
+    }
+
+    async function borrarHistorialCompletoAlumno(nombreAlumno) {
+      if (!confirm(`⚠️ ¿Seguro que deseas eliminar TODO el historial de pagos de "${nombreAlumno}"?\n\nEsta acción borrará todos sus abonos en MongoDB Atlas y su saldo volverá a reflejarse como pendiente.`)) {
+        return;
+      }
+
+      try {
+        const res = await fetch(`/api/historial-pagos-alumno/${encodeURIComponent(nombreAlumno)}`, {
+          method: 'DELETE'
+        });
+
+        if (!res.ok) throw new Error('Error en el servidor al eliminar el historial');
+
+        const keyTarget = nombreAlumno.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        pagos = pagos.filter(p => (p.alumno || '').trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "") !== keyTarget);
+
+        const saldoTarget = saldos.find(s => (s.alumno || '').trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "") === keyTarget);
+        if (saldoTarget) {
+          saldoTarget.pagos = [0,0,0,0,0,0,0,0,0,0];
+          saldoTarget.saldo = Number(saldoTarget.monto) || 0;
+          saldoTarget.saldoPendiente = saldoTarget.saldo;
+        }
+
+        await guardarEnLocalStorage();
+        await sincronizarDesdeServidor();
+        cerrarModalDesglose();
+        renderizarTablaPagos(obtenerPagosFiltrados());
+        alert(`✅ Historial de pagos de "${nombreAlumno}" eliminado correctamente.`);
+      } catch (err) {
+        alert("Error al eliminar el historial: " + err.message);
+      }
+    }
+
+    function abrirEdicionAbonoIndividual(abonoId) {
+      const pagoObj = pagos.find(p => String(p.id || p._id) === String(abonoId));
+      if (!pagoObj) return;
+
+      const nuevoMonto = prompt("Ingresa el nuevo monto para este abono:", pagoObj.monto);
+      if (nuevoMonto === null) return;
+      const parsedMonto = parseFloat(nuevoMonto);
+      if (isNaN(parsedMonto) || parsedMonto < 0) {
+        alert("Monto inválido");
+        return;
+      }
+
+      const nuevoConcepto = prompt("Concepto del abono:", pagoObj.concepto || "Abono");
+      if (nuevoConcepto === null) return;
+
+      pagoObj.monto = parsedMonto;
+      pagoObj.concepto = nuevoConcepto;
+
+      fetch(`/api/historial-pagos/${encodeURIComponent(abonoId)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(pagoObj)
+      }).then(() => {
+        guardarEnLocalStorage().then(() => {
+          sincronizarDesdeServidor().then(() => {
+            abrirModalDesglose(pagoObj.alumno);
+            renderizarTablaPagos(obtenerPagosFiltrados());
+          });
+        });
+      });
+    }
+
+    async function eliminarAbonoIndividual(abonoId, nombreAlumno) {
+      if (!confirm('¿Seguro que deseas eliminar permanentemente este abono? El saldo del alumno se recalculará automáticamente.')) {
+        return;
+      }
+
+      try {
+        await fetch(`/api/historial-pagos/${encodeURIComponent(abonoId)}`, { method: 'DELETE' });
+        
+        pagos = pagos.filter(p => String(p.id || p._id) !== String(abonoId));
+
+        const keyTarget = nombreAlumno.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        const saldoTarget = saldos.find(s => (s.alumno || '').trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "") === keyTarget);
+
+        if (saldoTarget && Array.isArray(saldoTarget.pagos)) {
+          const abonosRestantes = pagos.filter(p => (p.alumno || '').trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "") === keyTarget);
+          saldoTarget.pagos = [0,0,0,0,0,0,0,0,0,0];
+          abonosRestantes.slice(0, 10).forEach((p, i) => {
+            saldoTarget.pagos[i] = Number(p.monto) || 0;
+          });
+          const totPag = saldoTarget.pagos.reduce((a, b) => a + b, 0);
+          saldoTarget.saldo = Math.max(0, (Number(saldoTarget.monto) || 0) - totPag);
+          saldoTarget.saldoPendiente = saldoTarget.saldo;
+        }
+
+        await guardarEnLocalStorage();
+        await sincronizarDesdeServidor();
+        abrirModalDesglose(nombreAlumno);
+        renderizarTablaPagos(obtenerPagosFiltrados());
+      } catch (err) {
+        alert('Error al eliminar el abono: ' + err.message);
+      }
+    }
+
     function ejecutarPdfConsolidado(idx) {
       if (pagosConsolidadosCache[idx]) {
-        descargarReciboPDF(pagosConsolidadosCache[idx]);
+        descargarReciboPDF(pagosConsolidadosCache[idx].ultimoPagoObj);
       }
     }
 
     function ejecutarWaConsolidado(idx) {
       if (pagosConsolidadosCache[idx]) {
-        enviarWhatsappYPdf(pagosConsolidadosCache[idx]);
-      }
-    }
-
-    function ejecutarEmailConsolidado(idx) {
-      if (pagosConsolidadosCache[idx]) {
-        enviarEmailYPdf(pagosConsolidadosCache[idx]);
+        enviarWhatsappYPdf(pagosConsolidadosCache[idx].ultimoPagoObj);
       }
     }
 
@@ -2711,28 +2815,6 @@
 
       const url = telefono ? `https://wa.me/${telefono}?text=${mensaje}` : `https://wa.me/?text=${mensaje}`;
       window.open(url, '_blank');
-    }
-
-    async function enviarEmailYPdf(pagoObj) {
-      const alumnoObj = alumnos.find(a => a.nombre.toLowerCase() === pagoObj.alumno.toLowerCase());
-      const email = alumnoObj && alumnoObj.email ? alumnoObj.email : '';
-
-      if (!email) {
-        alert('Este alumno no cuenta con un correo electrónico registrado.');
-        return;
-      }
-
-      await descargarReciboPDF(pagoObj);
-
-      const asunto = encodeURIComponent(`Recibo de Pago - Ab Graduaciones (${pagoObj.concepto})`);
-      const cuerpo = encodeURIComponent(
-        `Estimado/a ${pagoObj.alumno},\n\n` +
-        `Le confirmamos la recepción de su pago por un monto de $${pagoObj.monto.toLocaleString()} correspondientes al concepto "${pagoObj.concepto}".\n\n` +
-        `Adjunto a este correo encontrará su comprobante oficial en archivo PDF descargado.\n\n` +
-        `Atentamente,\nAb Graduaciones`
-      );
-
-      window.location.href = `mailto:${email}?subject=${asunto}&body=${cuerpo}`;
     }
 
     function renderizarPortalAlumno() {
