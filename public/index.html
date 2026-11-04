@@ -2687,22 +2687,24 @@
 
     async function descargarReciboPDF(pagoObj) {
       prepararPlantillaRecibo(pagoObj);
-      await new Promise(r => setTimeout(r, 250));
+      await new Promise(r => setTimeout(r, 300));
 
       const elemento = document.getElementById('reciboPdfPlantilla');
       
       const opciones = {
-        margin:       [5, 8, 5, 8],
+        margin:       [6, 6, 6, 6],
         filename:     `Recibo_${pagoObj.id || 'pago'}_${(pagoObj.alumno || 'alumno').replace(/\s+/g, '_')}.pdf`,
         image:        { type: 'jpeg', quality: 0.98 },
         html2canvas:  { 
           scale: 2, 
           useCORS: true, 
           logging: false,
-          windowWidth: 1024,
-          width: 700
+          scrollX: 0,
+          scrollY: 0,
+          windowWidth: 800
         },
-        jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' },
+        pagebreak:    { mode: ['css', 'legacy'] }
       };
 
       return html2pdf().set(opciones).from(elemento).save();
