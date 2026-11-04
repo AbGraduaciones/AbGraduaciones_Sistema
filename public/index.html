@@ -594,7 +594,7 @@
         { modelo: "Bandera Vino", precio: 7400 },
         { modelo: "Líneas", precio: 7400 },
         { modelo: "Cuatro Banderas", precio: 7400 },
-        { modelo: "Bicolor", precio: 7400 },
+        { modelo: "Bicolor", precio: 8000 },
         { modelo: "Líneas D", precio: 7400 }
       ],
       "Línea Basic 6 Solo Fotos": [
@@ -2142,7 +2142,7 @@
             }
 
             if (montoAbono > saldoPendienteActual) {
-              alertaError.innerText = `El monto ingresado ($${montoAbono.toLocaleString()}) supera el saldo pendiente ($${saldoPendienteActual.toLocaleString()}).`;
+              alertaError.innerText = `El monto ingresado ($${montoAbono.toLocaleString()}) supera el saldo pendiente ($${saldoPendienteActual.toLocaleString()}). Ajusta el valor.`;
               alertaError.classList.remove('hidden');
               btnGuardar.disabled = false;
               return;
@@ -2687,15 +2687,21 @@
 
     async function descargarReciboPDF(pagoObj) {
       prepararPlantillaRecibo(pagoObj);
-      await new Promise(r => setTimeout(r, 200));
+      await new Promise(r => setTimeout(r, 250));
 
       const elemento = document.getElementById('reciboPdfPlantilla');
       
       const opciones = {
         margin:       [5, 8, 5, 8],
-        filename:     `Recibo_${pagoObj.id || 'pago'}_${pagoObj.alumno.replace(/\s+/g, '_')}.pdf`,
+        filename:     `Recibo_${pagoObj.id || 'pago'}_${(pagoObj.alumno || 'alumno').replace(/\s+/g, '_')}.pdf`,
         image:        { type: 'jpeg', quality: 0.98 },
-        html2canvas:  { scale: 2, useCORS: true, logging: false },
+        html2canvas:  { 
+          scale: 2, 
+          useCORS: true, 
+          logging: false,
+          windowWidth: 1024,
+          width: 700
+        },
         jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
       };
 
