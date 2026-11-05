@@ -837,38 +837,44 @@
 
     let pagosConsolidadosCache = [];
 
-    // Función auxiliar para resolver el nombre real de un alumno en un pago
+    // Función auxiliar para resolver el nombre real de un alumno en un pago con máxima tolerancia
     function resolverNombreAlumnoReal(pagoObj) {
       if (!pagoObj) return 'Alumno';
       const nombreDirecto = (pagoObj.alumno || pagoObj.nombreAlumno || pagoObj.estudiante || '').trim();
 
+      // Si tiene nombre específico y no es genérico "Alumno"
       if (nombreDirecto && nombreDirecto.toLowerCase() !== 'alumno') {
         return nombreDirecto;
       }
 
-      // Buscar por identificador de cuenta si existe
-      if (pagoObj.cuentaId || pagoObj.cuenta) {
-        const ctaId = String(pagoObj.cuentaId || pagoObj.cuenta);
-        const saldoEncontrado = saldos.find(s => String(s.id || s._id) === ctaId);
-        if (saldoEncontrado && saldoEncontrado.alumno && saldoEncontrado.alumno.toLowerCase() !== 'alumno') {
-          return saldoEncontrado.alumno;
+      // 1. Cruzar por ID de Cuenta (cuentaId / cuenta / _id)
+      const ctaId = String(pagoObj.cuentaId || pagoObj.cuenta || pagoObj.id || pagoObj._id || '');
+      if (ctaId) {
+        const saldoCta = saldos.find(s => String(s.id || s._id) === ctaId);
+        if (saldoCta && saldoCta.alumno && saldoCta.alumno.toLowerCase() !== 'alumno') {
+          return saldoCta.alumno.trim();
         }
       }
 
-      // Buscar por identificador de alumno si existe
-      if (pagoObj.alumnoId || pagoObj.clienteId || pagoObj.cliente) {
-        const aId = String(pagoObj.alumnoId || pagoObj.clienteId || pagoObj.cliente);
-        const alumnoEncontrado = alumnos.find(a => String(a.id || a._id) === aId);
-        if (alumnoEncontrado && alumnoEncontrado.nombre && alumnoEncontrado.nombre.toLowerCase() !== 'alumno') {
-          return alumnoEncontrado.nombre;
+      // 2. Cruzar por ID de Alumno / Cliente (alumnoId / clienteId / cliente)
+      const aId = String(pagoObj.alumnoId || pagoObj.clienteId || pagoObj.cliente || '');
+      if (aId) {
+        const alumnoObj = alumnos.find(a => String(a.id || a._id) === aId);
+        if (alumnoObj && alumnoObj.nombre && alumnoObj.nombre.toLowerCase() !== 'alumno') {
+          return alumnoObj.nombre.trim();
+        }
+        const saldoCli = saldos.find(s => String(s.cliente) === aId);
+        if (saldoCli && saldoCli.alumno && saldoCli.alumno.toLowerCase() !== 'alumno') {
+          return saldoCli.alumno.trim();
         }
       }
 
-      // Si existe algún saldo registrado cuyo ID o folio coincida
-      if (pagoObj.folio || pagoObj.id) {
-        const saldoCoincidente = saldos.find(s => s.cliente === pagoObj.id || s.id === pagoObj.id);
-        if (saldoCoincidente && saldoCoincidente.alumno && saldoCoincidente.alumno.toLowerCase() !== 'alumno') {
-          return saldoCoincidente.alumno;
+      // 3. Si en el concepto o folio viene el nombre o número de abono asociado
+      if (pagoObj.concepto && typeof pagoObj.concepto === 'string') {
+        for (const s of saldos) {
+          if (s.alumno && s.alumno.toLowerCase() !== 'alumno' && pagoObj.concepto.toLowerCase().includes(s.alumno.toLowerCase())) {
+            return s.alumno.trim();
+          }
         }
       }
 
@@ -1222,7 +1228,7 @@
     function obtenerSaldosFiltrados() {
       if (!grupoSeleccionadoId) return saldos;
       const g = grupos.find(gr => String(gr._id || gr.id) === String(grupoSeleccionadoId));
-      const alumnosDelGrupoNombres = new Set(obtenerAlumnosFiltrados().map(a => a.nombre.toLowerCase()));
+      const alumnosDelGrupoNombres = new Set(obtenerAlumnosFiltrados().map(a => (a.nombre || '').toLowerCase()));
 
       return saldos.filter(s => {
         if (s.grupoId) return String(s.grupoId) === String(grupoSeleccionadoId);
@@ -1233,7 +1239,7 @@
 
     function obtenerPagosFiltrados() {
       if (!grupoSeleccionadoId) return pagos;
-      const alumnosDelGrupoNombres = new Set(obtenerAlumnosFiltrados().map(a => a.nombre.toLowerCase()));
+      const alumnosDelGrupoNombres = new Set(obtenerAlumnosFiltrados().map(a => (a.nombre || '').toLowerCase()));
       return pagos.filter(p => {
         const nombreReal = resolverNombreAlumnoReal(p).toLowerCase();
         return alumnosDelGrupoNombres.has(nombreReal);
@@ -2469,7 +2475,6 @@
         return;
       }
 
-      // Normalización estricta por alumno con resolución del nombre verdadero
       const mapaAlumnos = new Map();
 
       data.forEach(p => {
@@ -2830,20 +2835,20 @@
         pdfLogoTexto.style.display = 'none';
       }
 
-      // Resolver el nombre verificado del alumno
+      // Resolver el nombre verificado del alumno con máxima prioridad
       const nombreVerificado = resolverNombreAlumnoReal(pagoObj);
-
-      // Búsqueda robusta del alumno y saldo vinculado
       const keyNorm = nombreVerificado.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
+      // Búsqueda del alumno
       const alumnoObj = alumnos.find(a => {
         const nom = (a.nombre || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
         return nom === keyNorm || (pagoObj.alumnoId && String(a.id || a._id) === String(pagoObj.alumnoId));
       }) || {};
 
+      // Búsqueda del saldo de la cuenta
       const saldoObj = saldos.find(s => {
         const nom = (s.alumno || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-        return nom === keyNorm || (pagoObj.cuentaId && String(s.id || s._id) === String(pagoObj.cuentaId));
+        return nom === keyNorm || (pagoObj.cuentaId && String(s.id || s._id) === String(pagoObj.cuentaId)) || (alumnoObj.id && String(s.cliente) === String(alumnoObj.id));
       }) || { paquete: 'No especificado', monto: 0, pagos: [], entregas: {}, eleccionEspecial: "", esContadoEfectivo: false };
 
       const listaPagosAlumno = pagos.filter(p => {
@@ -3065,7 +3070,8 @@
         return;
       }
 
-      const saldoObj = saldos.find(s => s.alumno && s.alumno.toLowerCase() === alumnoSesionActual.nombre.toLowerCase()) || { monto: 0, pagos: [0,0,0,0,0,0,0,0,0,0], entregas: {}, paquete: 'Sin Paquete', eleccionEspecial: '', esContadoEfectivo: false };
+      const nombreSesion = (alumnoSesionActual.nombre || alumnoSesionActual.alumno || '').trim();
+      const saldoObj = saldos.find(s => s.alumno && s.alumno.toLowerCase() === nombreSesion.toLowerCase()) || { monto: 0, pagos: [0,0,0,0,0,0,0,0,0,0], entregas: {}, paquete: 'Sin Paquete', eleccionEspecial: '', esContadoEfectivo: false };
       const totalPagado = calcularTotalPagado(saldoObj.pagos);
       const saldoPendiente = Math.max(0, saldoObj.monto - totalPagado);
       const porcentajeAvance = saldoObj.monto > 0 ? Math.min(100, Math.round((totalPagado / saldoObj.monto) * 100)) : 0;
@@ -3130,7 +3136,7 @@
       dinamic.innerHTML = `
         <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm mb-6 flex flex-wrap justify-between items-center gap-4">
           <div>
-            <h3 class="text-2xl font-black text-slate-900">¡Hola, ${alumnoSesionActual.nombre}! 👋</h3>
+            <h3 class="text-2xl font-black text-slate-900">¡Hola, ${nombreSesion}! 👋</h3>
             <p class="text-xs font-semibold text-slate-500">${alumnoSesionActual.universidad || 'Universidad'} | ${alumnoSesionActual.escuela || alumnoSesionActual.facultad || 'Carrera'}</p>
             <p class="text-xs font-bold text-blue-600 mt-1">Paquete Contratado: ${saldoObj.paquete}</p>
             ${saldoObj.esContadoEfectivo ? '<span class="inline-block mt-2 text-xs font-extrabold bg-emerald-100 text-emerald-800 px-3 py-1 rounded-full border border-emerald-200">🏷️ Modalidad de Contado en Efectivo (-5% Aplicado)</span>' : ''}
@@ -3226,7 +3232,8 @@
     async function guardarEleccionAlumno(opcionElegida) {
       if (!alumnoSesionActual) return;
 
-      const saldoObj = saldos.find(s => s.alumno && s.alumno.toLowerCase() === alumnoSesionActual.nombre.toLowerCase());
+      const nombreSesion = (alumnoSesionActual.nombre || alumnoSesionActual.alumno || '').trim();
+      const saldoObj = saldos.find(s => s.alumno && s.alumno.toLowerCase() === nombreSesion.toLowerCase());
       if (!saldoObj) return;
 
       if (saldoObj.eleccionEspecial) {
@@ -3412,7 +3419,8 @@
     function abrirPasarelaPago(conceptoTag, monto) {
       if (!alumnoSesionActual) return;
       
-      const saldoObj = saldos.find(s => s.alumno && s.alumno.toLowerCase() === alumnoSesionActual.nombre.toLowerCase());
+      const nombreSesion = (alumnoSesionActual.nombre || alumnoSesionActual.alumno || '').trim();
+      const saldoObj = saldos.find(s => s.alumno && s.alumno.toLowerCase() === nombreSesion.toLowerCase());
       const totalPagado = calcularTotalPagado(saldoObj ? saldoObj.pagos : []);
       const maxPendiente = Math.max(0, (saldoObj ? saldoObj.monto : 0) - totalPagado);
 
@@ -3424,7 +3432,7 @@
       const montoSugerido = Math.min(monto, maxPendiente);
 
       pagoPendientePasarela = { conceptoTag, maxPendiente };
-      document.getElementById('pasarelaConcepto').innerText = typeof conceptoTag === 'number' ? `Pago ${conceptoTag} - ${alumnoSesionActual.nombre}` : `${conceptoTag} - ${alumnoSesionActual.nombre}`;
+      document.getElementById('pasarelaConcepto').innerText = typeof conceptoTag === 'number' ? `Pago ${conceptoTag} - ${nombreSesion}` : `${conceptoTag} - ${nombreSesion}`;
       
       const inputMonto = document.getElementById('pasarelaMontoInput');
       inputMonto.value = montoSugerido;
@@ -3449,7 +3457,17 @@
         return;
       }
 
-      const saldoObj = saldos.find(s => s.alumno && s.alumno.toLowerCase() === alumnoSesionActual.nombre.toLowerCase());
+      // Nombre formal garantizado
+      let nombreParaStripe = (alumnoSesionActual.nombre || alumnoSesionActual.alumno || '').trim();
+      const saldoObj = saldos.find(s => 
+        (s.cliente && String(s.cliente) === String(alumnoSesionActual.id || '')) ||
+        (s.alumno && nombreParaStripe && s.alumno.toLowerCase() === nombreParaStripe.toLowerCase())
+      );
+
+      if ((!nombreParaStripe || nombreParaStripe.toLowerCase() === 'alumno') && saldoObj && saldoObj.alumno) {
+        nombreParaStripe = saldoObj.alumno.trim();
+      }
+
       const totalPagadoActual = calcularTotalPagado(saldoObj ? saldoObj.pagos : []);
       const saldoPendiente = Math.max(0, (saldoObj ? saldoObj.monto : 0) - totalPagadoActual);
 
@@ -3475,7 +3493,8 @@
         cuentaId: String(ctaId),
         clienteId: String(alumnoSesionActual.id || ''),
         alumnoId: String(alumnoSesionActual.id || ''),
-        nombreAlumno: alumnoSesionActual.nombre,
+        nombreAlumno: nombreParaStripe,
+        alumno: nombreParaStripe,
         email: alumnoSesionActual.email || '',
         concepto: typeof pagoPendientePasarela.conceptoTag === 'number' 
           ? `Pago ${pagoPendientePasarela.conceptoTag}` 
