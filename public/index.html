@@ -837,6 +837,44 @@
 
     let pagosConsolidadosCache = [];
 
+    // Función auxiliar para resolver el nombre real de un alumno en un pago
+    function resolverNombreAlumnoReal(pagoObj) {
+      if (!pagoObj) return 'Alumno';
+      const nombreDirecto = (pagoObj.alumno || pagoObj.nombreAlumno || pagoObj.estudiante || '').trim();
+
+      if (nombreDirecto && nombreDirecto.toLowerCase() !== 'alumno') {
+        return nombreDirecto;
+      }
+
+      // Buscar por identificador de cuenta si existe
+      if (pagoObj.cuentaId || pagoObj.cuenta) {
+        const ctaId = String(pagoObj.cuentaId || pagoObj.cuenta);
+        const saldoEncontrado = saldos.find(s => String(s.id || s._id) === ctaId);
+        if (saldoEncontrado && saldoEncontrado.alumno && saldoEncontrado.alumno.toLowerCase() !== 'alumno') {
+          return saldoEncontrado.alumno;
+        }
+      }
+
+      // Buscar por identificador de alumno si existe
+      if (pagoObj.alumnoId || pagoObj.clienteId || pagoObj.cliente) {
+        const aId = String(pagoObj.alumnoId || pagoObj.clienteId || pagoObj.cliente);
+        const alumnoEncontrado = alumnos.find(a => String(a.id || a._id) === aId);
+        if (alumnoEncontrado && alumnoEncontrado.nombre && alumnoEncontrado.nombre.toLowerCase() !== 'alumno') {
+          return alumnoEncontrado.nombre;
+        }
+      }
+
+      // Si existe algún saldo registrado cuyo ID o folio coincida
+      if (pagoObj.folio || pagoObj.id) {
+        const saldoCoincidente = saldos.find(s => s.cliente === pagoObj.id || s.id === pagoObj.id);
+        if (saldoCoincidente && saldoCoincidente.alumno && saldoCoincidente.alumno.toLowerCase() !== 'alumno') {
+          return saldoCoincidente.alumno;
+        }
+      }
+
+      return nombreDirecto || 'Alumno';
+    }
+
     function asegurarIdsEnSaldos() {
       let cambio = false;
       saldos.forEach((s, idx) => {
@@ -1196,7 +1234,10 @@
     function obtenerPagosFiltrados() {
       if (!grupoSeleccionadoId) return pagos;
       const alumnosDelGrupoNombres = new Set(obtenerAlumnosFiltrados().map(a => a.nombre.toLowerCase()));
-      return pagos.filter(p => p.alumno && alumnosDelGrupoNombres.has(p.alumno.toLowerCase()));
+      return pagos.filter(p => {
+        const nombreReal = resolverNombreAlumnoReal(p).toLowerCase();
+        return alumnosDelGrupoNombres.has(nombreReal);
+      });
     }
 
     function cambiarModoVista(nuevoModo) {
@@ -1426,7 +1467,6 @@
         // 1. DESGLOSE FINANCIERO POR CADA GRUPO
         const desgloseGrupos = {};
 
-        // Inicializar cada grupo registrado
         grupos.forEach(g => {
           const gid = String(g._id || g.id);
           desgloseGrupos[gid] = {
@@ -1439,7 +1479,6 @@
           };
         });
 
-        // Contenedor para cuentas sin grupo específico asignado
         desgloseGrupos['sin_grupo'] = {
           nombre: 'Sin Grupo / General',
           institucion: '',
@@ -1449,7 +1488,6 @@
           cobrado: 0
         };
 
-        // Acumular los saldos en cada grupo
         saldos.forEach(s => {
           const gKey = s.grupoId ? String(s.grupoId) : 'sin_grupo';
           if (!desgloseGrupos[gKey]) {
@@ -2408,7 +2446,7 @@
       });
     }
 
-    // CONSOLIDACIÓN ESTRICTA: 1 SOLA FILA POR ALUMNO
+    // CONSOLIDACIÓN ESTRICTA: 1 SOLA FILA POR ALUMNO CON RESOLUCIÓN EXACTA DE NOMBRE
     function renderizarTablaPagos(data) {
       let encabezados = `
         <tr>
@@ -2431,11 +2469,12 @@
         return;
       }
 
-      // Normalización estricta por alumno (sin acentos, minúsculas, espacios colapsados)
+      // Normalización estricta por alumno con resolución del nombre verdadero
       const mapaAlumnos = new Map();
 
       data.forEach(p => {
-        const nombreLimpio = (p.alumno || 'Alumno').trim().replace(/\s+/g, ' ');
+        const nombreResuelto = resolverNombreAlumnoReal(p);
+        const nombreLimpio = nombreResuelto.replace(/\s+/g, ' ');
         const key = nombreLimpio.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
         if (!mapaAlumnos.has(key)) {
@@ -2444,7 +2483,7 @@
             alumno: nombreLimpio,
             montoTotal: 0,
             conteoPagos: 0,
-            ultimoPagoObj: p,
+            ultimoPagoObj: { ...p, alumno: nombreLimpio },
             fechaReciente: p.fecha,
             metodoReciente: p.metodo || p.metodoPago || 'Efectivo',
             estado: p.estado || 'Completado',
@@ -2459,7 +2498,7 @@
         if (!itemGrupo.fechaReciente || new Date(p.fecha) >= new Date(itemGrupo.fechaReciente)) {
           itemGrupo.fechaReciente = p.fecha;
           itemGrupo.metodoReciente = p.metodo || p.metodoPago || 'Efectivo';
-          itemGrupo.ultimoPagoObj = p;
+          itemGrupo.ultimoPagoObj = { ...p, alumno: nombreLimpio };
         }
       });
 
@@ -2511,7 +2550,10 @@
       tbody.innerHTML = '';
 
       const keyTarget = nombreAlumno.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-      const abonosAlumno = pagos.filter(p => (p.alumno || '').trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "") === keyTarget);
+      const abonosAlumno = pagos.filter(p => {
+        const nom = resolverNombreAlumnoReal(p).trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        return nom === keyTarget;
+      });
 
       if (abonosAlumno.length === 0) {
         tbody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-slate-400 italic">No hay abonos individuales para este alumno.</td></tr>`;
@@ -2556,7 +2598,10 @@
         if (!res.ok) throw new Error('Error en el servidor al eliminar el historial');
 
         const keyTarget = nombreAlumno.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-        pagos = pagos.filter(p => (p.alumno || '').trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "") !== keyTarget);
+        pagos = pagos.filter(p => {
+          const nom = resolverNombreAlumnoReal(p).trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+          return nom !== keyTarget;
+        });
 
         const saldoTarget = saldos.find(s => (s.alumno || '').trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "") === keyTarget);
         if (saldoTarget) {
@@ -2593,6 +2638,9 @@
       pagoObj.monto = parsedMonto;
       pagoObj.concepto = nuevoConcepto;
 
+      const nombreAlumnoReal = resolverNombreAlumnoReal(pagoObj);
+      pagoObj.alumno = nombreAlumnoReal;
+
       fetch(`/api/historial-pagos/${encodeURIComponent(abonoId)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -2600,7 +2648,7 @@
       }).then(() => {
         guardarEnLocalStorage().then(() => {
           sincronizarDesdeServidor().then(() => {
-            abrirModalDesglose(pagoObj.alumno);
+            abrirModalDesglose(nombreAlumnoReal);
             renderizarTablaPagos(obtenerPagosFiltrados());
           });
         });
@@ -2621,7 +2669,10 @@
         const saldoTarget = saldos.find(s => (s.alumno || '').trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "") === keyTarget);
 
         if (saldoTarget && Array.isArray(saldoTarget.pagos)) {
-          const abonosRestantes = pagos.filter(p => (p.alumno || '').trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "") === keyTarget);
+          const abonosRestantes = pagos.filter(p => {
+            const nom = resolverNombreAlumnoReal(p).trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+            return nom === keyTarget;
+          });
           saldoTarget.pagos = [0,0,0,0,0,0,0,0,0,0];
           abonosRestantes.slice(0, 10).forEach((p, i) => {
             saldoTarget.pagos[i] = Number(p.monto) || 0;
@@ -2672,7 +2723,10 @@
         });
         renderizarTablaAlumnos(filtrados);
       } else if (vistaActual === 'pagos') {
-        const filtrados = obtenerPagosFiltrados().filter(p => (p.alumno || '').toLowerCase().includes(query) || (p.concepto || '').toLowerCase().includes(query));
+        const filtrados = obtenerPagosFiltrados().filter(p => {
+          const nom = resolverNombreAlumnoReal(p).toLowerCase();
+          return nom.includes(query) || (p.concepto || '').toLowerCase().includes(query);
+        });
         renderizarTablaPagos(filtrados);
       }
     }
@@ -2776,14 +2830,30 @@
         pdfLogoTexto.style.display = 'none';
       }
 
-      const alumnoObj = alumnos.find(a => a.nombre.toLowerCase() === pagoObj.alumno.toLowerCase()) || {};
-      const saldoObj = saldos.find(s => s.alumno.toLowerCase() === pagoObj.alumno.toLowerCase()) || { paquete: 'No especificado', monto: 0, pagos: [], entregas: {}, eleccionEspecial: "", esContadoEfectivo: false };
+      // Resolver el nombre verificado del alumno
+      const nombreVerificado = resolverNombreAlumnoReal(pagoObj);
 
-      const listaPagosAlumno = pagos.filter(p => p.alumno.toLowerCase() === pagoObj.alumno.toLowerCase());
+      // Búsqueda robusta del alumno y saldo vinculado
+      const keyNorm = nombreVerificado.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
-      document.getElementById('pdfFolio').innerText = pagoObj.id || 'PAG-000';
+      const alumnoObj = alumnos.find(a => {
+        const nom = (a.nombre || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        return nom === keyNorm || (pagoObj.alumnoId && String(a.id || a._id) === String(pagoObj.alumnoId));
+      }) || {};
+
+      const saldoObj = saldos.find(s => {
+        const nom = (s.alumno || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        return nom === keyNorm || (pagoObj.cuentaId && String(s.id || s._id) === String(pagoObj.cuentaId));
+      }) || { paquete: 'No especificado', monto: 0, pagos: [], entregas: {}, eleccionEspecial: "", esContadoEfectivo: false };
+
+      const listaPagosAlumno = pagos.filter(p => {
+        const nom = resolverNombreAlumnoReal(p).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        return nom === keyNorm;
+      });
+
+      document.getElementById('pdfFolio').innerText = pagoObj.id || pagoObj.folio || 'PAG-000';
       document.getElementById('pdfFecha').innerText = pagoObj.fecha;
-      document.getElementById('pdfAlumnoNombre').innerText = pagoObj.alumno;
+      document.getElementById('pdfAlumnoNombre').innerText = nombreVerificado;
       document.getElementById('pdfAlumnoUniversidad').innerText = `Universidad: ${alumnoObj.universidad || 'No especificada'}`;
       document.getElementById('pdfAlumnoCarrera').innerText = `Carrera/Facultad: ${alumnoObj.escuela || alumnoObj.facultad || 'No especificada'}`;
       document.getElementById('pdfPaqueteNombre').innerText = saldoObj.paquete;
@@ -2795,9 +2865,9 @@
         avisoModalidad.style.display = 'none';
       }
 
-      document.getElementById('pdfPag2Alumno').innerText = pagoObj.alumno;
+      document.getElementById('pdfPag2Alumno').innerText = nombreVerificado;
       document.getElementById('pdfPag2Paquete').innerText = saldoObj.paquete;
-      document.getElementById('pdfFirmaNombreAlumno').innerText = `Firma del Alumno (${pagoObj.alumno})`;
+      document.getElementById('pdfFirmaNombreAlumno').innerText = `Firma del Alumno (${nombreVerificado})`;
 
       const cuerpoTabla = document.getElementById('pdfCuerpoTablaPagos');
       cuerpoTabla.innerHTML = '';
@@ -2806,14 +2876,14 @@
       if (listaPagosAlumno.length > 0) {
         listaPagosAlumno.forEach(p => {
           acumuladoAbonos += parseFloat(p.monto) || 0;
-          const esActual = p.id === pagoObj.id;
+          const esActual = (p.id || p._id) === (pagoObj.id || pagoObj._id);
           cuerpoTabla.innerHTML += `
             <tr style="border-bottom: 1px solid #e2e8f0; ${esActual ? 'background-color: #f0fdf4;' : ''}">
               <td style="padding: 8px 10px; font-weight: ${esActual ? 'bold' : 'normal'}; color: #0f172a;">
                 ${p.concepto} ${esActual ? '<span style="font-size: 9px; background-color: #22c55e; color: white; padding: 2px 5px; border-radius: 4px; margin-left: 4px;">Nuevo</span>' : ''}
               </td>
               <td style="padding: 8px 10px; color: #475569;">${p.fecha}</td>
-              <td style="padding: 8px 10px; color: #475569;">${p.metodo}</td>
+              <td style="padding: 8px 10px; color: #475569;">${p.metodo || p.metodoPago || 'Efectivo'}</td>
               <td style="padding: 8px 10px; text-align: right; font-weight: bold; color: ${esActual ? '#16a34a' : '#0284c7'};">
                 $${parseFloat(p.monto).toLocaleString()}
               </td>
@@ -2891,9 +2961,11 @@
         configHtml2Canvas.windowWidth = 800;
       }
 
+      const nombreReal = resolverNombreAlumnoReal(pagoObj);
+
       const opciones = {
         margin:       [6, 6, 6, 6],
-        filename:     `Recibo_${pagoObj.id || 'pago'}_${(pagoObj.alumno || 'alumno').replace(/\s+/g, '_')}.pdf`,
+        filename:     `Recibo_${pagoObj.id || 'pago'}_${nombreReal.replace(/\s+/g, '_')}.pdf`,
         image:        { type: 'jpeg', quality: 0.98 },
         html2canvas:  configHtml2Canvas,
         jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' },
@@ -2906,12 +2978,13 @@
     async function enviarWhatsappYPdf(pagoObj) {
       await descargarReciboPDF(pagoObj);
 
-      const alumnoObj = alumnos.find(a => a.nombre.toLowerCase() === pagoObj.alumno.toLowerCase());
+      const nombreReal = resolverNombreAlumnoReal(pagoObj);
+      const alumnoObj = alumnos.find(a => (a.nombre || '').toLowerCase() === nombreReal.toLowerCase());
       const telefono = alumnoObj && alumnoObj.telefono ? alumnoObj.telefono.replace(/\D/g, '') : '';
 
       const mensaje = encodeURIComponent(
         `🎓 *AB GRADUACIONES - RECIBO DE PAGO*\n\n` +
-        `¡Hola *${pagoObj.alumno}*! Confirmamos la recepción de tu pago:\n\n` +
+        `¡Hola *${nombreReal}*! Confirmamos la recepción de tu pago:\n\n` +
         `📄 *Folio:* ${pagoObj.id || 'PAG-000'}\n` +
         `📝 *Concepto:* ${pagoObj.concepto}\n` +
         `💰 *Monto Abonado:* $${pagoObj.monto.toLocaleString()}\n` +
