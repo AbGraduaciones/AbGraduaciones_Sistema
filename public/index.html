@@ -2203,27 +2203,28 @@
       }
     }
 
-    async function editarRegistro(indexFiltro) {
-      document.getElementById('modalTitulo').innerText = "Editar Registro";
-      document.getElementById('alertaError').classList.add('hidden');
-      
-      const saldosUso = obtenerSaldosFiltrados();
-      const alumnosUso = obtenerAlumnosFiltrados();
+    function editarRegistroPorId(identificador) {
+  document.getElementById('modalTitulo').innerText = "Editar Registro";
+  document.getElementById('alertaError').classList.add('hidden');
 
-      if (vistaActual === 'saldos') {
-        const item = saldosUso[indexFiltro];
-        document.getElementById('editItemIdentificadorOriginal').value = item.id || item._id || '';
-        indiceEdicion = saldos.indexOf(item);
-        construirCamposFormulario(item);
-      } else if (vistaActual === 'alumnos') {
-        const item = alumnosUso[indexFiltro];
-        document.getElementById('editItemIdentificadorOriginal').value = item.id;
-        indiceEdicion = alumnos.indexOf(item);
-        construirCamposFormulario(item);
-      }
+  const idStr = String(identificador).trim();
 
-      document.getElementById('modalFormulario').classList.remove('hidden');
-    }
+  if (vistaActual === 'saldos') {
+    const item = saldos.find(s => String(s.id || s._id).trim() === idStr);
+    if (!item) return;
+    document.getElementById('editItemIdentificadorOriginal').value = item.id || item._id || '';
+    indiceEdicion = saldos.indexOf(item);
+    construirCamposFormulario(item);
+  } else if (vistaActual === 'alumnos') {
+    const item = alumnos.find(a => String(a.id || a._id).trim() === idStr);
+    if (!item) return;
+    document.getElementById('editItemIdentificadorOriginal').value = item.id || item._id || '';
+    indiceEdicion = alumnos.indexOf(item);
+    construirCamposFormulario(item);
+  }
+
+  document.getElementById('modalFormulario').classList.remove('hidden');
+}
 
     async function eliminarRegistro(indexFiltro) {
       if (!confirm('¿Estás seguro de que deseas eliminar permanentemente este registro?')) {
@@ -2339,7 +2340,7 @@
           </td>
           <td class="p-3"><span class="px-2.5 py-1 rounded-full text-xs ${estadoClase}">${estadoTexto}</span></td>
           <td class="p-3 text-center">
-            <button onclick="editarRegistro(${indexFiltro})" class="text-blue-600 hover:text-blue-800 font-bold text-xs mr-2">Editar</button>
+            <button onclick="editarRegistroPorId('${item.id || item._id}')" class="text-blue-600 hover:text-blue-800 font-bold text-xs mr-2">Editar</button>
             <button onclick="eliminarRegistro(${indexFiltro})" class="text-red-500 hover:text-red-700 font-bold text-xs">Eliminar</button>
           </td>
         </tr>`;
