@@ -75,12 +75,15 @@ const Cuenta = cargarModelo(['./models/Cuenta', './models/cuenta', './models/Cue
 
 const Pago = cargarModelo(['./models/Pago', './models/pago', './models/Pagos', './models/pagos']) || mongoose.model('Pago', new mongoose.Schema({
   id: String,
+  cuenta: mongoose.Schema.Types.Mixed,
+  cliente: mongoose.Schema.Types.Mixed,
   alumno: String,
   concepto: String,
   monto: Number,
   fecha: Date,
   metodoPago: String,
-  grupoId: { type: mongoose.Schema.Types.Mixed, default: null }
+  grupoId: { type: mongoose.Schema.Types.Mixed, default: null },
+  notas: String
 }, { strict: false, timestamps: true }));
 
 const Usuario = cargarModelo(['./models/Usuario', './models/usuario', './models/Usuarios', './models/usuarios']) || mongoose.model('Usuario', new mongoose.Schema({
@@ -165,10 +168,87 @@ global.datosCompartidos = {
   grupos: []
 };
 
+// =========================================================================
+// SANEAMIENTO AUTOMÁTICO DE NOMBRES EN BASE DE DATOS:
+// Reasigna los pagos que quedaron con "Alumno" a su respectivo alumno real.
+// =========================================================================
+async function sanearPagosAnonimosEnBD() {
+  if (mongoose.connection.readyState !== 1) return;
+  try {
+    const pagosAnonimos = await Pago.find({
+      $or: [
+        { alumno: 'Alumno' },
+        { alumno: '' },
+        { alumno: null }
+      ]
+    });
+
+    if (pagosAnonimos.length === 0) return;
+
+    console.log(`🔧 Encontrados ${pagosAnonimos.length} pagos sin nombre real. Saneando automáticamente...`);
+
+    for (const p of pagosAnonimos) {
+      let nombreReal = '';
+
+      // 1. Extraer de notas si fue de Stripe: "Stripe: ... | Alumno: Juan Perez | ..."
+      if (p.notas && p.notas.includes('Alumno:')) {
+        const match = p.notas.match(/Alumno:\s*([^|]+)/i);
+        if (match && match[1] && match[1].trim().toLowerCase() !== 'alumno') {
+          nombreReal = match[1].trim();
+        }
+      }
+
+      // 2. Buscar por referencia de cuenta
+      if (!nombreReal && p.cuenta) {
+        const cta = await Cuenta.findOne({
+          $or: [
+            ...(mongoose.Types.ObjectId.isValid(p.cuenta) ? [{ _id: new mongoose.Types.ObjectId(p.cuenta) }] : []),
+            { id: String(p.cuenta) }
+          ]
+        }).lean();
+        if (cta && cta.alumno && cta.alumno.toLowerCase() !== 'alumno') {
+          nombreReal = cta.alumno.trim();
+        }
+      }
+
+      // 3. Buscar por cliente / alumnoId
+      if (!nombreReal && p.cliente) {
+        const cli = await Cliente.findOne({
+          $or: [
+            ...(mongoose.Types.ObjectId.isValid(p.cliente) ? [{ _id: new mongoose.Types.ObjectId(p.cliente) }] : []),
+            { id: String(p.cliente) }
+          ]
+        }).lean();
+        if (cli && cli.nombre && cli.nombre.toLowerCase() !== 'alumno') {
+          nombreReal = cli.nombre.trim();
+        }
+      }
+
+      // 4. Buscar por coincidencia de monto en Cuentas
+      if (!nombreReal && p.monto) {
+        const ctaMonto = await Cuenta.findOne({ pagos: Number(p.monto) }).lean();
+        if (ctaMonto && ctaMonto.alumno && ctaMonto.alumno.toLowerCase() !== 'alumno') {
+          nombreReal = ctaMonto.alumno.trim();
+        }
+      }
+
+      if (nombreReal) {
+        p.alumno = nombreReal;
+        await p.save();
+        console.log(`✅ Pago ${p._id} ($${p.monto}) reasignado a: "${nombreReal}"`);
+      }
+    }
+  } catch (errSanear) {
+    console.warn('⚠️ Aviso en saneamiento de pagos:', errSanear.message);
+  }
+}
+
 // Sincronización desde MongoDB Atlas hacia la Memoria Global
 async function sincronizarMemoriaDesdeBD() {
   if (mongoose.connection.readyState !== 1) return;
   try {
+    await sanearPagosAnonimosEnBD();
+
     const clientesBD = await Cliente.find().lean();
     const cuentasBD = await Cuenta.find().lean();
     const pagosBD = await Pago.find().sort({ fecha: -1, createdAt: -1 }).lean();
@@ -220,19 +300,39 @@ async function sincronizarMemoriaDesdeBD() {
       };
     });
 
-    global.datosCompartidos.pagos = pagosBD.map((p, idx) => ({
-      _id: String(p._id),
-      id: p.id || String(p._id) || `PAG-${String(idx + 1).padStart(3, '0')}`,
-      folio: p.id || String(p._id) || `PAG-${String(idx + 1).padStart(3, '0')}`,
-      alumno: (p.alumno || 'Alumno').trim(),
-      concepto: p.concepto || 'Abono de Graduación',
-      monto: Number(p.monto) || 0,
-      montoAbonado: Number(p.monto) || 0,
-      fecha: p.fecha ? new Date(p.fecha).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
-      metodo: p.metodoPago === 'stripe' ? 'Tarjeta (Stripe)' : (p.metodoPago || p.metodo || 'Efectivo'),
-      estado: 'Completado',
-      grupoId: p.grupoId ? String(p.grupoId) : null
-    }));
+    global.datosCompartidos.pagos = pagosBD.map((p, idx) => {
+      let nom = (p.alumno || '').trim();
+      // Si aún llega como 'Alumno', intentar cruzar con cuentas
+      if (!nom || nom.toLowerCase() === 'alumno') {
+        if (p.cuenta) {
+          const cta = cuentasBD.find(c => String(c._id) === String(p.cuenta) || String(c.id) === String(p.cuenta));
+          if (cta && cta.alumno) nom = cta.alumno.trim();
+        }
+        if ((!nom || nom.toLowerCase() === 'alumno') && p.cliente) {
+          const cli = clientesBD.find(c => String(c.id) === String(p.cliente) || String(c._id) === String(p.cliente));
+          if (cli && cli.nombre) nom = cli.nombre.trim();
+        }
+      }
+      if (!nom) nom = 'Alumno';
+
+      return {
+        _id: String(p._id),
+        id: p.id || String(p._id) || `PAG-${String(idx + 1).padStart(3, '0')}`,
+        folio: p.id || String(p._id) || `PAG-${String(idx + 1).padStart(3, '0')}`,
+        cuentaId: p.cuenta ? String(p.cuenta) : '',
+        alumnoId: p.cliente ? String(p.cliente) : '',
+        alumno: nom,
+        nombreAlumno: nom,
+        concepto: p.concepto || 'Abono de Graduación',
+        monto: Number(p.monto) || 0,
+        montoAbonado: Number(p.monto) || 0,
+        fecha: p.fecha ? new Date(p.fecha).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+        metodo: p.metodoPago === 'stripe' ? 'Tarjeta (Stripe)' : (p.metodoPago || p.metodo || 'Efectivo'),
+        estado: 'Completado',
+        grupoId: p.grupoId ? String(p.grupoId) : null,
+        notas: p.notas || ''
+      };
+    });
 
     console.log('✅ Sincronización exitosa: MongoDB -> Memoria Global');
   } catch (err) {
@@ -439,7 +539,6 @@ app.delete('/api/historial-pagos-vaciar-todo', requireAuth, async (req, res) => 
           pagada: false
         }
       });
-      // Sincronizar campo saldo con monto en todas las cuentas
       const cuentas = await Cuenta.find({});
       for (const c of cuentas) {
         c.saldo = Number(c.monto) || 0;
@@ -641,7 +740,7 @@ app.get('/api/verificar-sesion-stripe/:sessionId', async (req, res) => {
     }
 
     const metadata = session.metadata || {};
-    const nombreAlumno = (metadata.nombreAlumno || metadata.alumno || '').trim();
+    let nombreAlumno = (metadata.nombreAlumno || metadata.alumno || '').trim();
     const cuentaId = metadata.cuentaId || metadata.cuenta_id || '';
     const alumnoId = metadata.alumnoId || metadata.clienteId || '';
     const concepto = metadata.concepto || 'Abono en Línea (Stripe)';
@@ -649,11 +748,39 @@ app.get('/api/verificar-sesion-stripe/:sessionId', async (req, res) => {
       ? parseFloat(metadata.montoNetoAbono) 
       : (session.amount_total ? session.amount_total / 100 : 0);
 
+    // Rescate por cuenta o cliente en Atlas
+    if (!nombreAlumno || nombreAlumno.toLowerCase() === 'alumno') {
+      if (mongoose.connection.readyState === 1) {
+        if (cuentaId) {
+          const cta = await Cuenta.findOne({
+            $or: [
+              ...(mongoose.Types.ObjectId.isValid(cuentaId) ? [{ _id: new mongoose.Types.ObjectId(cuentaId) }] : []),
+              { id: String(cuentaId) }
+            ]
+          }).lean();
+          if (cta && cta.alumno && cta.alumno.toLowerCase() !== 'alumno') {
+            nombreAlumno = cta.alumno.trim();
+          }
+        }
+        if ((!nombreAlumno || nombreAlumno.toLowerCase() === 'alumno') && alumnoId) {
+          const cli = await Cliente.findOne({
+            $or: [
+              ...(mongoose.Types.ObjectId.isValid(alumnoId) ? [{ _id: new mongoose.Types.ObjectId(alumnoId) }] : []),
+              { id: String(alumnoId) }
+            ]
+          }).lean();
+          if (cli && cli.nombre && cli.nombre.toLowerCase() !== 'alumno') {
+            nombreAlumno = cli.nombre.trim();
+          }
+        }
+      }
+    }
+
     if (pagoController && typeof pagoController.aplicarAbonoACuenta === 'function') {
       await pagoController.aplicarAbonoACuenta({
         cuentaId,
         alumnoId,
-        nombreAlumno,
+        nombreAlumno: nombreAlumno || 'Alumno',
         monto,
         concepto,
         sessionId: session.id,
