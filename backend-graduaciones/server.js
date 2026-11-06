@@ -373,6 +373,8 @@ for (const ruta of rutasPosibles) {
   }
 }
 
+const stripe = process.env.STRIPE_SECRET_KEY ? require('stripe')(process.env.STRIPE_SECRET_KEY) : null;
+
 // 3. Webhook de Stripe
 app.post('/webhook', express.raw({ type: '*/*' }), async (req, res) => {
   if (pagoController && typeof pagoController.handleStripeWebhook === 'function') {
@@ -1094,9 +1096,30 @@ const entregarIndex = (res) => {
   res.status(500).send('Error: no se encontró index.html');
 };
 
+// =========================================================================
+// RUTA DE CIERRE DE SESIÓN DEFINITIVO (BASIC AUTH):
+// Destruye la caché de credenciales en el navegador con encabezados 401 y Clear-Site-Data
+// =========================================================================
 app.get('/api/logout', (req, res) => {
-  res.setHeader('WWW-Authenticate', 'Basic realm="Panel de Administrador"');
-  res.status(401).send('Sesión cerrada');
+  res.setHeader('Clear-Site-Data', '"cache", "cookies", "storage"');
+  res.setHeader('WWW-Authenticate', 'Basic realm="Panel de Administrador", charset="UTF-8"');
+  res.status(401).send(`
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+      <meta charset="UTF-8">
+      <title>Sesión Cerrada</title>
+      <script>
+        try { sessionStorage.clear(); } catch(e){}
+        window.location.replace('/pago');
+      </script>
+    </head>
+    <body style="background:#0f172a; color:#fff; font-family:sans-serif; text-align:center; padding-top:60px;">
+      <h2>🔒 Sesión cerrada correctamente</h2>
+      <p>Credenciales invalidadas. Redirigiendo...</p>
+    </body>
+    </html>
+  `);
 });
 
 app.get(['/', '/pago', '/portal'], (req, res) => {

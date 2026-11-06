@@ -105,7 +105,7 @@
       <button 
         type="button" 
         onclick="cerrarSesionAdmin()" 
-        class="w-full flex items-center justify-center gap-2 py-2 px-3 bg-red-950/40 hover:bg-red-900/60 text-red-300 hover:text-red-100 text-xs font-bold rounded-xl border border-red-800/40 transition-colors shadow-sm"
+        class="w-full flex items-center justify-center gap-2 py-2 px-3 bg-red-950/40 hover:bg-red-900/60 text-red-300 hover:text-red-100 text-xs font-bold rounded-xl border border-red-800/40 transition-colors shadow-sm cursor-pointer"
       >
         🔒 Cerrar Sesión
       </button>
@@ -1285,15 +1285,23 @@
       }
     }
 
+    // =========================================================================
+    // CIERRE DE SESIÓN SEGURO Y DEFINITIVO
+    // Forzamos redirección a la ruta de logout para invalidar las credenciales en caché
+    // =========================================================================
     async function cerrarSesionAdmin() {
       try {
-        await fetch('/api/logout', {
-          headers: {
-            'Authorization': 'Basic ' + btoa('logout:desconectar')
-          }
-        });
+        const xhr = new XMLHttpRequest();
+        xhr.open("GET", "/api/logout", true, "logout", "invalido");
+        xhr.send();
       } catch (e) {}
-      window.location.href = '/pago';
+
+      localStorage.removeItem('app_saldos_10p');
+      localStorage.removeItem('app_pagos_historial');
+
+      setTimeout(() => {
+        window.location.href = '/api/logout';
+      }, 100);
     }
 
     function cargarLogoGuardado() {
@@ -1492,7 +1500,6 @@
         const totalRecaudado = saldosUso.reduce((acc, s) => acc + calcularTotalPagado(s.pagos), 0);
         const totalPendiente = totalMonto - totalRecaudado;
 
-        // 1. DESGLOSE FINANCIERO POR CADA GRUPO
         const desgloseGrupos = {};
 
         grupos.forEach(g => {
@@ -1584,7 +1591,6 @@
           `;
         });
 
-        // 2. DESGLOSE POR PAQUETES
         const desglosePaquetes = {};
         saldosUso.forEach(s => {
           const paqCompleto = s.paquete || 'Sin Paquete';
