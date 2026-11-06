@@ -21,7 +21,7 @@
   <aside id="barraLateral" class="w-64 bg-slate-900 text-white p-5 flex flex-col justify-between shrink-0 shadow-xl relative z-10 border-r border-slate-800 max-h-screen overflow-y-auto">
     <div>
       <!-- LOGO Y TÍTULO DE LA EMPRESA -->
-      <div class="mb-6 flex flex-col items-start gap-1">
+      <div class="mb-4 flex flex-col items-start gap-1">
         <div id="contenedorLogo" class="w-full flex items-center justify-start h-20 p-1">
           <img 
             id="imgLogo" 
@@ -39,6 +39,12 @@
           📷 <span id="txtSubirLogo">Subir / Cambiar Logo</span>
           <input type="file" id="inputSubirLogo" accept="image/*" onchange="subirLogoLocal(event)" class="hidden" />
         </label>
+      </div>
+
+      <!-- MENSAJE DE BIENVENIDA AL USUARIO ACTIVO -->
+      <div id="contenedorBienvenidaUsuario" class="mb-5 px-3 py-2.5 bg-gradient-to-r from-slate-800 to-blue-950 rounded-xl border border-blue-500/30 shadow-inner">
+        <p class="text-[10px] font-extrabold uppercase tracking-wider text-blue-400">Usuario Activo</p>
+        <p id="textoBienvenidaUsuario" class="text-sm font-black text-white truncate mt-0.5">👋 Hola Harold</p>
       </div>
 
       <!-- NAVEGACIÓN ADMINISTRADOR GENERAL -->
@@ -841,13 +847,11 @@
     function resolverNombreAlumnoReal(pagoObj) {
       if (!pagoObj) return 'Alumno';
 
-      // 1. Extraer nombre directo si existe y no es la palabra 'Alumno'
       const nombreDirecto = (pagoObj.alumno || pagoObj.nombreAlumno || pagoObj.estudiante || '').trim();
       if (nombreDirecto && nombreDirecto.toLowerCase() !== 'alumno') {
         return nombreDirecto;
       }
 
-      // 2. Extraer desde el campo 'notas' generado por Stripe: "Stripe: cs_... | Alumno: Juan Perez | ..."
       if (pagoObj.notas && typeof pagoObj.notas === 'string' && pagoObj.notas.includes('Alumno:')) {
         const matchNota = pagoObj.notas.match(/Alumno:\s*([^|]+)/i);
         if (matchNota && matchNota[1] && matchNota[1].trim().toLowerCase() !== 'alumno') {
@@ -855,7 +859,6 @@
         }
       }
 
-      // 3. Cruzar por ID de Cuenta (cuentaId / cuenta / _id)
       const ctaId = String(pagoObj.cuentaId || pagoObj.cuenta || pagoObj.id || pagoObj._id || '');
       if (ctaId) {
         const saldoCta = saldos.find(s => String(s.id || s._id) === ctaId);
@@ -864,7 +867,6 @@
         }
       }
 
-      // 4. Cruzar por ID de Alumno o Cliente (alumnoId / clienteId / cliente)
       const aId = String(pagoObj.alumnoId || pagoObj.clienteId || pagoObj.cliente || '');
       if (aId) {
         const alumnoObj = alumnos.find(a => String(a.id || a._id) === aId);
@@ -877,7 +879,6 @@
         }
       }
 
-      // 5. Cruzar por concordancia de abono en casillas (Si la cuenta tiene registrado exactamente ese abono)
       const montoNum = parseFloat(pagoObj.monto || pagoObj.montoAbonado || 0);
       if (montoNum > 0) {
         const saldoMontoCoincidente = saldos.find(s => 
@@ -925,6 +926,16 @@
         if (res.ok) {
           const data = await res.json();
           rolUsuarioConectado = data.rol || 'staff';
+
+          // Actualizar saludo de bienvenida con el nombre del usuario
+          const textoSaludo = document.getElementById('textoBienvenidaUsuario');
+          if (textoSaludo) {
+            let nombreMostrar = (data.nombre || '').trim();
+            if (!nombreMostrar || nombreMostrar.toLowerCase() === 'administrador maestro') {
+              nombreMostrar = 'Harold';
+            }
+            textoSaludo.innerText = `👋 Hola ${nombreMostrar}`;
+          }
         }
       } catch (e) {
         console.warn('No se pudo verificar el perfil en sesión:', e);
@@ -2846,17 +2857,14 @@
         pdfLogoTexto.style.display = 'none';
       }
 
-      // Resolver el nombre verificado del alumno con máxima prioridad
       const nombreVerificado = resolverNombreAlumnoReal(pagoObj);
       const keyNorm = nombreVerificado.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
-      // Búsqueda del alumno
       const alumnoObj = alumnos.find(a => {
         const nom = (a.nombre || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
         return nom === keyNorm || (pagoObj.alumnoId && String(a.id || a._id) === String(pagoObj.alumnoId));
       }) || {};
 
-      // Búsqueda del saldo de la cuenta
       const saldoObj = saldos.find(s => {
         const nom = (s.alumno || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
         return nom === keyNorm || (pagoObj.cuentaId && String(s.id || s._id) === String(pagoObj.cuentaId)) || (alumnoObj.id && String(s.cliente) === String(alumnoObj.id));
@@ -3468,7 +3476,6 @@
         return;
       }
 
-      // Nombre formal garantizado: buscar en alumnos o saldos si viene vacío
       let nombreParaStripe = (alumnoSesionActual.nombre || alumnoSesionActual.alumno || '').trim();
       
       const saldoObj = saldos.find(s => 

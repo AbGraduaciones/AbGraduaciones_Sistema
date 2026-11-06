@@ -96,7 +96,7 @@ const Usuario = cargarModelo(['./models/Usuario', './models/usuario', './models/
   activo: { type: Boolean, default: true }
 }, { timestamps: true }));
 
-// Middleware de autenticación
+// Middleware de autenticación (Asigna nombre Harold al administrador principal)
 const requireAuth = async (req, res, next) => {
   const authHeader = req.headers.authorization;
 
@@ -113,7 +113,7 @@ const requireAuth = async (req, res, next) => {
   const adminPass = process.env.ADMIN_PASS;
 
   if (usuario === adminUser && password === adminPass) {
-    req.usuarioSesion = { usuario: adminUser, rol: 'admin', nombre: 'Administrador Maestro' };
+    req.usuarioSesion = { usuario: adminUser, rol: 'admin', nombre: 'Harold' };
     return next();
   }
 
@@ -168,10 +168,7 @@ global.datosCompartidos = {
   grupos: []
 };
 
-// =========================================================================
-// SANEAMIENTO AUTOMÁTICO DE NOMBRES EN BASE DE DATOS:
-// Reasigna los pagos que quedaron con "Alumno" a su respectivo alumno real.
-// =========================================================================
+// Saneamiento de pagos anónimos en base de datos
 async function sanearPagosAnonimosEnBD() {
   if (mongoose.connection.readyState !== 1) return;
   try {
@@ -185,12 +182,9 @@ async function sanearPagosAnonimosEnBD() {
 
     if (pagosAnonimos.length === 0) return;
 
-    console.log(`🔧 Encontrados ${pagosAnonimos.length} pagos sin nombre real. Saneando automáticamente...`);
-
     for (const p of pagosAnonimos) {
       let nombreReal = '';
 
-      // 1. Extraer de notas si fue de Stripe: "Stripe: ... | Alumno: Juan Perez | ..."
       if (p.notas && p.notas.includes('Alumno:')) {
         const match = p.notas.match(/Alumno:\s*([^|]+)/i);
         if (match && match[1] && match[1].trim().toLowerCase() !== 'alumno') {
@@ -198,7 +192,21 @@ async function sanearPagosAnonimosEnBD() {
         }
       }
 
-      // 2. Buscar por referencia de cuenta
+      if (!nombreReal && stripe && p.id && String(p.id).startsWith('cs_')) {
+        try {
+          const ses = await stripe.checkout.sessions.retrieve(p.id);
+          if (ses) {
+            const meta = ses.metadata || {};
+            const nomMeta = (meta.nombreAlumno || meta.alumno || '').trim();
+            if (nomMeta && nomMeta.toLowerCase() !== 'alumno') {
+              nombreReal = nomMeta;
+            } else if (ses.customer_details && ses.customer_details.name && ses.customer_details.name.toLowerCase() !== 'alumno') {
+              nombreReal = ses.customer_details.name.trim();
+            }
+          }
+        } catch (eStripe) {}
+      }
+
       if (!nombreReal && p.cuenta) {
         const cta = await Cuenta.findOne({
           $or: [
@@ -211,7 +219,6 @@ async function sanearPagosAnonimosEnBD() {
         }
       }
 
-      // 3. Buscar por cliente / alumnoId
       if (!nombreReal && p.cliente) {
         const cli = await Cliente.findOne({
           $or: [
@@ -224,7 +231,6 @@ async function sanearPagosAnonimosEnBD() {
         }
       }
 
-      // 4. Buscar por coincidencia de monto en Cuentas
       if (!nombreReal && p.monto) {
         const ctaMonto = await Cuenta.findOne({ pagos: Number(p.monto) }).lean();
         if (ctaMonto && ctaMonto.alumno && ctaMonto.alumno.toLowerCase() !== 'alumno') {
@@ -235,7 +241,6 @@ async function sanearPagosAnonimosEnBD() {
       if (nombreReal) {
         p.alumno = nombreReal;
         await p.save();
-        console.log(`✅ Pago ${p._id} ($${p.monto}) reasignado a: "${nombreReal}"`);
       }
     }
   } catch (errSanear) {
@@ -302,15 +307,14 @@ async function sincronizarMemoriaDesdeBD() {
 
     global.datosCompartidos.pagos = pagosBD.map((p, idx) => {
       let nom = (p.alumno || '').trim();
-      // Si aún llega como 'Alumno', intentar cruzar con cuentas
       if (!nom || nom.toLowerCase() === 'alumno') {
         if (p.cuenta) {
           const cta = cuentasBD.find(c => String(c._id) === String(p.cuenta) || String(c.id) === String(p.cuenta));
-          if (cta && cta.alumno) nom = cta.alumno.trim();
+          if (cta && cta.alumno && cta.alumno.toLowerCase() !== 'alumno') nom = cta.alumno.trim();
         }
         if ((!nom || nom.toLowerCase() === 'alumno') && p.cliente) {
           const cli = clientesBD.find(c => String(c.id) === String(p.cliente) || String(c._id) === String(p.cliente));
-          if (cli && cli.nombre) nom = cli.nombre.trim();
+          if (cli && cli.nombre && cli.nombre.toLowerCase() !== 'alumno') nom = cli.nombre.trim();
         }
       }
       if (!nom) nom = 'Alumno';
@@ -333,8 +337,6 @@ async function sincronizarMemoriaDesdeBD() {
         notas: p.notas || ''
       };
     });
-
-    console.log('✅ Sincronización exitosa: MongoDB -> Memoria Global');
   } catch (err) {
     console.error('⚠️ Error al sincronizar desde MongoDB:', err.message);
   }
@@ -370,8 +372,6 @@ for (const ruta of rutasPosibles) {
     }
   }
 }
-
-const stripe = process.env.STRIPE_SECRET_KEY ? require('stripe')(process.env.STRIPE_SECRET_KEY) : null;
 
 // 3. Webhook de Stripe
 app.post('/webhook', express.raw({ type: '*/*' }), async (req, res) => {
@@ -489,7 +489,6 @@ app.post('/api/datos', async (req, res) => {
   }
 });
 
-// --- RUTA PARA BORRAR EL HISTORIAL COMPLETO DE UN ALUMNO ESPECÍFICO ---
 app.delete('/api/historial-pagos-alumno/:nombreAlumno', async (req, res) => {
   try {
     const nombre = decodeURIComponent(req.params.nombreAlumno || '').trim();
@@ -502,7 +501,6 @@ app.delete('/api/historial-pagos-alumno/:nombreAlumno', async (req, res) => {
     if (mongoose.connection.readyState === 1) {
       await Pago.deleteMany({ alumno: reg });
 
-      // Resetear abonos en la cuenta del alumno a 0
       const cta = await Cuenta.findOne({ alumno: reg });
       if (cta) {
         cta.pagos = [0,0,0,0,0,0,0,0,0,0];
@@ -528,7 +526,6 @@ app.delete('/api/historial-pagos-alumno/:nombreAlumno', async (req, res) => {
   }
 });
 
-// --- RUTA PARA VACIAR TODO EL HISTORIAL GENERAL ---
 app.delete('/api/historial-pagos-vaciar-todo', requireAuth, async (req, res) => {
   try {
     if (mongoose.connection.readyState === 1) {
@@ -559,7 +556,6 @@ app.delete('/api/historial-pagos-vaciar-todo', requireAuth, async (req, res) => 
   }
 });
 
-// Eliminar un Saldo / Cuenta
 app.delete('/api/saldos/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -580,7 +576,6 @@ app.delete('/api/saldos/:id', async (req, res) => {
   }
 });
 
-// Eliminar un Alumno
 app.delete('/api/alumnos/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -601,7 +596,6 @@ app.delete('/api/alumnos/:id', async (req, res) => {
   }
 });
 
-// Eliminar un Abono Individual
 app.delete('/api/historial-pagos/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -647,7 +641,6 @@ app.delete('/api/historial-pagos/:id', async (req, res) => {
   }
 });
 
-// Editar un Abono Individual
 app.put('/api/historial-pagos/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -711,7 +704,6 @@ app.put('/api/historial-pagos/:id', async (req, res) => {
   }
 });
 
-// 6. Rutas de pagos (Públicas)
 const procesarCheckout = (req, res) => {
   if (pagoController && typeof pagoController.crearCheckoutSession === 'function') {
     return pagoController.crearCheckoutSession(req, res);
@@ -748,7 +740,12 @@ app.get('/api/verificar-sesion-stripe/:sessionId', async (req, res) => {
       ? parseFloat(metadata.montoNetoAbono) 
       : (session.amount_total ? session.amount_total / 100 : 0);
 
-    // Rescate por cuenta o cliente en Atlas
+    if (!nombreAlumno || nombreAlumno.toLowerCase() === 'alumno') {
+      if (session.customer_details && session.customer_details.name && session.customer_details.name.toLowerCase() !== 'alumno') {
+        nombreAlumno = session.customer_details.name.trim();
+      }
+    }
+
     if (!nombreAlumno || nombreAlumno.toLowerCase() === 'alumno') {
       if (mongoose.connection.readyState === 1) {
         if (cuentaId) {
@@ -799,7 +796,6 @@ app.get('/api/verificar-sesion-stripe/:sessionId', async (req, res) => {
   }
 });
 
-// 7. Transporte de correo
 let transporter = null;
 if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
   transporter = nodemailer.createTransport({
@@ -813,7 +809,6 @@ if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
   });
 }
 
-// 8. Envío de Código OTP
 app.post('/api/enviar-codigo-seguridad', async (req, res) => {
   try {
     const { email, nombre, alumnoId, codigo: codigoRecibido } = req.body;
@@ -853,7 +848,6 @@ app.post('/api/enviar-codigo-seguridad', async (req, res) => {
   }
 });
 
-// 9. Verificación de Código OTP
 app.post('/api/verificar-codigo-seguridad', (req, res) => {
   const { alumnoId, email, codigo } = req.body;
   const codigoStr = String(codigo || '').trim();
@@ -881,12 +875,13 @@ app.post('/api/verificar-codigo-seguridad', (req, res) => {
   return res.status(400).json({ success: false, message: 'Código incorrecto o no encontrado' });
 });
 
-// 10. Perfil y Grupos
+// Perfil que devuelve Harold para el admin master
 app.get('/api/mi-perfil', requireAuth, (req, res) => {
+  const esMaster = (req.usuarioSesion?.usuario === (process.env.ADMIN_USER || 'admin'));
   res.json({
     ok: true,
     usuario: req.usuarioSesion?.usuario,
-    nombre: req.usuarioSesion?.nombre,
+    nombre: esMaster ? 'Harold' : (req.usuarioSesion?.nombre || 'Harold'),
     rol: req.usuarioSesion?.rol || 'staff'
   });
 });
@@ -985,7 +980,6 @@ app.delete('/api/grupos/:id', requireAuth, async (req, res) => {
   }
 });
 
-// Usuarios
 app.get('/api/usuarios', requireAuth, requireAdmin, async (req, res) => {
   try {
     const usuarios = await Usuario.find({}, '-password').sort({ createdAt: -1 }).lean();
@@ -1064,7 +1058,6 @@ app.put('/api/usuarios/:id', requireAuth, requireAdmin, async (req, res) => {
   }
 });
 
-// 11. Archivos estáticos
 app.get('/logo.png', (req, res) => {
   const posiblesRutasLogo = [
     path.join(process.cwd(), 'public', 'logo.png'),
@@ -1101,7 +1094,6 @@ const entregarIndex = (res) => {
   res.status(500).send('Error: no se encontró index.html');
 };
 
-// 12. Rutas visuales
 app.get('/api/logout', (req, res) => {
   res.setHeader('WWW-Authenticate', 'Basic realm="Panel de Administrador"');
   res.status(401).send('Sesión cerrada');
