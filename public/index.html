@@ -837,17 +837,25 @@
 
     let pagosConsolidadosCache = [];
 
-    // Función auxiliar para resolver el nombre real de un alumno en un pago con máxima tolerancia
+    // RESOLUCIÓN ROBUSTA: Garantiza extraer el nombre verdadero del estudiante
     function resolverNombreAlumnoReal(pagoObj) {
       if (!pagoObj) return 'Alumno';
-      const nombreDirecto = (pagoObj.alumno || pagoObj.nombreAlumno || pagoObj.estudiante || '').trim();
 
-      // Si tiene nombre específico y no es genérico "Alumno"
+      // 1. Extraer nombre directo si existe y no es la palabra 'Alumno'
+      const nombreDirecto = (pagoObj.alumno || pagoObj.nombreAlumno || pagoObj.estudiante || '').trim();
       if (nombreDirecto && nombreDirecto.toLowerCase() !== 'alumno') {
         return nombreDirecto;
       }
 
-      // 1. Cruzar por ID de Cuenta (cuentaId / cuenta / _id)
+      // 2. Extraer desde el campo 'notas' generado por Stripe: "Stripe: cs_... | Alumno: Juan Perez | ..."
+      if (pagoObj.notas && typeof pagoObj.notas === 'string' && pagoObj.notas.includes('Alumno:')) {
+        const matchNota = pagoObj.notas.match(/Alumno:\s*([^|]+)/i);
+        if (matchNota && matchNota[1] && matchNota[1].trim().toLowerCase() !== 'alumno') {
+          return matchNota[1].trim();
+        }
+      }
+
+      // 3. Cruzar por ID de Cuenta (cuentaId / cuenta / _id)
       const ctaId = String(pagoObj.cuentaId || pagoObj.cuenta || pagoObj.id || pagoObj._id || '');
       if (ctaId) {
         const saldoCta = saldos.find(s => String(s.id || s._id) === ctaId);
@@ -856,7 +864,7 @@
         }
       }
 
-      // 2. Cruzar por ID de Alumno / Cliente (alumnoId / clienteId / cliente)
+      // 4. Cruzar por ID de Alumno o Cliente (alumnoId / clienteId / cliente)
       const aId = String(pagoObj.alumnoId || pagoObj.clienteId || pagoObj.cliente || '');
       if (aId) {
         const alumnoObj = alumnos.find(a => String(a.id || a._id) === aId);
@@ -869,12 +877,15 @@
         }
       }
 
-      // 3. Si en el concepto o folio viene el nombre o número de abono asociado
-      if (pagoObj.concepto && typeof pagoObj.concepto === 'string') {
-        for (const s of saldos) {
-          if (s.alumno && s.alumno.toLowerCase() !== 'alumno' && pagoObj.concepto.toLowerCase().includes(s.alumno.toLowerCase())) {
-            return s.alumno.trim();
-          }
+      // 5. Cruzar por concordancia de abono en casillas (Si la cuenta tiene registrado exactamente ese abono)
+      const montoNum = parseFloat(pagoObj.monto || pagoObj.montoAbonado || 0);
+      if (montoNum > 0) {
+        const saldoMontoCoincidente = saldos.find(s => 
+          Array.isArray(s.pagos) && s.pagos.some(p => Math.abs(parseFloat(p) - montoNum) < 0.01) &&
+          s.alumno && s.alumno.toLowerCase() !== 'alumno'
+        );
+        if (saldoMontoCoincidente) {
+          return saldoMontoCoincidente.alumno.trim();
         }
       }
 
@@ -3457,8 +3468,9 @@
         return;
       }
 
-      // Nombre formal garantizado
+      // Nombre formal garantizado: buscar en alumnos o saldos si viene vacío
       let nombreParaStripe = (alumnoSesionActual.nombre || alumnoSesionActual.alumno || '').trim();
+      
       const saldoObj = saldos.find(s => 
         (s.cliente && String(s.cliente) === String(alumnoSesionActual.id || '')) ||
         (s.alumno && nombreParaStripe && s.alumno.toLowerCase() === nombreParaStripe.toLowerCase())
@@ -3466,6 +3478,13 @@
 
       if ((!nombreParaStripe || nombreParaStripe.toLowerCase() === 'alumno') && saldoObj && saldoObj.alumno) {
         nombreParaStripe = saldoObj.alumno.trim();
+      }
+
+      if ((!nombreParaStripe || nombreParaStripe.toLowerCase() === 'alumno') && alumnoSesionActual.id) {
+        const aluRef = alumnos.find(a => String(a.id || a._id) === String(alumnoSesionActual.id));
+        if (aluRef && aluRef.nombre) {
+          nombreParaStripe = aluRef.nombre.trim();
+        }
       }
 
       const totalPagadoActual = calcularTotalPagado(saldoObj ? saldoObj.pagos : []);
