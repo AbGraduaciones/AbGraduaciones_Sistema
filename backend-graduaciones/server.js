@@ -455,7 +455,7 @@ app.post('/api/datos', async (req, res) => {
             ? { _id: cuentaExistente._id } 
             : { $or: [{ id: s.id }, { alumno: (s.alumno || '').trim() }] };
 
-          await Cuenta.findOneAndUpdate(
+          const cuentaGuardada = await Cuenta.findOneAndUpdate(
             filtroCuenta,
             {
               id: s.id || (cuentaExistente ? cuentaExistente.id : 'CTA-' + Date.now()),
@@ -474,14 +474,49 @@ app.post('/api/datos', async (req, res) => {
             },
             { upsert: true, new: true }
           );
+
+          // SINCRONIZAR AUTOMÁTICAMENTE EN EL HISTORIAL DE PAGOS (Pago)
+          const nombreAlumnoLimpio = (s.alumno || '').trim();
+          if (nombreAlumnoLimpio && nombreAlumnoLimpio.toLowerCase() !== 'alumno') {
+            for (let i = 0; i < 10; i++) {
+              const montoCasilla = Number(pagosArr[i]) || 0;
+              const conceptoCasilla = s.esContadoEfectivo ? 'Pago Contado Efectivo' : `Pago ${i + 1}`;
+              const identificadorPagoManual = `PAG-${cuentaGuardada._id || cuentaGuardada.id}-C${i + 1}`;
+
+              if (montoCasilla > 0) {
+                await Pago.findOneAndUpdate(
+                  { 
+                    $or: [
+                      { id: identificadorPagoManual },
+                      { cuenta: cuentaGuardada._id, concepto: conceptoCasilla }
+                    ]
+                  },
+                  {
+                    id: identificadorPagoManual,
+                    cuenta: cuentaGuardada._id,
+                    cliente: cuentaGuardada.cliente || '1001',
+                    alumno: nombreAlumnoLimpio,
+                    concepto: conceptoCasilla,
+                    monto: montoCasilla,
+                    fecha: new Date(),
+                    metodoPago: s.esContadoEfectivo ? 'Efectivo (Contado)' : 'Efectivo / Transferencia (Admin)',
+                    grupoId: cuentaGuardada.grupoId || null,
+                    notas: `Abono registrado por Administrador | Alumno: ${nombreAlumnoLimpio}`
+                  },
+                  { upsert: true, new: true }
+                );
+              } else {
+                // Si la casilla está en 0, eliminar abono manual previo si existía
+                await Pago.deleteMany({
+                  id: identificadorPagoManual
+                });
+              }
+            }
+          }
         }
       } else {
         global.datosCompartidos.saldos = saldos;
       }
-    }
-
-    if (mongoose.connection.readyState === 1) {
-      await sincronizarMemoriaDesdeBD();
     }
 
     res.json({ ok: true, mensaje: 'Datos sincronizados correctamente' });

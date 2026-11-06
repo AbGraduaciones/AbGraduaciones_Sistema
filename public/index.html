@@ -2142,6 +2142,35 @@
             idxEncontrado = indiceEdicion;
           }
 
+          // Reflejar abonos capturados en la lista local de pagos para el Historial
+          const idCuentaUso = (idxEncontrado !== -1) ? (saldos[idxEncontrado].id || saldos[idxEncontrado]._id) : ('CTA-' + Date.now());
+          
+          pagosCapturados.forEach((montoP, idxP) => {
+            const conceptoP = esContadoEfectivo ? 'Pago Contado Efectivo' : `Pago ${idxP + 1}`;
+            const idGeneradoP = `PAG-${idCuentaUso}-C${idxP + 1}`;
+
+            // Quitar si existía para actualizar
+            pagos = pagos.filter(p => p.id !== idGeneradoP && !(p.cuentaId === idCuentaUso && p.concepto === conceptoP));
+
+            if (montoP > 0) {
+              pagos.push({
+                id: idGeneradoP,
+                folio: idGeneradoP,
+                cuentaId: String(idCuentaUso),
+                alumnoId: String(alumnoObj.id),
+                alumno: alumnoInput,
+                nombreAlumno: alumnoInput,
+                concepto: conceptoP,
+                monto: montoP,
+                montoAbonado: montoP,
+                fecha: new Date().toISOString().split('T')[0],
+                metodo: esContadoEfectivo ? 'Efectivo (Contado)' : 'Efectivo / Admin',
+                estado: 'Completado',
+                grupoId: grupoIdAsignado
+              });
+            }
+          });
+
           if (idxEncontrado !== -1) {
             saldos[idxEncontrado].alumno = alumnoInput;
             saldos[idxEncontrado].cliente = String(alumnoObj.id);
