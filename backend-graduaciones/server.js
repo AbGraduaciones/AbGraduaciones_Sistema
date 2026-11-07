@@ -822,6 +822,30 @@ app.get('/api/verificar-sesion-stripe/:sessionId', async (req, res) => {
       });
     }
 
+    // Después de que pagoController.aplicarAbonoACuenta descuenta el saldo
+    const emailDestino = session.customer_details?.email || session.customer_email || metadata.email;
+
+    if (emailDestino) {
+      // Consultamos la cuenta para tener el saldo actualizado exacto
+      const ctaActualizada = await Cuenta.findOne({
+        $or: [
+          { id: cuentaId },
+          { alumno: new RegExp(`^${nombreAlumno}$`, 'i') }
+        ]
+      }).lean();
+
+      await enviarReciboPorCorreo(emailDestino, {
+        folio: session.id.slice(-8).toUpperCase(),
+        fecha: new Date().toISOString().split('T')[0],
+        alumno: nombreAlumno,
+        universidad: ctaActualizada?.universidad || 'Universidad',
+        carrera: ctaActualizada?.escuela || 'Carrera',
+        paquete: ctaActualizada?.paquete || 'Graduación',
+        montoAbonado: monto,
+        nuevoSaldo: ctaActualizada?.saldo ?? 0
+      });
+    }
+
     if (mongoose.connection.readyState === 1) {
       await sincronizarMemoriaDesdeBD();
     }
@@ -1174,3 +1198,81 @@ const servidor = app.listen(PORT, () => {
 });
 
 module.exports = { app, servidor };
+
+const PDFDocument = require('pdfkit');
+
+// Genera el buffer del PDF oficial de pago
+function generarReciboPDFBuffer({ folio, fecha, alumno, universidad, carrera, paquete, montoAbonado, nuevoSaldo }) {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ margin: 40, size: 'A4' });
+    const buffers = [];
+
+    doc.on('data', buffers.push.bind(buffers));
+    doc.on('end', () => resolve(Buffer.concat(buffers)));
+    doc.on('error', reject);
+
+    // Encabezado
+    doc.fillColor('#1e3a8a').fontSize(20).text('AB GRADUACIONES', { align: 'left' });
+    doc.fillColor('#3b82f6').fontSize(10).text('Comprobante Oficial de Pago Digital', { align: 'left' });
+    doc.moveDown();
+
+    // Datos del recibo
+    doc.fillColor('#0f172a').fontSize(11);
+    doc.text(`Folio: ${folio}`);
+    doc.text(`Fecha: ${fecha}`);
+    doc.moveDown();
+
+    // Datos del alumno
+    doc.rect(40, doc.y, 515, 65).fillAndStroke('#f0f9ff', '#bae6fd');
+    doc.fillColor('#0369a1').fontSize(9).text('DATOS DEL ALUMNO Y PAQUETE', 50, doc.y + 10);
+    doc.fillColor('#0f172a').fontSize(12).text(`Alumno: ${alumno}`, 50);
+    doc.fontSize(10).text(`Carrera / Institución: ${carrera} - ${universidad}`, 50);
+    doc.text(`Paquete: ${paquete}`, 50);
+    doc.moveDown(2);
+
+    // Detalle económico
+    doc.fillColor('#15803d').fontSize(12).text(`Monto Abonado: $${Number(montoAbonado).toLocaleString()} MXN`);
+    doc.fillColor('#b45309').fontSize(12).text(`Saldo Pendiente Restante: $${Number(nuevoSaldo).toLocaleString()} MXN`);
+    doc.moveDown();
+
+    doc.fillColor('#64748b').fontSize(9).text('Gracias por tu pago. Conserva este comprobante oficial para cualquier aclaración.', { align: 'center' });
+
+    doc.end();
+  });
+}
+
+// Envía el correo al alumno con el PDF adjunto
+async function enviarReciboPorCorreo(destinatarioEmail, datosPago) {
+  if (!transporter || !destinatarioEmail) return;
+
+  try {
+    const pdfBuffer = await generarReciboPDFBuffer(datosPago);
+
+    await transporter.sendMail({
+      from: `"Ab Graduaciones" <${process.env.EMAIL_USER}>`,
+      to: destinatarioEmail,
+      subject: `Comprobante de Pago - Folio ${datosPago.folio}`,
+      html: `
+        <div style="font-family: Arial, sans-serif; color: #1e293b; padding: 20px;">
+          <h2 style="color: #1e3a8a;">¡Hola, ${datosPago.alumno}!</h2>
+          <p>Tu abono de <strong>$${Number(datosPago.montoAbonado).toLocaleString()} MXN</strong> ha sido procesado con éxito.</p>
+          <p>Tu nuevo saldo pendiente es de: <strong>$${Number(datosPago.nuevoSaldo).toLocaleString()} MXN</strong>.</p>
+          <p>Adjunto encontrarás tu comprobante oficial en formato PDF.</p>
+          <br>
+          <p style="font-size: 12px; color: #64748b;">Ab Graduaciones - Sistema Integral</p>
+        </div>
+      `,
+      attachments: [
+        {
+          filename: `Recibo_${datosPago.folio}.pdf`,
+          content: pdfBuffer,
+          contentType: 'application/pdf'
+        }
+      ]
+    });
+
+    console.log(`✉️ Recibo PDF enviado exitosamente a: ${destinatarioEmail}`);
+  } catch (error) {
+    console.error('❌ Error enviando recibo PDF por correo:', error.message);
+  }
+}
