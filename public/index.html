@@ -407,6 +407,7 @@
           <option value="">Pendiente de elección por el alumno</option>
           <option value="Anillo de Plata 925">💍 Anillo de Plata 925</option>
           <option value="Personalizador">✒️ Personalizador</option>
+          <option value="Sin regalía">🚫 No quiere ninguna regalía</option>
         </select>
         <p class="text-[11px] text-blue-700 mt-1">Si el alumno te solicita el cambio directamente, selecciona su regalía aquí para que se refleje de inmediato en su recibo PDF.</p>
       </div>
@@ -2412,7 +2413,9 @@
 
         const entregasObj = item.entregas || {};
         const totalEntregados = Object.values(entregasObj).filter(Boolean).length;
-        const totalMateriales = MATERIALES_ENTREGAS_COMPLETO.length;
+        const totalMateriales = item.eleccionEspecial === 'Sin regalía' 
+          ? MATERIALES_ENTREGAS_COMPLETO.length - 2 
+          : (item.eleccionEspecial ? MATERIALES_ENTREGAS_COMPLETO.length - 1 : MATERIALES_ENTREGAS_COMPLETO.length);
 
         const g = grupos.find(gr => String(gr._id || gr.id) === String(item.grupoId));
         const nombreGrupoLabel = g ? g.nombre : (item.grupoNombre || 'General');
@@ -2821,6 +2824,20 @@
       const contenedor = document.getElementById('listaMaterialesEntregas');
       contenedor.innerHTML = '';
 
+      if (saldoObj.eleccionEspecial === 'Sin regalía') {
+        contenedor.innerHTML += `
+          <div class="p-3 bg-slate-100 border border-slate-300 rounded-xl text-xs font-bold text-slate-700 flex items-center gap-2">
+            <span>🚫</span>
+            <span>El alumno indicó que no desea ninguna regalía especial.</span>
+          </div>
+        `;
+      }
+
+      if (saldoObj.eleccionEspecial === 'Sin regalía') {
+        htmlEntregados += `<li style="margin-bottom: 3px; color: #475569;"><em>Regalía Especial: El alumno optó por no recibir regalía.</em></li>`;
+        cantEntregados++;
+      }
+
       MATERIALES_ENTREGAS_COMPLETO.forEach((mat) => {
         const estaEntregado = !!saldoObj.entregas[mat];
         const esEspecial = mat === "Anillo de Plata 925" || mat === "Personalizador";
@@ -2839,7 +2856,7 @@
             textoEtiqueta += ' (Regalía Seleccionada ✅)';
           } else if (esLaDescartada) {
             claseEstilo = 'bg-slate-100 border-slate-200 opacity-50';
-            textoEtiqueta = '(Opción Descartada)';
+            textoEtiqueta = saldoObj.eleccionEspecial === 'Sin regalía' ? '(Renunció a regalía)' : '(Opción Descartada)';
           }
         }
 
@@ -3159,6 +3176,15 @@
       }
 
       let entregasChecklistHtml = '';
+      if (eleccionActual === 'Sin regalía') {
+        entregasChecklistHtml += `
+          <div class="p-3 bg-slate-100 rounded-xl border border-slate-300 flex justify-between items-center text-sm">
+            <span class="font-semibold text-slate-700">🚫 Regalía Especial</span>
+            <span class="text-xs font-bold text-slate-500">Sin regalía (Por elección del alumno)</span>
+          </div>
+        `;
+      }
+
       MATERIALES_ENTREGAS_COMPLETO.forEach(mat => {
         const esEspecial = mat === "Anillo de Plata 925" || mat === "Personalizador";
         
@@ -3211,7 +3237,7 @@
             <span><strong>Advertencia de Selección:</strong> Una vez confirmada tu elección con el administrador o en este portal, no se permiten cambios posteriores. Por favor asegúrate de tu decisión antes de guardar.</span>
           </div>
 
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div onclick="${tieneEleccionDefinitiva ? '' : "guardarEleccionAlumno('Anillo de Plata 925')"}" class="p-4 rounded-xl border-2 ${tieneEleccionDefinitiva ? 'cursor-not-allowed opacity-90' : 'cursor-pointer hover:bg-white/20'} transition-all ${eleccionActual === 'Anillo de Plata 925' ? 'bg-white text-slate-900 border-emerald-400 font-bold shadow-lg' : 'bg-white/10 text-white border-white/20'} flex items-center justify-between">
               <div>
                 <p class="text-sm font-bold">💍 Anillo de Plata 925</p>
@@ -3231,8 +3257,17 @@
                 ${eleccionActual === 'Personalizador' ? '🔒 Seleccionado' : (tieneEleccionDefinitiva ? 'No Elegido' : 'Elegir')}
               </span>
             </div>
+
+            <div onclick="${tieneEleccionDefinitiva ? '' : "guardarEleccionAlumno('Sin regalía')"}" class="p-4 rounded-xl border-2 ${tieneEleccionDefinitiva ? 'cursor-not-allowed opacity-90' : 'cursor-pointer hover:bg-white/20'} transition-all ${eleccionActual === 'Sin regalía' ? 'bg-white text-slate-900 border-emerald-400 font-bold shadow-lg' : 'bg-white/10 text-white border-white/20'} flex items-center justify-between">
+              <div>
+                <p class="text-sm font-bold">🚫 No quiero ninguna regalía</p>
+                <p class="text-[11px] ${eleccionActual === 'Sin regalía' ? 'text-emerald-700' : 'text-blue-200'}">Renunciar a la regalía incluida</p>
+              </div>
+              <span class="text-xs font-bold px-3 py-1 rounded-full ${eleccionActual === 'Sin regalía' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-800 text-slate-300'}">
+                ${eleccionActual === 'Sin regalía' ? '🔒 Seleccionado' : (tieneEleccionDefinitiva ? 'No Elegido' : 'Elegir')}
+              </span>
+            </div>
           </div>
-        </div>
 
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
