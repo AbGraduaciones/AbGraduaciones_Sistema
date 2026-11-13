@@ -2862,11 +2862,6 @@
         `;
       }
 
-      if (saldoObj.eleccionEspecial === 'Sin regalía') {
-        htmlEntregados += `<li style="margin-bottom: 3px; color: #475569;"><em>Regalía Especial: El alumno optó por no recibir regalía.</em></li>`;
-        cantEntregados++;
-      }
-
       MATERIALES_ENTREGAS_COMPLETO.forEach((mat) => {
         const estaEntregado = !!saldoObj.entregas[mat];
         const esEspecial = mat === "Anillo de Plata 925" || mat === "Personalizador";
@@ -3013,6 +3008,11 @@
       let htmlPendientes = '<ul style="margin: 0; padding-left: 18px; line-height: 1.7;">';
       let cantEntregados = 0;
       let cantPendientes = 0;
+
+      if (saldoObj.eleccionEspecial === 'Sin regalía') {
+        htmlEntregados += `<li style="margin-bottom: 3px; color: #475569;"><em>Regalía Especial: El alumno optó por no recibir regalía.</em></li>`;
+        cantEntregados++;
+      }
 
       let yaAgregadaAclaracionPendiente = false;
 
@@ -3626,7 +3626,7 @@
           : pagoPendientePasarela.conceptoTag,
         monto: montoAbonar
       };
-
+ 
       try {
         let respuesta = await fetch('/api/pagos/crear-checkout-session', {
           method: 'POST',
