@@ -2412,7 +2412,12 @@
           : 'bg-amber-100 text-amber-800 border border-amber-200 font-semibold';
 
         const entregasObj = item.entregas || {};
-        const totalEntregados = Object.values(entregasObj).filter(Boolean).length;
+        const totalEntregados = MATERIALES_ENTREGAS_COMPLETO.filter(mat => {
+          if (item.eleccionEspecial === 'Sin regalía' && (mat === 'Anillo de Plata 925' || mat === 'Personalizador')) return false;
+          if (item.eleccionEspecial && item.eleccionEspecial !== mat && (mat === 'Anillo de Plata 925' || mat === 'Personalizador')) return false;
+          return !!entregasObj[mat];
+        }).length;
+
         const totalMateriales = item.eleccionEspecial === 'Sin regalía' 
           ? MATERIALES_ENTREGAS_COMPLETO.length - 2 
           : (item.eleccionEspecial ? MATERIALES_ENTREGAS_COMPLETO.length - 1 : MATERIALES_ENTREGAS_COMPLETO.length);
@@ -2797,28 +2802,52 @@
     }
 
     function abrirModalEntregasPorItem(cuentaId) {
-      const saldoObj = saldos.find(s => String(s.id || s._id) === String(cuentaId));
-      if (!saldoObj) return;
+      const idBuscado = String(cuentaId || '').trim();
+      const saldoObj = saldos.find(s => String(s.id || s._id || '').trim() === idBuscado);
+      if (!saldoObj) {
+        console.warn('No se encontró el saldo con ID:', idBuscado);
+        return;
+      }
 
       indiceSaldoEntregaActual = saldos.indexOf(saldoObj);
       if (!saldoObj.entregas) saldoObj.entregas = {};
 
-      document.getElementById('selectEleccionAdmin').value = saldoObj.eleccionEspecial || "";
-      document.getElementById('entregasSubtitulo').innerText = `Alumno: ${saldoObj.alumno} | ${saldoObj.paquete}`;
-      renderizarItemsModalEntregas(saldoObj);
+      const selectEl = document.getElementById('selectEleccionAdmin');
+      if (selectEl) {
+        selectEl.value = saldoObj.eleccionEspecial || "";
+      }
 
+      const subtituloEl = document.getElementById('entregasSubtitulo');
+      if (subtituloEl) {
+        subtituloEl.innerText = `Alumno: ${saldoObj.alumno} | ${saldoObj.paquete}`;
+      }
+
+      renderizarItemsModalEntregas(saldoObj);
       document.getElementById('modalEntregas').classList.remove('hidden');
     }
 
     async function cambiarEleccionAdmin(nuevaOpcion) {
       if (indiceSaldoEntregaActual === null) return;
       const saldoObj = saldos[indiceSaldoEntregaActual];
+      if (!saldoObj) return;
+
       saldoObj.eleccionEspecial = nuevaOpcion;
+
+      // Si elige "Sin regalía" o cambia de opción, desmarcar regalías previas para evitar conteos erróneos
+      if (!saldoObj.entregas) saldoObj.entregas = {};
+      if (nuevaOpcion === 'Sin regalía' || nuevaOpcion === '') {
+        saldoObj.entregas["Anillo de Plata 925"] = false;
+        saldoObj.entregas["Personalizador"] = false;
+      } else if (nuevaOpcion === 'Anillo de Plata 925') {
+        saldoObj.entregas["Personalizador"] = false;
+      } else if (nuevaOpcion === 'Personalizador') {
+        saldoObj.entregas["Anillo de Plata 925"] = false;
+      }
 
       await guardarEnLocalStorage();
       renderizarItemsModalEntregas(saldoObj);
       renderizarTablaSaldos(obtenerSaldosFiltrados());
-    }
+    } 
 
     function renderizarItemsModalEntregas(saldoObj) {
       const contenedor = document.getElementById('listaMaterialesEntregas');

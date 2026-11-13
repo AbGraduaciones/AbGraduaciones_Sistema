@@ -1,6 +1,7 @@
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const Pago = require('../models/Pago');
 const Cuenta = require('../models/Cuenta');
+const Cliente = require('../models/Cliente');
 const mongoose = require('mongoose');
 
 // Limpia formatos monetarios ("$11,300", "-", null) a números reales
@@ -53,7 +54,6 @@ async function aplicarAbonoACuenta({ cuentaId, alumnoId, nombreAlumno, monto, co
 
   // =========================================================================
   // BLINDAJE CONTRA DOBLE PAGO (IDEMPOTENCIA):
-  // Si esta sesión de Stripe ya fue procesada, DETENER inmediatamente.
   // =========================================================================
   if (sessionId && sessionId !== 'MANUAL') {
     const pagoDuplicado = await Pago.findOne({
@@ -65,7 +65,7 @@ async function aplicarAbonoACuenta({ cuentaId, alumnoId, nombreAlumno, monto, co
     });
 
     if (pagoDuplicado) {
-      console.log(`🛑 Pago ${sessionId} ya fue procesado anteriormente. Omitiendo duplicado para evitar doble descuento.`);
+      console.log(`🛑 Pago ${sessionId} ya fue procesado anteriormente. Omitiendo duplicado.`);
       return null;
     }
   }
@@ -86,12 +86,12 @@ async function aplicarAbonoACuenta({ cuentaId, alumnoId, nombreAlumno, monto, co
   }
 
   // 3. Intento por nombre exacto o tolerante
-  if (!cuentaDoc && nombreAlumno && nombreAlumno !== 'Alumno') {
-    const nombreLimpio = nombreAlumno.trim();
-    cuentaDoc = await Cuenta.findOne({ alumno: new RegExp(`^${nombreLimpio}$`, 'i') });
+  let nombreBuscado = (nombreAlumno || '').trim();
+  if (!cuentaDoc && nombreBuscado && nombreBuscado.toLowerCase() !== 'alumno') {
+    cuentaDoc = await Cuenta.findOne({ alumno: new RegExp(`^${nombreBuscado}$`, 'i') });
 
     if (!cuentaDoc) {
-      const palabras = nombreLimpio.split(/\s+/).filter(p => p.length > 2);
+      const palabras = nombreBuscado.split(/\s+/).filter(p => p.length > 2);
       if (palabras.length >= 2) {
         const regexDosPalabras = new RegExp(`${palabras[0]}.*${palabras[1]}`, 'i');
         cuentaDoc = await Cuenta.findOne({ alumno: regexDosPalabras });
@@ -102,35 +102,44 @@ async function aplicarAbonoACuenta({ cuentaId, alumnoId, nombreAlumno, monto, co
     }
   }
 
-  // 4. Respaldo por coincidencia normalizada en la lista completa de cuentas
-  if (!cuentaDoc && nombreAlumno && nombreAlumno !== 'Alumno') {
-    const todasLasCuentas = await Cuenta.find();
-    const busqNorm = normalizarBusqueda(nombreAlumno);
-    const primerTermino = busqNorm.split(' ')[0];
-
-    cuentaDoc = todasLasCuentas.find(c => {
-      const nomC = normalizarBusqueda(c.alumno);
-      return nomC.includes(primerTermino) || primerTermino.includes(nomC.split(' ')[0]);
-    }) || null;
+  // 4. Intento buscando en la colección de Clientes
+  if (!cuentaDoc && alumnoId) {
+    try {
+      const cli = await Cliente.findOne({ $or: [{ id: String(alumnoId) }, { _id: mongoose.Types.ObjectId.isValid(alumnoId) ? new mongoose.Types.ObjectId(alumnoId) : null }] });
+      if (cli && cli.nombre) {
+        cuentaDoc = await Cuenta.findOne({ alumno: new RegExp(`^${cli.nombre.trim()}$`, 'i') });
+        if (!nombreBuscado || nombreBuscado.toLowerCase() === 'alumno') {
+          nombreBuscado = cli.nombre.trim();
+        }
+      }
+    } catch (e) {}
   }
 
-  if (!cuentaDoc) {
-    console.warn(`⚠️ No se encontró la cuenta con los criterios proporcionados:`, { cuentaId, alumnoId, nombreAlumno });
-    return null;
+  // Determinar nombre definitivo real
+  let nombreDefinitivo = (cuentaDoc && cuentaDoc.alumno) ? cuentaDoc.alumno.trim() : nombreBuscado;
+  if (!nombreDefinitivo || nombreDefinitivo.toLowerCase() === 'alumno') {
+    nombreDefinitivo = 'Alumno';
   }
 
-  // REGISTRAR EL PAGO PRIMERO (Actúa como cerrojo/bloqueo ante peticiones simultáneas)
+  // REGISTRAR EL PAGO
   const nuevoPagoBD = new Pago({
-    cuenta: cuentaDoc._id,
-    cliente: cuentaDoc.cliente || alumnoId || '1001',
-    alumno: cuentaDoc.alumno,
+    id: sessionId && sessionId.startsWith('cs_') ? sessionId : `PAG-${Date.now()}`,
+    cuenta: cuentaDoc ? cuentaDoc._id : (cuentaId || null),
+    cliente: (cuentaDoc && cuentaDoc.cliente) || alumnoId || '1001',
+    alumno: nombreDefinitivo,
     concepto: concepto || 'Abono en Línea (Stripe)',
     monto: montoAbono,
     fecha: new Date(),
     metodoPago: 'stripe',
-    notas: `Stripe: ${sessionId || 'MANUAL'} | Alumno: ${cuentaDoc.alumno} | Email: ${customerEmail || ''}`
+    grupoId: cuentaDoc ? cuentaDoc.grupoId : null,
+    notas: `Stripe: ${sessionId || 'MANUAL'} | Alumno: ${nombreDefinitivo} | Email: ${customerEmail || ''}`
   });
   await nuevoPagoBD.save();
+
+  if (!cuentaDoc) {
+    console.warn(`⚠️ Pago registrado sin cuenta vinculada:`, { cuentaId, alumnoId, nombreDefinitivo });
+    return null;
+  }
 
   // Asegurar estructura de 10 casillas numéricas
   if (!Array.isArray(cuentaDoc.pagos) || cuentaDoc.pagos.length !== 10) {
@@ -166,47 +175,6 @@ async function aplicarAbonoACuenta({ cuentaId, alumnoId, nombreAlumno, monto, co
 
   console.log(`✅ Saldo descontado exitosamente en Atlas para ${cuentaDoc.alumno}: Nuevo Saldo = $${cuentaDoc.saldo}`);
 
-  // Sincronización en memoria compartida
-  if (global.datosCompartidos) {
-    const saldos = global.datosCompartidos.saldos || [];
-    let saldoEncontrado = saldos.find(s => 
-      String(s._id) === String(cuentaDoc._id) || 
-      String(s.id) === String(cuentaDoc.id) ||
-      normalizarBusqueda(s.alumno) === normalizarBusqueda(cuentaDoc.alumno)
-    );
-
-    if (saldoEncontrado) {
-      saldoEncontrado.pagos = [...cuentaDoc.pagos];
-      saldoEncontrado.saldo = cuentaDoc.saldo;
-      saldoEncontrado.saldoPendiente = cuentaDoc.saldo;
-    }
-
-    const nuevoFolioNum = (global.datosCompartidos.pagos || []).length + 1;
-    const folioId = 'PAG-' + String(nuevoFolioNum).padStart(3, '0');
-
-    if (!Array.isArray(global.datosCompartidos.pagos)) {
-      global.datosCompartidos.pagos = [];
-    }
-
-    const yaEnMemoria = global.datosCompartidos.pagos.some(p => 
-      p.folio === sessionId || p.id === sessionId || (p.notas && p.notas.includes(sessionId))
-    );
-
-    if (!yaEnMemoria) {
-      global.datosCompartidos.pagos.unshift({
-        id: folioId,
-        folio: folioId,
-        alumno: cuentaDoc.alumno,
-        concepto: concepto || 'Abono en Línea (Stripe)',
-        monto: montoAbono,
-        montoAbonado: montoAbono,
-        fecha: new Date().toISOString().split('T')[0],
-        metodo: 'Tarjeta (Stripe)',
-        estado: 'Completado'
-      });
-    }
-  }
-
   return cuentaDoc;
 }
 
@@ -216,11 +184,47 @@ exports.crearCheckoutSession = async (req, res) => {
     const { 
       monto, 
       concepto = 'Abono de Graduación', 
-      nombreAlumno = 'Alumno', 
+      nombreAlumno,
+      alumno,
       alumnoId = 'ALU-001', 
+      clienteId,
       cuentaId = 'CTA-001',
       email = '' 
     } = req.body;
+
+    // Rescatar el nombre real de cualquiera de los campos que mande el frontend
+    let nombreReal = (nombreAlumno || alumno || '').trim();
+    const idAlumnoReal = String(alumnoId || clienteId || 'ALU-001');
+
+    // Si viene vacío o "Alumno", intentar buscar el nombre real en Cuenta o Cliente
+    if (!nombreReal || nombreReal.toLowerCase() === 'alumno') {
+      try {
+        if (cuentaId && cuentaId !== 'CTA-001') {
+          const cta = await Cuenta.findOne({
+            $or: [
+              ...(mongoose.Types.ObjectId.isValid(cuentaId) ? [{ _id: new mongoose.Types.ObjectId(cuentaId) }] : []),
+              { id: String(cuentaId) }
+            ]
+          }).lean();
+          if (cta && cta.alumno && cta.alumno.toLowerCase() !== 'alumno') {
+            nombreReal = cta.alumno.trim();
+          }
+        }
+        if ((!nombreReal || nombreReal.toLowerCase() === 'alumno') && idAlumnoReal !== 'ALU-001') {
+          const cli = await Cliente.findOne({
+            $or: [
+              ...(mongoose.Types.ObjectId.isValid(idAlumnoReal) ? [{ _id: new mongoose.Types.ObjectId(idAlumnoReal) }] : []),
+              { id: String(idAlumnoReal) }
+            ]
+          }).lean();
+          if (cli && cli.nombre && cli.nombre.toLowerCase() !== 'alumno') {
+            nombreReal = cli.nombre.trim();
+          }
+        }
+      } catch (e) {}
+    }
+
+    if (!nombreReal) nombreReal = 'Alumno';
 
     const montoLimpio = parseFloat(monto) || 0;
     if (montoLimpio <= 0) {
@@ -231,8 +235,9 @@ exports.crearCheckoutSession = async (req, res) => {
     const cargoServicio = Math.max(0, Math.round((totalConComision - montoLimpio) * 100) / 100);
 
     const datosMeta = {
-      alumnoId: String(alumnoId || 'ALU-001'),
-      nombreAlumno: String(nombreAlumno || 'Alumno'),
+      alumnoId: idAlumnoReal,
+      nombreAlumno: nombreReal,
+      alumno: nombreReal,
       cuentaId: String(cuentaId || 'CTA-001'),
       concepto: String(concepto || 'Abono de Graduación'),
       email: String(email || ''),
@@ -248,7 +253,7 @@ exports.crearCheckoutSession = async (req, res) => {
             currency: 'mxn',
             product_data: {
               name: String(concepto),
-              description: `Abono de graduación - Alumno: ${nombreAlumno}`,
+              description: `Abono de graduación - Alumno: ${nombreReal}`,
             },
             unit_amount: Math.round(montoLimpio * 100),
           },
@@ -270,7 +275,7 @@ exports.crearCheckoutSession = async (req, res) => {
       metadata: datosMeta,
       payment_intent_data: {
         metadata: datosMeta,
-        description: `Abono de graduación - ${nombreAlumno}`,
+        description: `Abono de graduación - ${nombreReal}`,
       },
       success_url: `${baseUrl}/?pago=exito&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${baseUrl}/?pago=cancelado`,
@@ -342,11 +347,6 @@ exports.handleStripeWebhook = async (req, res) => {
     }
   }
 
-  // =========================================================================
-  // FILTRADO ESTRICTO DE EVENTO:
-  // Solo procesar 'checkout.session.completed'. Si Stripe envía además 
-  // 'payment_intent.succeeded' para la misma compra, lo ignoramos para evitar duplicados.
-  // =========================================================================
   if (event && event.type === 'checkout.session.completed') {
     let session = event.data.object;
     let metadata = session.metadata || {};
@@ -392,10 +392,8 @@ exports.handleStripeWebhook = async (req, res) => {
       console.error('❌ Error guardando abono en base de datos:', dbError.message);
     }
   } else if (event && event.type === 'payment_intent.succeeded') {
-    // Si viene solo como payment_intent fuera de checkout, verificar si tiene metadata propia
     const pi = event.data.object;
     const metadata = pi.metadata || {};
-    // Si ya trae prefijo cs_ en descripción o metadata, omitir porque checkout.session.completed se encarga
     if (!pi.description || !pi.description.includes('cs_')) {
       const monto = metadata.montoNetoAbono ? parseFloat(metadata.montoNetoAbono) : (pi.amount ? pi.amount / 100 : 0);
       if (metadata.nombreAlumno && monto > 0) {
@@ -415,7 +413,6 @@ exports.handleStripeWebhook = async (req, res) => {
   return res.status(200).json({ received: true });
 };
 
-// Exportar la función para uso directo en rutas auxiliares
 exports.aplicarAbonoACuenta = aplicarAbonoACuenta;
 
 // Obtener todos los pagos
