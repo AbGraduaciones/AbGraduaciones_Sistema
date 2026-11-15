@@ -5,6 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const mongoose = require('mongoose');
 const nodemailer = require('nodemailer');
+const PDFDocument = require('pdfkit');
 
 // Carga segura de bcryptjs
 let bcrypt;
@@ -67,6 +68,8 @@ const Cuenta = cargarModelo(['./models/Cuenta', './models/cuenta', './models/Cue
   pagos: [Number],
   entregas: mongoose.Schema.Types.Mixed,
   eleccionEspecial: String,
+  tallaCamisa: { type: String, default: '' },
+  tallaAnillo: { type: String, default: '' },
   esContadoEfectivo: Boolean,
   pagada: Boolean,
   grupoId: { type: mongoose.Schema.Types.Mixed, default: null },
@@ -299,6 +302,8 @@ async function sincronizarMemoriaDesdeBD() {
         pagos: pagosArr,
         entregas: cta.entregas || {},
         eleccionEspecial: cta.eleccionEspecial || '',
+        tallaCamisa: cta.tallaCamisa || '',
+        tallaAnillo: cta.tallaAnillo || '',
         esContadoEfectivo: Boolean(cta.esContadoEfectivo),
         grupoId: cta.grupoId ? String(cta.grupoId) : null,
         grupoNombre: cta.grupoNombre || ''
@@ -466,7 +471,9 @@ app.post('/api/datos', async (req, res) => {
               saldo: saldoFinal,
               pagos: pagosArr,
               entregas: s.entregas || {},
-              eleccionEspecial: s.eleccionEspecial || (cuentaExistente ? cuentaExistente.eleccionEspecial : ''),
+              eleccionEspecial: s.eleccionEspecial !== undefined ? s.eleccionEspecial : (cuentaExistente ? cuentaExistente.eleccionEspecial : ''),
+              tallaCamisa: s.tallaCamisa !== undefined ? s.tallaCamisa : (cuentaExistente ? cuentaExistente.tallaCamisa : ''),
+              tallaAnillo: s.tallaAnillo !== undefined ? s.tallaAnillo : (cuentaExistente ? cuentaExistente.tallaAnillo : ''),
               esContadoEfectivo: Boolean(s.esContadoEfectivo),
               pagada: saldoFinal <= 0,
               grupoId: s.grupoId || (cuentaExistente ? cuentaExistente.grupoId : null),
@@ -506,7 +513,6 @@ app.post('/api/datos', async (req, res) => {
                   { upsert: true, new: true }
                 );
               } else {
-                // Si la casilla está en 0, eliminar abono manual previo si existía
                 await Pago.deleteMany({
                   id: identificadorPagoManual
                 });
@@ -741,6 +747,112 @@ app.put('/api/historial-pagos/:id', async (req, res) => {
   }
 });
 
+// Generador de PDF en servidor (incluye tallas de camisa y anillo)
+function generarReciboPDFBuffer({ folio, fecha, alumno, universidad, carrera, paquete, montoAbonado, nuevoSaldo, tallaCamisa, tallaAnillo, eleccionEspecial }) {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ margin: 40, size: 'A4' });
+    const buffers = [];
+
+    doc.on('data', buffers.push.bind(buffers));
+    doc.on('end', () => resolve(Buffer.concat(buffers)));
+    doc.on('error', reject);
+
+    // Encabezado
+    doc.fillColor('#1e3a8a').fontSize(20).text('AB GRADUACIONES', { align: 'left' });
+    doc.fillColor('#3b82f6').fontSize(10).text('Comprobante Oficial de Pago Digital', { align: 'left' });
+    doc.moveDown();
+
+    // Datos del recibo
+    doc.fillColor('#0f172a').fontSize(11);
+    doc.text(`Folio: ${folio}`);
+    doc.text(`Fecha: ${fecha}`);
+    doc.moveDown();
+
+    // Datos del alumno
+    doc.rect(40, doc.y, 515, 75).fillAndStroke('#f0f9ff', '#bae6fd');
+    doc.fillColor('#0369a1').fontSize(9).text('DATOS DEL ALUMNO Y PAQUETE', 50, doc.y + 10);
+    doc.fillColor('#0f172a').fontSize(12).text(`Alumno: ${alumno}`, 50);
+    doc.fontSize(10).text(`Carrera / Institución: ${carrera} - ${universidad}`, 50);
+    doc.text(`Paquete: ${paquete}`, 50);
+    doc.moveDown(2);
+
+    // Detalle económico
+    doc.fillColor('#15803d').fontSize(12).text(`Monto Abonado: $${Number(montoAbonado).toLocaleString()} MXN`);
+    doc.fillColor('#b45309').fontSize(12).text(`Saldo Pendiente Restante: $${Number(nuevoSaldo).toLocaleString()} MXN`);
+    doc.moveDown();
+
+    // Detalle de tallas y regalía
+    if (tallaCamisa || tallaAnillo || eleccionEspecial) {
+      doc.fillColor('#1e3a8a').fontSize(11).text('ESPECIFICACIONES DE ENTREGA Y REGALÍA:');
+      doc.fillColor('#334155').fontSize(10);
+      if (tallaCamisa) doc.text(`• Camisa personalizada: Talla ${tallaCamisa}`);
+      if (eleccionEspecial === 'Sin regalía') {
+        doc.text(`• Regalía Especial: El alumno optó por no recibir regalía`);
+      } else if (eleccionEspecial) {
+        const extraAnillo = (eleccionEspecial === 'Anillo de Plata 925' && tallaAnillo) ? ` (Número ${tallaAnillo})` : '';
+        doc.text(`• Regalía Especial: ${eleccionEspecial}${extraAnillo}`);
+      } else if (tallaAnillo) {
+        doc.text(`• Talla Anillo: Número ${tallaAnillo}`);
+      }
+      doc.moveDown();
+    }
+
+    doc.fillColor('#64748b').fontSize(9).text('Gracias por tu pago. Conserva este comprobante oficial para cualquier aclaración.', { align: 'center' });
+
+    doc.end();
+  });
+}
+
+// Transporte de correo
+let transporter = null;
+if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+  transporter = nodemailer.createTransport({
+    host: 'smtp.gmail.com',
+    port: 465,
+    secure: true,
+    auth: {
+      user: process.env.EMAIL_USER,
+      pass: process.env.EMAIL_PASS
+    }
+  });
+}
+
+async function enviarReciboPorCorreo(destinatarioEmail, datosPago) {
+  if (!transporter || !destinatarioEmail) return;
+
+  try {
+    const pdfBuffer = await generarReciboPDFBuffer(datosPago);
+
+    await transporter.sendMail({
+      from: `"Ab Graduaciones" <${process.env.EMAIL_USER}>`,
+      to: destinatarioEmail,
+      subject: `Comprobante de Pago - Folio ${datosPago.folio}`,
+      html: `
+        <div style="font-family: Arial, sans-serif; color: #1e293b; padding: 20px;">
+          <h2 style="color: #1e3a8a;">¡Hola, ${datosPago.alumno}!</h2>
+          <p>Tu abono de <strong>$${Number(datosPago.montoAbonado).toLocaleString()} MXN</strong> ha sido procesado con éxito.</p>
+          <p>Tu nuevo saldo pendiente es de: <strong>$${Number(datosPago.nuevoSaldo).toLocaleString()} MXN</strong>.</p>
+          <p>Adjunto encontrarás tu comprobante oficial en formato PDF.</p>
+          <br>
+          <p style="font-size: 12px; color: #64748b;">Ab Graduaciones - Sistema Integral</p>
+        </div>
+      `,
+      attachments: [
+        {
+          filename: `Recibo_${datosPago.folio}.pdf`,
+          content: pdfBuffer,
+          contentType: 'application/pdf'
+        }
+      ]
+    });
+
+    console.log(`✉️ Recibo PDF enviado exitosamente a: ${destinatarioEmail}`);
+  } catch (error) {
+    console.error('❌ Error enviando recibo PDF por correo:', error.message);
+  }
+}
+
+// 6. Rutas de pagos (Públicas)
 const procesarCheckout = (req, res) => {
   if (pagoController && typeof pagoController.crearCheckoutSession === 'function') {
     return pagoController.crearCheckoutSession(req, res);
@@ -826,7 +938,6 @@ app.get('/api/verificar-sesion-stripe/:sessionId', async (req, res) => {
     const emailDestino = session.customer_details?.email || session.customer_email || metadata.email;
 
     if (emailDestino) {
-      // Consultamos la cuenta para tener el saldo actualizado exacto
       const ctaActualizada = await Cuenta.findOne({
         $or: [
           { id: cuentaId },
@@ -834,15 +945,22 @@ app.get('/api/verificar-sesion-stripe/:sessionId', async (req, res) => {
         ]
       }).lean();
 
+      const cliDatos = await Cliente.findOne({
+        nombre: new RegExp(`^${nombreAlumno}$`, 'i')
+      }).lean();
+
       await enviarReciboPorCorreo(emailDestino, {
         folio: session.id.slice(-8).toUpperCase(),
         fecha: new Date().toISOString().split('T')[0],
         alumno: nombreAlumno,
-        universidad: ctaActualizada?.universidad || 'Universidad',
-        carrera: ctaActualizada?.escuela || 'Carrera',
+        universidad: cliDatos?.universidad || 'Universidad',
+        carrera: cliDatos?.escuela || cliDatos?.facultad || 'Carrera',
         paquete: ctaActualizada?.paquete || 'Graduación',
         montoAbonado: monto,
-        nuevoSaldo: ctaActualizada?.saldo ?? 0
+        nuevoSaldo: ctaActualizada?.saldo ?? 0,
+        tallaCamisa: ctaActualizada?.tallaCamisa || '',
+        tallaAnillo: ctaActualizada?.tallaAnillo || '',
+        eleccionEspecial: ctaActualizada?.eleccionEspecial || ''
       });
     }
 
@@ -856,19 +974,6 @@ app.get('/api/verificar-sesion-stripe/:sessionId', async (req, res) => {
     res.status(500).json({ ok: false, error: error.message });
   }
 });
-
-let transporter = null;
-if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
-  transporter = nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 465,
-    secure: true,
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS
-    }
-  });
-}
 
 app.post('/api/enviar-codigo-seguridad', async (req, res) => {
   try {
@@ -1155,10 +1260,6 @@ const entregarIndex = (res) => {
   res.status(500).send('Error: no se encontró index.html');
 };
 
-// =========================================================================
-// RUTA DE CIERRE DE SESIÓN DEFINITIVO (BASIC AUTH):
-// Destruye la caché de credenciales en el navegador con encabezados 401 y Clear-Site-Data
-// =========================================================================
 app.get('/api/logout', (req, res) => {
   res.setHeader('Clear-Site-Data', '"cache", "cookies", "storage"');
   res.setHeader('WWW-Authenticate', 'Basic realm="Panel de Administrador", charset="UTF-8"');
@@ -1198,81 +1299,3 @@ const servidor = app.listen(PORT, () => {
 });
 
 module.exports = { app, servidor };
-
-const PDFDocument = require('pdfkit');
-
-// Genera el buffer del PDF oficial de pago
-function generarReciboPDFBuffer({ folio, fecha, alumno, universidad, carrera, paquete, montoAbonado, nuevoSaldo }) {
-  return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ margin: 40, size: 'A4' });
-    const buffers = [];
-
-    doc.on('data', buffers.push.bind(buffers));
-    doc.on('end', () => resolve(Buffer.concat(buffers)));
-    doc.on('error', reject);
-
-    // Encabezado
-    doc.fillColor('#1e3a8a').fontSize(20).text('AB GRADUACIONES', { align: 'left' });
-    doc.fillColor('#3b82f6').fontSize(10).text('Comprobante Oficial de Pago Digital', { align: 'left' });
-    doc.moveDown();
-
-    // Datos del recibo
-    doc.fillColor('#0f172a').fontSize(11);
-    doc.text(`Folio: ${folio}`);
-    doc.text(`Fecha: ${fecha}`);
-    doc.moveDown();
-
-    // Datos del alumno
-    doc.rect(40, doc.y, 515, 65).fillAndStroke('#f0f9ff', '#bae6fd');
-    doc.fillColor('#0369a1').fontSize(9).text('DATOS DEL ALUMNO Y PAQUETE', 50, doc.y + 10);
-    doc.fillColor('#0f172a').fontSize(12).text(`Alumno: ${alumno}`, 50);
-    doc.fontSize(10).text(`Carrera / Institución: ${carrera} - ${universidad}`, 50);
-    doc.text(`Paquete: ${paquete}`, 50);
-    doc.moveDown(2);
-
-    // Detalle económico
-    doc.fillColor('#15803d').fontSize(12).text(`Monto Abonado: $${Number(montoAbonado).toLocaleString()} MXN`);
-    doc.fillColor('#b45309').fontSize(12).text(`Saldo Pendiente Restante: $${Number(nuevoSaldo).toLocaleString()} MXN`);
-    doc.moveDown();
-
-    doc.fillColor('#64748b').fontSize(9).text('Gracias por tu pago. Conserva este comprobante oficial para cualquier aclaración.', { align: 'center' });
-
-    doc.end();
-  });
-}
-
-// Envía el correo al alumno con el PDF adjunto
-async function enviarReciboPorCorreo(destinatarioEmail, datosPago) {
-  if (!transporter || !destinatarioEmail) return;
-
-  try {
-    const pdfBuffer = await generarReciboPDFBuffer(datosPago);
-
-    await transporter.sendMail({
-      from: `"Ab Graduaciones" <${process.env.EMAIL_USER}>`,
-      to: destinatarioEmail,
-      subject: `Comprobante de Pago - Folio ${datosPago.folio}`,
-      html: `
-        <div style="font-family: Arial, sans-serif; color: #1e293b; padding: 20px;">
-          <h2 style="color: #1e3a8a;">¡Hola, ${datosPago.alumno}!</h2>
-          <p>Tu abono de <strong>$${Number(datosPago.montoAbonado).toLocaleString()} MXN</strong> ha sido procesado con éxito.</p>
-          <p>Tu nuevo saldo pendiente es de: <strong>$${Number(datosPago.nuevoSaldo).toLocaleString()} MXN</strong>.</p>
-          <p>Adjunto encontrarás tu comprobante oficial en formato PDF.</p>
-          <br>
-          <p style="font-size: 12px; color: #64748b;">Ab Graduaciones - Sistema Integral</p>
-        </div>
-      `,
-      attachments: [
-        {
-          filename: `Recibo_${datosPago.folio}.pdf`,
-          content: pdfBuffer,
-          contentType: 'application/pdf'
-        }
-      ]
-    });
-
-    console.log(`✉️ Recibo PDF enviado exitosamente a: ${destinatarioEmail}`);
-  } catch (error) {
-    console.error('❌ Error enviando recibo PDF por correo:', error.message);
-  }
-}

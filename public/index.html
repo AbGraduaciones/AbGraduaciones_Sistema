@@ -392,7 +392,7 @@
 
   <!-- MODAL GESTOR DE ENTREGAS Y MATERIALES (ADMINISTRADOR) -->
   <div id="modalEntregas" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center hidden z-50 overflow-y-auto p-4">
-    <div class="bg-white p-8 rounded-2xl w-full max-w-xl border border-slate-100 shadow-2xl transform transition-all my-8">
+    <div class="bg-white p-8 rounded-2xl w-full max-w-xl border border-slate-100 shadow-2xl transform transition-all my-8 max-h-[90vh] overflow-y-auto">
       <div class="flex justify-between items-start mb-4">
         <div>
           <h3 class="text-xl font-bold text-slate-900">📦 Control de Entregas y Regalías</h3>
@@ -401,18 +401,61 @@
         <button onclick="cerrarModalEntregas()" class="text-slate-400 hover:text-slate-600 font-bold text-lg">✕</button>
       </div>
 
-      <div class="bg-blue-50/70 p-4 rounded-xl border border-blue-200 mb-4">
-        <label class="block text-xs font-bold uppercase text-blue-900 mb-1">✨ Asignar / Cambiar Elección de Regalía</label>
-        <select id="selectEleccionAdmin" onchange="cambiarEleccionAdmin(this.value)" class="w-full p-2.5 bg-white border border-blue-300 text-slate-800 text-sm font-semibold rounded-lg outline-none focus:border-blue-600">
-          <option value="">Pendiente de elección por el alumno</option>
-          <option value="Anillo de Plata 925">💍 Anillo de Plata 925</option>
-          <option value="Personalizador">✒️ Personalizador</option>
-          <option value="Sin regalía">🚫 No quiere ninguna regalía</option>
-        </select>
-        <p class="text-[11px] text-blue-700 mt-1">Si el alumno te solicita el cambio directamente, selecciona su regalía aquí para que se refleje de inmediato en su recibo PDF.</p>
+      <div class="bg-blue-50/70 p-4 rounded-xl border border-blue-200 mb-4 space-y-3">
+        <div>
+          <label class="block text-xs font-bold uppercase text-blue-900 mb-1">✨ Asignar / Cambiar Elección de Regalía</label>
+          <select id="selectEleccionAdmin" onchange="cambiarEleccionAdmin(this.value)" class="w-full p-2.5 bg-white border border-blue-300 text-slate-800 text-sm font-semibold rounded-lg outline-none focus:border-blue-600">
+            <option value="">Pendiente de elección por el alumno</option>
+            <option value="Anillo de Plata 925">💍 Anillo de Plata 925</option>
+            <option value="Personalizador">✒️ Personalizador</option>
+            <option value="Sin regalía">🚫 No quiere ninguna regalía</option>
+          </select>
+        </div>
+
+        <!-- TALLAS DE CAMISA PERSONALIZADA Y ANILLO -->
+        <div class="grid grid-cols-2 gap-3 pt-2 border-t border-blue-200/70">
+          <div>
+            <label class="block text-[11px] font-bold uppercase text-blue-900 mb-1">👕 Talla Camisa Personalizada</label>
+            <select id="selectTallaCamisaAdmin" onchange="cambiarTallasAdmin()" class="w-full p-2 bg-white border border-blue-300 text-slate-800 text-xs font-bold rounded-lg outline-none focus:border-blue-600">
+              <option value="">Sin especificar</option>
+              <option value="XS">XS (Extra Chica)</option>
+              <option value="S">S (Chica)</option>
+              <option value="M">M (Mediana)</option>
+              <option value="L">L (Grande)</option>
+              <option value="XL">XL (Extra Grande)</option>
+              <option value="XXL">XXL (Doble Extra Grande)</option>
+            </select>
+          </div>
+
+          <div id="contenedorTallaAnilloAdmin">
+            <label class="block text-[11px] font-bold uppercase text-blue-900 mb-1">💍 Talla / Número de Anillo</label>
+            <select id="selectTallaAnilloAdmin" onchange="cambiarTallasAdmin()" class="w-full p-2 bg-white border border-blue-300 text-slate-800 text-xs font-bold rounded-lg outline-none focus:border-blue-600">
+              <option value="">Sin especificar</option>
+              <option value="4">Número 4</option>
+              <option value="4.5">Número 4.5</option>
+              <option value="5">Número 5</option>
+              <option value="5.5">Número 5.5</option>
+              <option value="6">Número 6</option>
+              <option value="6.5">Número 6.5</option>
+              <option value="7">Número 7</option>
+              <option value="7.5">Número 7.5</option>
+              <option value="8">Número 8</option>
+              <option value="8.5">Número 8.5</option>
+              <option value="9">Número 9</option>
+              <option value="9.5">Número 9.5</option>
+              <option value="10">Número 10</option>
+              <option value="10.5">Número 10.5</option>
+              <option value="11">Número 11</option>
+              <option value="11.5">Número 11.5</option>
+              <option value="12">Número 12</option>
+              <option value="13">Número 13</option>
+            </select>
+          </div>
+        </div>
+        <p class="text-[11px] text-blue-700">Las tallas y elecciones guardadas aquí se reflejarán automáticamente en el recibo PDF del alumno.</p>
       </div>
 
-      <div id="listaMaterialesEntregas" class="space-y-3 my-4 max-h-[50vh] overflow-y-auto pr-1"></div>
+      <div id="listaMaterialesEntregas" class="space-y-3 my-4 max-h-[42vh] overflow-y-auto pr-1"></div>
 
       <div class="flex justify-end space-x-3 pt-4 border-t border-slate-100">
         <button onclick="cerrarModalEntregas()" class="px-5 py-2.5 bg-blue-700 hover:bg-blue-800 text-white font-semibold rounded-xl transition-all">
@@ -1286,10 +1329,6 @@
       }
     }
 
-    // =========================================================================
-    // CIERRE DE SESIÓN SEGURO Y DEFINITIVO
-    // Forzamos redirección a la ruta de logout para invalidar las credenciales en caché
-    // =========================================================================
     async function cerrarSesionAdmin() {
       try {
         const xhr = new XMLHttpRequest();
@@ -2191,6 +2230,8 @@
               pagos: pagosCapturados, 
               entregas: {}, 
               eleccionEspecial: "", 
+              tallaCamisa: "",
+              tallaAnillo: "",
               esContadoEfectivo,
               grupoId: grupoIdAsignado,
               grupoNombre: gObj ? gObj.nombre : ''
@@ -2801,6 +2842,16 @@
       }
     }
 
+    function actualizarVisibilidadTallaAnillo(eleccion) {
+      const contAnillo = document.getElementById('contenedorTallaAnilloAdmin');
+      if (!contAnillo) return;
+      if (eleccion === 'Sin regalía' || eleccion === 'Personalizador') {
+        contAnillo.classList.add('opacity-40');
+      } else {
+        contAnillo.classList.remove('opacity-40');
+      }
+    }
+
     function abrirModalEntregasPorItem(cuentaId) {
       const idBuscado = String(cuentaId || '').trim();
       const saldoObj = saldos.find(s => String(s.id || s._id || '').trim() === idBuscado);
@@ -2817,6 +2868,18 @@
         selectEl.value = saldoObj.eleccionEspecial || "";
       }
 
+      const selectCamisaEl = document.getElementById('selectTallaCamisaAdmin');
+      if (selectCamisaEl) {
+        selectCamisaEl.value = saldoObj.tallaCamisa || "";
+      }
+
+      const selectAnilloEl = document.getElementById('selectTallaAnilloAdmin');
+      if (selectAnilloEl) {
+        selectAnilloEl.value = saldoObj.tallaAnillo || "";
+      }
+
+      actualizarVisibilidadTallaAnillo(saldoObj.eleccionEspecial || "");
+
       const subtituloEl = document.getElementById('entregasSubtitulo');
       if (subtituloEl) {
         subtituloEl.innerText = `Alumno: ${saldoObj.alumno} | ${saldoObj.paquete}`;
@@ -2826,14 +2889,29 @@
       document.getElementById('modalEntregas').classList.remove('hidden');
     }
 
+    async function cambiarTallasAdmin() {
+      if (indiceSaldoEntregaActual === null) return;
+      const saldoObj = saldos[indiceSaldoEntregaActual];
+      if (!saldoObj) return;
+
+      const selectCamisaEl = document.getElementById('selectTallaCamisaAdmin');
+      const selectAnilloEl = document.getElementById('selectTallaAnilloAdmin');
+
+      saldoObj.tallaCamisa = selectCamisaEl ? selectCamisaEl.value : "";
+      saldoObj.tallaAnillo = selectAnilloEl ? selectAnilloEl.value : "";
+
+      await guardarEnLocalStorage();
+      renderizarItemsModalEntregas(saldoObj);
+    }
+
     async function cambiarEleccionAdmin(nuevaOpcion) {
       if (indiceSaldoEntregaActual === null) return;
       const saldoObj = saldos[indiceSaldoEntregaActual];
       if (!saldoObj) return;
 
       saldoObj.eleccionEspecial = nuevaOpcion;
+      actualizarVisibilidadTallaAnillo(nuevaOpcion);
 
-      // Si elige "Sin regalía" o cambia de opción, desmarcar regalías previas para evitar conteos erróneos
       if (!saldoObj.entregas) saldoObj.entregas = {};
       if (nuevaOpcion === 'Sin regalía' || nuevaOpcion === '') {
         saldoObj.entregas["Anillo de Plata 925"] = false;
@@ -2871,6 +2949,14 @@
         let claseEstilo = 'bg-slate-50 border-slate-200';
         let textoEtiqueta = estaEntregado ? 'Entregado' : 'Pendiente';
 
+        // Mostrar etiqueta de talla en Camisa personalizada o Anillo de Plata 925
+        let badgeTalla = '';
+        if (mat === "Camisa personalizada" && saldoObj.tallaCamisa) {
+          badgeTalla = `<span class="ml-1.5 text-[11px] font-extrabold bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded-md border border-indigo-200">Talla: ${saldoObj.tallaCamisa}</span>`;
+        } else if (mat === "Anillo de Plata 925" && saldoObj.tallaAnillo && !esLaDescartada) {
+          badgeTalla = `<span class="ml-1.5 text-[11px] font-extrabold bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded-md border border-indigo-200">No. ${saldoObj.tallaAnillo}</span>`;
+        }
+
         if (esEspecial) {
           if (!saldoObj.eleccionEspecial) {
             claseEstilo = 'bg-amber-50 border-amber-200 font-medium';
@@ -2889,7 +2975,7 @@
             <label class="flex items-center gap-3 ${esLaDescartada ? 'cursor-not-allowed' : 'cursor-pointer'}">
               <input type="checkbox" onchange="toggleEntregaItem('${mat}', this.checked)" ${estaEntregado ? 'checked' : ''} ${esLaDescartada ? 'disabled' : ''} class="w-5 h-5 text-blue-600 rounded focus:ring-blue-500">
               <span class="font-semibold ${esEspecial ? 'text-blue-900 font-bold' : 'text-slate-800'} text-sm">
-                ${esEspecial ? '✨ ' : ''}${mat}
+                ${esEspecial ? '✨ ' : ''}${mat}${badgeTalla}
               </span>
             </label>
             <span class="text-xs font-bold ${estaEntregado ? 'text-emerald-600' : 'text-slate-500'}">
@@ -2944,7 +3030,7 @@
       const saldoObj = saldos.find(s => {
         const nom = (s.alumno || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
         return nom === keyNorm || (pagoObj.cuentaId && String(s.id || s._id) === String(pagoObj.cuentaId)) || (alumnoObj.id && String(s.cliente) === String(alumnoObj.id));
-      }) || { paquete: 'No especificado', monto: 0, pagos: [], entregas: {}, eleccionEspecial: "", esContadoEfectivo: false };
+      }) || { paquete: 'No especificado', monto: 0, pagos: [], entregas: {}, eleccionEspecial: "", tallaCamisa: "", tallaAnillo: "", esContadoEfectivo: false };
 
       const listaPagosAlumno = pagos.filter(p => {
         const nom = resolverNombreAlumnoReal(p).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -3030,12 +3116,20 @@
 
         if (esEspecial && saldoObj.eleccionEspecial && saldoObj.eleccionEspecial !== mat) return;
 
+        // Formatear nombre con talla si aplica
+        let textoMaterialPdf = mat;
+        if (mat === "Camisa personalizada" && saldoObj.tallaCamisa) {
+          textoMaterialPdf += ` (Talla: ${saldoObj.tallaCamisa})`;
+        } else if (mat === "Anillo de Plata 925" && saldoObj.tallaAnillo) {
+          textoMaterialPdf += ` (Talla/No.: ${saldoObj.tallaAnillo})`;
+        }
+
         const estaEntregado = !!entregasObj[mat];
         if (estaEntregado) {
-          htmlEntregados += `<li style="margin-bottom: 3px;"><strong>${mat}</strong></li>`;
+          htmlEntregados += `<li style="margin-bottom: 3px;"><strong>${textoMaterialPdf}</strong></li>`;
           cantEntregados++;
         } else {
-          htmlPendientes += `<li style="margin-bottom: 3px;">${mat}</li>`;
+          htmlPendientes += `<li style="margin-bottom: 3px;">${textoMaterialPdf}</li>`;
           cantPendientes++;
         }
       });
@@ -3171,7 +3265,7 @@
       }
 
       const nombreSesion = (alumnoSesionActual.nombre || alumnoSesionActual.alumno || '').trim();
-      const saldoObj = saldos.find(s => s.alumno && s.alumno.toLowerCase() === nombreSesion.toLowerCase()) || { monto: 0, pagos: [0,0,0,0,0,0,0,0,0,0], entregas: {}, paquete: 'Sin Paquete', eleccionEspecial: '', esContadoEfectivo: false };
+      const saldoObj = saldos.find(s => s.alumno && s.alumno.toLowerCase() === nombreSesion.toLowerCase()) || { monto: 0, pagos: [0,0,0,0,0,0,0,0,0,0], entregas: {}, paquete: 'Sin Paquete', eleccionEspecial: '', tallaCamisa: '', tallaAnillo: '', esContadoEfectivo: false };
       const totalPagado = calcularTotalPagado(saldoObj.pagos);
       const saldoPendiente = Math.max(0, saldoObj.monto - totalPagado);
       const porcentajeAvance = saldoObj.monto > 0 ? Math.min(100, Math.round((totalPagado / saldoObj.monto) * 100)) : 0;
@@ -3231,10 +3325,17 @@
 
         if (esEspecial && eleccionActual && eleccionActual !== mat) return;
 
+        let textoMatAlumno = mat;
+        if (mat === "Camisa personalizada" && saldoObj.tallaCamisa) {
+          textoMatAlumno += ` <span class="text-xs font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md ml-1">Talla: ${saldoObj.tallaCamisa}</span>`;
+        } else if (mat === "Anillo de Plata 925" && saldoObj.tallaAnillo) {
+          textoMatAlumno += ` <span class="text-xs font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md ml-1">No. ${saldoObj.tallaAnillo}</span>`;
+        }
+
         const estaEntregado = !!(saldoObj.entregas && saldoObj.entregas[mat]);
         entregasChecklistHtml += `
           <div class="p-3 bg-slate-50 rounded-xl border border-slate-200 flex justify-between items-center text-sm">
-            <span class="font-semibold text-slate-800">${esEspecial ? '✨ ' : ''}${mat}</span>
+            <span class="font-semibold text-slate-800">${esEspecial ? '✨ ' : ''}${textoMatAlumno}</span>
             <span class="text-xs font-bold ${estaEntregado ? 'text-emerald-600' : 'text-amber-600'}">
               ${estaEntregado ? '✅ Entregado' : '⏳ En Elaboración'}
             </span>
@@ -3298,7 +3399,7 @@
             </div>
           </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 mt-6">
           <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
             <p class="text-xs font-bold text-slate-400 uppercase">Costo Total del Paquete</p>
             <h4 class="text-3xl font-extrabold text-slate-900 mt-2">$${saldoObj.monto.toLocaleString()}</h4>
