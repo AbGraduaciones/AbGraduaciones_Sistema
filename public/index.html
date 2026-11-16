@@ -917,6 +917,15 @@
 
     let pagosConsolidadosCache = [];
 
+    function normalizarTextoComparacion(txt) {
+      return String(txt || '')
+        .trim()
+        .replace(/\s+/g, ' ')
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "");
+    }
+
     function resolverNombreAlumnoReal(pagoObj) {
       if (!pagoObj) return 'Alumno';
 
@@ -1421,11 +1430,13 @@
           body: JSON.stringify({ alumnos, saldos, grupos })
         });
         if (!res.ok) {
-          throw new Error(`Respuesta fallida del servidor: ${res.status}`);
+          const dataErr = await res.json().catch(() => ({}));
+          throw new Error(dataErr.error || `Respuesta fallida del servidor: ${res.status}`);
         }
         console.log('✅ Base de datos sincronizada con Render.');
       } catch (error) {
         console.error('❌ Error al sincronizar con Render:', error);
+        throw error;
       }
     }
 
@@ -1988,7 +1999,6 @@
       const precioBase = parseFloat(option.dataset.precio) || 0;
       const esContado = checkContado && checkContado.checked;
 
-      // Conservar cargo extra por 2da regalía si ya estaba activo al editar
       let cargoExtraActual = 0;
       if (indiceEdicion !== null && saldos[indiceEdicion] && saldos[indiceEdicion].eleccionEspecial === 'Ambos (Anillo + Personalizador)') {
         cargoExtraActual = Number(saldos[indiceEdicion].cargoExtraRegalia) || 0;
@@ -2178,10 +2188,27 @@
 
         if (vistaActual === 'saldos') {
           const alumnoInput = document.getElementById('fAlumno').value.trim();
-          const alumnoObj = alumnos.find(a => a.nombre.toLowerCase() === alumnoInput.toLowerCase());
+          const alumnoNorm = normalizarTextoComparacion(alumnoInput);
+          const alumnoObj = alumnos.find(a => normalizarTextoComparacion(a.nombre) === alumnoNorm);
           
           if (!alumnoObj) {
             alertaError.innerText = `El alumno "${alumnoInput}" no está registrado. Primero debes agregarlo en la sección "Alumnos".`;
+            alertaError.classList.remove('hidden');
+            btnGuardar.disabled = false;
+            return;
+          }
+
+          let idxEncontrado = -1;
+          if (idOriginal) {
+            idxEncontrado = saldos.findIndex(s => String(s.id || s._id) === String(idOriginal));
+          } else if (indiceEdicion !== null) {
+            idxEncontrado = indiceEdicion;
+          }
+
+          // VALIDACIÓN ANTI-DUPLICADOS: Impide capturar un saldo nuevo para un alumno que ya tiene cuenta
+          const saldoDuplicado = saldos.find((s, idx) => idx !== idxEncontrado && normalizarTextoComparacion(s.alumno) === alumnoNorm);
+          if (saldoDuplicado) {
+            alertaError.innerText = `⚠️ El alumno "${saldoDuplicado.alumno}" ya tiene un saldo registrado (${saldoDuplicado.paquete || 'Paquete contratado'}). Para evitar duplicados, utiliza el botón "Editar" en su fila correspondiente.`;
             alertaError.classList.remove('hidden');
             btnGuardar.disabled = false;
             return;
@@ -2207,13 +2234,6 @@
             for (let i = 1; i < 10; i++) {
               pagosCapturados[i] = 0;
             }
-          }
-
-          let idxEncontrado = -1;
-          if (idOriginal) {
-            idxEncontrado = saldos.findIndex(s => String(s.id || s._id) === String(idOriginal));
-          } else if (indiceEdicion !== null) {
-            idxEncontrado = indiceEdicion;
           }
 
           const idCuentaUso = (idxEncontrado !== -1) ? (saldos[idxEncontrado].id || saldos[idxEncontrado]._id) : ('CTA-' + Date.now());

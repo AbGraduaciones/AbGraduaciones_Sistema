@@ -173,6 +173,15 @@ global.datosCompartidos = {
   grupos: []
 };
 
+function normalizarNombreServidor(txt) {
+  return String(txt || '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
 // Saneamiento de pagos anónimos en base de datos
 async function sanearPagosAnonimosEnBD() {
   if (mongoose.connection.readyState !== 1) return;
@@ -444,16 +453,31 @@ app.post('/api/datos', async (req, res) => {
     }
 
     if (Array.isArray(saldos)) {
+      // VALIDACIÓN ANTI-DUPLICADOS EN SERVIDOR: Evita que se guarden 2 cuentas distintas con el mismo alumno
+      const nombresVistos = new Set();
+      for (const s of saldos) {
+        if (!s || !s.alumno) continue;
+        const norm = normalizarNombreServidor(s.alumno);
+        if (nombresVistos.has(norm)) {
+          return res.status(400).json({
+            ok: false,
+            error: `El alumno "${s.alumno.trim()}" ya tiene un saldo registrado. Edita su cuenta existente en lugar de duplicarla.`
+          });
+        }
+        nombresVistos.add(norm);
+      }
+
       if (mongoose.connection.readyState === 1) {
+        const todasCuentasBD = await Cuenta.find({}).lean();
+
         for (const s of saldos) {
           if (!s) continue;
-          const cuentaExistente = await Cuenta.findOne({
-            $or: [
-              ...(s._id && mongoose.Types.ObjectId.isValid(s._id) ? [{ _id: new mongoose.Types.ObjectId(s._id) }] : []),
-              { id: s.id },
-              { alumno: new RegExp(`^${(s.alumno || '').trim()}$`, 'i') }
-            ]
-          }).lean();
+          const normAlumno = normalizarNombreServidor(s.alumno);
+          const cuentaExistente = todasCuentasBD.find(c =>
+            (s._id && String(c._id) === String(s._id)) ||
+            (s.id && String(c.id) === String(s.id)) ||
+            normalizarNombreServidor(c.alumno) === normAlumno
+          );
 
           let pagosArr = Array.isArray(s.pagos) ? [...s.pagos] : [0,0,0,0,0,0,0,0,0,0];
           const montoTotal = Number(s.monto) || (cuentaExistente ? cuentaExistente.monto : 0);
