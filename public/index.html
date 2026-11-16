@@ -412,11 +412,20 @@
           </select>
         </div>
 
-        <!-- TALLAS DE CAMISA PERSONALIZADA Y ANILLO -->
-        <div class="grid grid-cols-2 gap-3 pt-2 border-t border-blue-200/70">
+        <!-- ACABADO PANORÁMICA Y TALLAS DE CAMISA / ANILLO -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2 border-t border-blue-200/70">
           <div>
-            <label class="block text-[11px] font-bold uppercase text-blue-900 mb-1">👕 Talla Camisa Personalizada</label>
-            <select id="selectTallaCamisaAdmin" onchange="cambiarTallasAdmin()" class="w-full p-2 bg-white border border-blue-300 text-slate-800 text-xs font-bold rounded-lg outline-none focus:border-blue-600">
+            <label class="block text-[11px] font-bold uppercase text-blue-900 mb-1">🖼️ Panorámica con marco</label>
+            <select id="selectTipoPanoramicaAdmin" onchange="cambiarOpcionesEntregaAdmin()" class="w-full p-2 bg-white border border-blue-300 text-slate-800 text-xs font-bold rounded-lg outline-none focus:border-blue-600">
+              <option value="">Sin especificar</option>
+              <option value="Con Placa">🏅 Con Placa</option>
+              <option value="Con Escultura">🗿 Con Escultura</option>
+            </select>
+          </div>
+
+          <div>
+            <label class="block text-[11px] font-bold uppercase text-blue-900 mb-1">👕 Talla Camisa</label>
+            <select id="selectTallaCamisaAdmin" onchange="cambiarOpcionesEntregaAdmin()" class="w-full p-2 bg-white border border-blue-300 text-slate-800 text-xs font-bold rounded-lg outline-none focus:border-blue-600">
               <option value="">Sin especificar</option>
               <option value="XS">XS (Extra Chica)</option>
               <option value="S">S (Chica)</option>
@@ -428,8 +437,8 @@
           </div>
 
           <div id="contenedorTallaAnilloAdmin">
-            <label class="block text-[11px] font-bold uppercase text-blue-900 mb-1">💍 Talla / Número de Anillo</label>
-            <select id="selectTallaAnilloAdmin" onchange="cambiarTallasAdmin()" class="w-full p-2 bg-white border border-blue-300 text-slate-800 text-xs font-bold rounded-lg outline-none focus:border-blue-600">
+            <label class="block text-[11px] font-bold uppercase text-blue-900 mb-1">💍 Talla / No. Anillo</label>
+            <select id="selectTallaAnilloAdmin" onchange="cambiarOpcionesEntregaAdmin()" class="w-full p-2 bg-white border border-blue-300 text-slate-800 text-xs font-bold rounded-lg outline-none focus:border-blue-600">
               <option value="">Sin especificar</option>
               <option value="4">Número 4</option>
               <option value="4.5">Número 4.5</option>
@@ -452,7 +461,7 @@
             </select>
           </div>
         </div>
-        <p class="text-[11px] text-blue-700">Las tallas y elecciones guardadas aquí se reflejarán automáticamente en el recibo PDF del alumno.</p>
+        <p class="text-[11px] text-blue-700">Las elecciones y tallas guardadas aquí se reflejarán automáticamente en el recibo PDF del alumno.</p>
       </div>
 
       <div id="listaMaterialesEntregas" class="space-y-3 my-4 max-h-[42vh] overflow-y-auto pr-1"></div>
@@ -971,7 +980,6 @@
           const data = await res.json();
           rolUsuarioConectado = data.rol || 'staff';
 
-          // Actualizar saludo de bienvenida con el nombre del usuario
           const textoSaludo = document.getElementById('textoBienvenidaUsuario');
           if (textoSaludo) {
             let nombreMostrar = (data.nombre || '').trim();
@@ -2182,14 +2190,12 @@
             idxEncontrado = indiceEdicion;
           }
 
-          // Reflejar abonos capturados en la lista local de pagos para el Historial
           const idCuentaUso = (idxEncontrado !== -1) ? (saldos[idxEncontrado].id || saldos[idxEncontrado]._id) : ('CTA-' + Date.now());
           
           pagosCapturados.forEach((montoP, idxP) => {
             const conceptoP = esContadoEfectivo ? 'Pago Contado Efectivo' : `Pago ${idxP + 1}`;
             const idGeneradoP = `PAG-${idCuentaUso}-C${idxP + 1}`;
 
-            // Quitar si existía para actualizar
             pagos = pagos.filter(p => p.id !== idGeneradoP && !(p.cuentaId === idCuentaUso && p.concepto === conceptoP));
 
             if (montoP > 0) {
@@ -2230,6 +2236,7 @@
               pagos: pagosCapturados, 
               entregas: {}, 
               eleccionEspecial: "", 
+              tipoPanoramica: "",
               tallaCamisa: "",
               tallaAnillo: "",
               esContadoEfectivo,
@@ -2558,7 +2565,6 @@
       });
     }
 
-    // CONSOLIDACIÓN ESTRICTA: 1 SOLA FILA POR ALUMNO CON RESOLUCIÓN EXACTA DE NOMBRE
     function renderizarTablaPagos(data) {
       let encabezados = `
         <tr>
@@ -2868,6 +2874,11 @@
         selectEl.value = saldoObj.eleccionEspecial || "";
       }
 
+      const selectPanoEl = document.getElementById('selectTipoPanoramicaAdmin');
+      if (selectPanoEl) {
+        selectPanoEl.value = saldoObj.tipoPanoramica || "";
+      }
+
       const selectCamisaEl = document.getElementById('selectTallaCamisaAdmin');
       if (selectCamisaEl) {
         selectCamisaEl.value = saldoObj.tallaCamisa || "";
@@ -2889,14 +2900,16 @@
       document.getElementById('modalEntregas').classList.remove('hidden');
     }
 
-    async function cambiarTallasAdmin() {
+    async function cambiarOpcionesEntregaAdmin() {
       if (indiceSaldoEntregaActual === null) return;
       const saldoObj = saldos[indiceSaldoEntregaActual];
       if (!saldoObj) return;
 
+      const selectPanoEl = document.getElementById('selectTipoPanoramicaAdmin');
       const selectCamisaEl = document.getElementById('selectTallaCamisaAdmin');
       const selectAnilloEl = document.getElementById('selectTallaAnilloAdmin');
 
+      saldoObj.tipoPanoramica = selectPanoEl ? selectPanoEl.value : "";
       saldoObj.tallaCamisa = selectCamisaEl ? selectCamisaEl.value : "";
       saldoObj.tallaAnillo = selectAnilloEl ? selectAnilloEl.value : "";
 
@@ -2949,12 +2962,14 @@
         let claseEstilo = 'bg-slate-50 border-slate-200';
         let textoEtiqueta = estaEntregado ? 'Entregado' : 'Pendiente';
 
-        // Mostrar etiqueta de talla en Camisa personalizada o Anillo de Plata 925
-        let badgeTalla = '';
-        if (mat === "Camisa personalizada" && saldoObj.tallaCamisa) {
-          badgeTalla = `<span class="ml-1.5 text-[11px] font-extrabold bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded-md border border-indigo-200">Talla: ${saldoObj.tallaCamisa}</span>`;
+        // Etiqueta visual para Panorámica, Camisa y Anillo
+        let badgeExtra = '';
+        if (mat === "Panorámica con marco" && saldoObj.tipoPanoramica) {
+          badgeExtra = `<span class="ml-1.5 text-[11px] font-extrabold bg-blue-100 text-blue-800 px-2 py-0.5 rounded-md border border-blue-200">${saldoObj.tipoPanoramica}</span>`;
+        } else if (mat === "Camisa personalizada" && saldoObj.tallaCamisa) {
+          badgeExtra = `<span class="ml-1.5 text-[11px] font-extrabold bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded-md border border-indigo-200">Talla: ${saldoObj.tallaCamisa}</span>`;
         } else if (mat === "Anillo de Plata 925" && saldoObj.tallaAnillo && !esLaDescartada) {
-          badgeTalla = `<span class="ml-1.5 text-[11px] font-extrabold bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded-md border border-indigo-200">No. ${saldoObj.tallaAnillo}</span>`;
+          badgeExtra = `<span class="ml-1.5 text-[11px] font-extrabold bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded-md border border-indigo-200">No. ${saldoObj.tallaAnillo}</span>`;
         }
 
         if (esEspecial) {
@@ -2975,7 +2990,7 @@
             <label class="flex items-center gap-3 ${esLaDescartada ? 'cursor-not-allowed' : 'cursor-pointer'}">
               <input type="checkbox" onchange="toggleEntregaItem('${mat}', this.checked)" ${estaEntregado ? 'checked' : ''} ${esLaDescartada ? 'disabled' : ''} class="w-5 h-5 text-blue-600 rounded focus:ring-blue-500">
               <span class="font-semibold ${esEspecial ? 'text-blue-900 font-bold' : 'text-slate-800'} text-sm">
-                ${esEspecial ? '✨ ' : ''}${mat}${badgeTalla}
+                ${esEspecial ? '✨ ' : ''}${mat}${badgeExtra}
               </span>
             </label>
             <span class="text-xs font-bold ${estaEntregado ? 'text-emerald-600' : 'text-slate-500'}">
@@ -3030,7 +3045,7 @@
       const saldoObj = saldos.find(s => {
         const nom = (s.alumno || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
         return nom === keyNorm || (pagoObj.cuentaId && String(s.id || s._id) === String(pagoObj.cuentaId)) || (alumnoObj.id && String(s.cliente) === String(alumnoObj.id));
-      }) || { paquete: 'No especificado', monto: 0, pagos: [], entregas: {}, eleccionEspecial: "", tallaCamisa: "", tallaAnillo: "", esContadoEfectivo: false };
+      }) || { paquete: 'No especificado', monto: 0, pagos: [], entregas: {}, eleccionEspecial: "", tipoPanoramica: "", tallaCamisa: "", tallaAnillo: "", esContadoEfectivo: false };
 
       const listaPagosAlumno = pagos.filter(p => {
         const nom = resolverNombreAlumnoReal(p).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -3116,9 +3131,11 @@
 
         if (esEspecial && saldoObj.eleccionEspecial && saldoObj.eleccionEspecial !== mat) return;
 
-        // Formatear nombre con talla si aplica
+        // Formatear nombre con acabado o talla en el PDF
         let textoMaterialPdf = mat;
-        if (mat === "Camisa personalizada" && saldoObj.tallaCamisa) {
+        if (mat === "Panorámica con marco" && saldoObj.tipoPanoramica) {
+          textoMaterialPdf += ` (${saldoObj.tipoPanoramica})`;
+        } else if (mat === "Camisa personalizada" && saldoObj.tallaCamisa) {
           textoMaterialPdf += ` (Talla: ${saldoObj.tallaCamisa})`;
         } else if (mat === "Anillo de Plata 925" && saldoObj.tallaAnillo) {
           textoMaterialPdf += ` (Talla/No.: ${saldoObj.tallaAnillo})`;
@@ -3265,7 +3282,7 @@
       }
 
       const nombreSesion = (alumnoSesionActual.nombre || alumnoSesionActual.alumno || '').trim();
-      const saldoObj = saldos.find(s => s.alumno && s.alumno.toLowerCase() === nombreSesion.toLowerCase()) || { monto: 0, pagos: [0,0,0,0,0,0,0,0,0,0], entregas: {}, paquete: 'Sin Paquete', eleccionEspecial: '', tallaCamisa: '', tallaAnillo: '', esContadoEfectivo: false };
+      const saldoObj = saldos.find(s => s.alumno && s.alumno.toLowerCase() === nombreSesion.toLowerCase()) || { monto: 0, pagos: [0,0,0,0,0,0,0,0,0,0], entregas: {}, paquete: 'Sin Paquete', eleccionEspecial: '', tipoPanoramica: '', tallaCamisa: '', tallaAnillo: '', esContadoEfectivo: false };
       const totalPagado = calcularTotalPagado(saldoObj.pagos);
       const saldoPendiente = Math.max(0, saldoObj.monto - totalPagado);
       const porcentajeAvance = saldoObj.monto > 0 ? Math.min(100, Math.round((totalPagado / saldoObj.monto) * 100)) : 0;
@@ -3326,7 +3343,18 @@
         if (esEspecial && eleccionActual && eleccionActual !== mat) return;
 
         let textoMatAlumno = mat;
-        if (mat === "Camisa personalizada" && saldoObj.tallaCamisa) {
+        if (mat === "Panorámica con marco") {
+          if (saldoObj.tipoPanoramica) {
+            textoMatAlumno += ` <span class="text-xs font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-md ml-1">${saldoObj.tipoPanoramica}</span>`;
+          } else {
+            textoMatAlumno += `
+              <div class="mt-1.5 flex gap-2">
+                <button type="button" onclick="guardarTipoPanoramicaAlumno('Con Placa')" class="text-[11px] bg-blue-600 hover:bg-blue-700 text-white font-bold px-2.5 py-1 rounded-md shadow-sm transition">🏅 Elegir Con Placa</button>
+                <button type="button" onclick="guardarTipoPanoramicaAlumno('Con Escultura')" class="text-[11px] bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-2.5 py-1 rounded-md shadow-sm transition">🗿 Elegir Con Escultura</button>
+              </div>
+            `;
+          }
+        } else if (mat === "Camisa personalizada" && saldoObj.tallaCamisa) {
           textoMatAlumno += ` <span class="text-xs font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md ml-1">Talla: ${saldoObj.tallaCamisa}</span>`;
         } else if (mat === "Anillo de Plata 925" && saldoObj.tallaAnillo) {
           textoMatAlumno += ` <span class="text-xs font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md ml-1">No. ${saldoObj.tallaAnillo}</span>`;
@@ -3446,6 +3474,21 @@
           </div>
         </div>
       `;
+    }
+
+    async function guardarTipoPanoramicaAlumno(opcion) {
+      if (!alumnoSesionActual) return;
+
+      const nombreSesion = (alumnoSesionActual.nombre || alumnoSesionActual.alumno || '').trim();
+      const saldoObj = saldos.find(s => s.alumno && s.alumno.toLowerCase() === nombreSesion.toLowerCase());
+      if (!saldoObj || saldoObj.tipoPanoramica) return;
+
+      if (confirm(`⚠️ ADVERTENCIA DE SELECCIÓN DEFINITIVA:\n\n¿Confirmas que deseas tu Panorámica con marco "${opcion}"?\n\nUna vez confirmada no se permiten cambios posteriores.`)) {
+        saldoObj.tipoPanoramica = opcion;
+        await guardarEnLocalStorage();
+        alert(`✅ Elección guardada con éxito: Panorámica con marco (${opcion}).`);
+        renderizarPortalAlumno();
+      }
     }
 
     async function guardarEleccionAlumno(opcionElegida) {

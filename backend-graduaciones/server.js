@@ -68,6 +68,7 @@ const Cuenta = cargarModelo(['./models/Cuenta', './models/cuenta', './models/Cue
   pagos: [Number],
   entregas: mongoose.Schema.Types.Mixed,
   eleccionEspecial: String,
+  tipoPanoramica: { type: String, default: '' },
   tallaCamisa: { type: String, default: '' },
   tallaAnillo: { type: String, default: '' },
   esContadoEfectivo: Boolean,
@@ -302,6 +303,7 @@ async function sincronizarMemoriaDesdeBD() {
         pagos: pagosArr,
         entregas: cta.entregas || {},
         eleccionEspecial: cta.eleccionEspecial || '',
+        tipoPanoramica: cta.tipoPanoramica || '',
         tallaCamisa: cta.tallaCamisa || '',
         tallaAnillo: cta.tallaAnillo || '',
         esContadoEfectivo: Boolean(cta.esContadoEfectivo),
@@ -472,6 +474,7 @@ app.post('/api/datos', async (req, res) => {
               pagos: pagosArr,
               entregas: s.entregas || {},
               eleccionEspecial: s.eleccionEspecial !== undefined ? s.eleccionEspecial : (cuentaExistente ? cuentaExistente.eleccionEspecial : ''),
+              tipoPanoramica: s.tipoPanoramica !== undefined ? s.tipoPanoramica : (cuentaExistente ? cuentaExistente.tipoPanoramica : ''),
               tallaCamisa: s.tallaCamisa !== undefined ? s.tallaCamisa : (cuentaExistente ? cuentaExistente.tallaCamisa : ''),
               tallaAnillo: s.tallaAnillo !== undefined ? s.tallaAnillo : (cuentaExistente ? cuentaExistente.tallaAnillo : ''),
               esContadoEfectivo: Boolean(s.esContadoEfectivo),
@@ -747,8 +750,8 @@ app.put('/api/historial-pagos/:id', async (req, res) => {
   }
 });
 
-// Generador de PDF en servidor (incluye tallas de camisa y anillo)
-function generarReciboPDFBuffer({ folio, fecha, alumno, universidad, carrera, paquete, montoAbonado, nuevoSaldo, tallaCamisa, tallaAnillo, eleccionEspecial }) {
+// Generador de PDF en servidor (incluye Panorámica, tallas de camisa y anillo)
+function generarReciboPDFBuffer({ folio, fecha, alumno, universidad, carrera, paquete, montoAbonado, nuevoSaldo, tipoPanoramica, tallaCamisa, tallaAnillo, eleccionEspecial }) {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ margin: 40, size: 'A4' });
     const buffers = [];
@@ -781,10 +784,11 @@ function generarReciboPDFBuffer({ folio, fecha, alumno, universidad, carrera, pa
     doc.fillColor('#b45309').fontSize(12).text(`Saldo Pendiente Restante: $${Number(nuevoSaldo).toLocaleString()} MXN`);
     doc.moveDown();
 
-    // Detalle de tallas y regalía
-    if (tallaCamisa || tallaAnillo || eleccionEspecial) {
+    // Detalle de acabados, tallas y regalía
+    if (tipoPanoramica || tallaCamisa || tallaAnillo || eleccionEspecial) {
       doc.fillColor('#1e3a8a').fontSize(11).text('ESPECIFICACIONES DE ENTREGA Y REGALÍA:');
       doc.fillColor('#334155').fontSize(10);
+      if (tipoPanoramica) doc.text(`• Panorámica con marco: ${tipoPanoramica}`);
       if (tallaCamisa) doc.text(`• Camisa personalizada: Talla ${tallaCamisa}`);
       if (eleccionEspecial === 'Sin regalía') {
         doc.text(`• Regalía Especial: El alumno optó por no recibir regalía`);
@@ -934,7 +938,6 @@ app.get('/api/verificar-sesion-stripe/:sessionId', async (req, res) => {
       });
     }
 
-    // Después de que pagoController.aplicarAbonoACuenta descuenta el saldo
     const emailDestino = session.customer_details?.email || session.customer_email || metadata.email;
 
     if (emailDestino) {
@@ -958,6 +961,7 @@ app.get('/api/verificar-sesion-stripe/:sessionId', async (req, res) => {
         paquete: ctaActualizada?.paquete || 'Graduación',
         montoAbonado: monto,
         nuevoSaldo: ctaActualizada?.saldo ?? 0,
+        tipoPanoramica: ctaActualizada?.tipoPanoramica || '',
         tallaCamisa: ctaActualizada?.tallaCamisa || '',
         tallaAnillo: ctaActualizada?.tallaAnillo || '',
         eleccionEspecial: ctaActualizada?.eleccionEspecial || ''
