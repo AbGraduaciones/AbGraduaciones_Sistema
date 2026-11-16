@@ -63,6 +63,7 @@ const Cuenta = cargarModelo(['./models/Cuenta', './models/cuenta', './models/Cue
   cliente: mongoose.Schema.Types.Mixed,
   alumno: String,
   paquete: String,
+  observaciones: { type: String, default: '' },
   monto: Number,
   saldo: Number,
   pagos: [Number],
@@ -89,6 +90,16 @@ const Pago = cargarModelo(['./models/Pago', './models/pago', './models/Pagos', '
   metodoPago: String,
   grupoId: { type: mongoose.Schema.Types.Mixed, default: null },
   notas: String
+}, { strict: false, timestamps: true }));
+
+const Egreso = cargarModelo(['./models/Egreso', './models/egreso']) || mongoose.model('Egreso', new mongoose.Schema({
+  concepto: { type: String, required: true, trim: true },
+  monto: { type: Number, required: true },
+  categoria: { type: String, default: 'Operativo' },
+  fecha: { type: Date, default: Date.now },
+  grupoId: { type: mongoose.Schema.Types.Mixed, default: null },
+  grupoNombre: { type: String, default: '' },
+  notas: { type: String, default: '' }
 }, { strict: false, timestamps: true }));
 
 const Usuario = cargarModelo(['./models/Usuario', './models/usuario', './models/Usuarios', './models/usuarios']) || mongoose.model('Usuario', new mongoose.Schema({
@@ -170,7 +181,8 @@ global.datosCompartidos = {
   alumnos: [],
   saldos: [],
   pagos: [],
-  grupos: []
+  grupos: [],
+  egresos: []
 };
 
 function normalizarNombreServidor(txt) {
@@ -272,6 +284,7 @@ async function sincronizarMemoriaDesdeBD() {
     const cuentasBD = await Cuenta.find().lean();
     const pagosBD = await Pago.find().sort({ fecha: -1, createdAt: -1 }).lean();
     const gruposBD = await Grupo.find({ activo: true }).sort({ createdAt: 1 }).lean();
+    const egresosBD = await Egreso.find().sort({ fecha: -1, createdAt: -1 }).lean();
 
     global.datosCompartidos.grupos = gruposBD.map(g => ({
       _id: String(g._id),
@@ -307,6 +320,7 @@ async function sincronizarMemoriaDesdeBD() {
         cliente: cta.cliente ? String(cta.cliente) : '',
         alumno: (cta.alumno || '').trim(),
         paquete: cta.paquete,
+        observaciones: cta.observaciones || '',
         monto: montoTotal,
         saldo: saldoFinal,
         saldoPendiente: saldoFinal,
@@ -355,6 +369,18 @@ async function sincronizarMemoriaDesdeBD() {
         notas: p.notas || ''
       };
     });
+
+    global.datosCompartidos.egresos = egresosBD.map(e => ({
+      _id: String(e._id),
+      id: String(e._id),
+      concepto: e.concepto || '',
+      monto: Number(e.monto) || 0,
+      categoria: e.categoria || 'Operativo',
+      fecha: e.fecha ? new Date(e.fecha).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+      grupoId: e.grupoId ? String(e.grupoId) : null,
+      grupoNombre: e.grupoNombre || '',
+      notas: e.notas || ''
+    }));
   } catch (err) {
     console.error('⚠️ Error al sincronizar desde MongoDB:', err.message);
   }
@@ -453,7 +479,6 @@ app.post('/api/datos', async (req, res) => {
     }
 
     if (Array.isArray(saldos)) {
-      // VALIDACIÓN ANTI-DUPLICADOS EN SERVIDOR: Evita que se guarden 2 cuentas distintas con el mismo alumno
       const nombresVistos = new Set();
       for (const s of saldos) {
         if (!s || !s.alumno) continue;
@@ -495,6 +520,7 @@ app.post('/api/datos', async (req, res) => {
               cliente: s.cliente || (cuentaExistente ? cuentaExistente.cliente : '1001'),
               alumno: (s.alumno || '').trim(),
               paquete: s.paquete,
+              observaciones: s.observaciones !== undefined ? s.observaciones : (cuentaExistente ? cuentaExistente.observaciones : ''),
               monto: montoTotal,
               saldo: saldoFinal,
               pagos: pagosArr,
@@ -512,7 +538,6 @@ app.post('/api/datos', async (req, res) => {
             { upsert: true, new: true }
           );
 
-          // SINCRONIZAR AUTOMÁTICAMENTE EN EL HISTORIAL DE PAGOS (Pago)
           const nombreAlumnoLimpio = (s.alumno || '').trim();
           if (nombreAlumnoLimpio && nombreAlumnoLimpio.toLowerCase() !== 'alumno') {
             for (let i = 0; i < 10; i++) {
@@ -559,6 +584,75 @@ app.post('/api/datos', async (req, res) => {
   } catch (error) {
     console.error('Error al persistir en /api/datos:', error.message);
     res.json({ ok: true, mensaje: 'Guardado en memoria de respaldo' });
+  }
+});
+
+// Rutas de Egresos / Gastos
+app.get('/api/egresos', requireAuth, async (req, res) => {
+  try {
+    if (mongoose.connection.readyState === 1) {
+      const egresos = await Egreso.find().sort({ fecha: -1, createdAt: -1 }).lean();
+      res.json({ ok: true, egresos });
+    } else {
+      res.json({ ok: true, egresos: global.datosCompartidos.egresos || [] });
+    }
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.post('/api/egresos', requireAuth, async (req, res) => {
+  try {
+    const { concepto, monto, categoria, fecha, grupoId, grupoNombre, notas } = req.body;
+    if (!concepto || !monto) {
+      return res.status(400).json({ ok: false, error: 'Concepto y monto son obligatorios.' });
+    }
+
+    if (mongoose.connection.readyState === 1) {
+      const nuevoEgreso = new Egreso({
+        concepto: concepto.trim(),
+        monto: Number(monto) || 0,
+        categoria: categoria || 'Operativo',
+        fecha: fecha ? new Date(fecha) : new Date(),
+        grupoId: grupoId || null,
+        grupoNombre: grupoNombre || '',
+        notas: notas || ''
+      });
+      await nuevoEgreso.save();
+      await sincronizarMemoriaDesdeBD();
+      res.json({ ok: true, egreso: nuevoEgreso });
+    } else {
+      const egLocal = {
+        _id: 'EGR-' + Date.now(),
+        id: 'EGR-' + Date.now(),
+        concepto: concepto.trim(),
+        monto: Number(monto) || 0,
+        categoria: categoria || 'Operativo',
+        fecha: fecha || new Date().toISOString().split('T')[0],
+        grupoId: grupoId || null,
+        grupoNombre: grupoNombre || '',
+        notas: notas || ''
+      };
+      global.datosCompartidos.egresos.push(egLocal);
+      res.json({ ok: true, egreso: egLocal });
+    }
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.delete('/api/egresos/:id', requireAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (mongoose.connection.readyState === 1 && mongoose.Types.ObjectId.isValid(id)) {
+      await Egreso.findByIdAndDelete(id);
+      await sincronizarMemoriaDesdeBD();
+    } else {
+      global.datosCompartidos.egresos = global.datosCompartidos.egresos.filter(e => String(e._id || e.id) !== String(id));
+    }
+    res.json({ ok: true, mensaje: 'Egreso eliminado' });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
   }
 });
 
@@ -777,8 +871,8 @@ app.put('/api/historial-pagos/:id', async (req, res) => {
   }
 });
 
-// Generador de PDF en servidor (incluye Panorámica, tallas de camisa/anillo y combo de 2 regalías)
-function generarReciboPDFBuffer({ folio, fecha, alumno, universidad, carrera, paquete, montoAbonado, nuevoSaldo, tipoPanoramica, tallaCamisa, tallaAnillo, eleccionEspecial, cargoExtraRegalia }) {
+// Generador de PDF en servidor (excluye camisa/regalías si es Línea Basic e incluye observaciones)
+function generarReciboPDFBuffer({ folio, fecha, alumno, universidad, carrera, paquete, observaciones, montoAbonado, nuevoSaldo, tipoPanoramica, tallaCamisa, tallaAnillo, eleccionEspecial, cargoExtraRegalia }) {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ margin: 40, size: 'A4' });
     const buffers = [];
@@ -806,13 +900,21 @@ function generarReciboPDFBuffer({ folio, fecha, alumno, universidad, carrera, pa
     doc.text(`Paquete: ${paquete}`, 50);
     doc.moveDown(2);
 
+    if (observaciones && observaciones.trim() !== '') {
+      doc.fillColor('#0369a1').fontSize(10).text('MODIFICACIONES / OBSERVACIONES:');
+      doc.fillColor('#334155').fontSize(10).text(observaciones.trim());
+      doc.moveDown();
+    }
+
     // Detalle económico
     doc.fillColor('#15803d').fontSize(12).text(`Monto Abonado: $${Number(montoAbonado).toLocaleString()} MXN`);
     doc.fillColor('#b45309').fontSize(12).text(`Saldo Pendiente Restante: $${Number(nuevoSaldo).toLocaleString()} MXN`);
     doc.moveDown();
 
+    const esBasic = String(paquete || '').toLowerCase().includes('línea basic') || String(paquete || '').toLowerCase().includes('linea basic');
+
     // Detalle de acabados, tallas y regalía
-    if (tipoPanoramica || tallaCamisa || tallaAnillo || eleccionEspecial) {
+    if (!esBasic && (tipoPanoramica || tallaCamisa || tallaAnillo || eleccionEspecial)) {
       doc.fillColor('#1e3a8a').fontSize(11).text('ESPECIFICACIONES DE ENTREGA Y REGALÍA:');
       doc.fillColor('#334155').fontSize(10);
       if (tipoPanoramica) doc.text(`• Panorámica con marco: ${tipoPanoramica}`);
@@ -829,6 +931,11 @@ function generarReciboPDFBuffer({ folio, fecha, alumno, universidad, carrera, pa
       } else if (tallaAnillo) {
         doc.text(`• Talla Anillo: Número ${tallaAnillo}`);
       }
+      doc.moveDown();
+    } else if (esBasic && tipoPanoramica) {
+      doc.fillColor('#1e3a8a').fontSize(11).text('ESPECIFICACIONES DE ENTREGA:');
+      doc.fillColor('#334155').fontSize(10);
+      doc.text(`• Panorámica con marco: ${tipoPanoramica}`);
       doc.moveDown();
     }
 
@@ -990,6 +1097,7 @@ app.get('/api/verificar-sesion-stripe/:sessionId', async (req, res) => {
         universidad: cliDatos?.universidad || 'Universidad',
         carrera: cliDatos?.escuela || cliDatos?.facultad || 'Carrera',
         paquete: ctaActualizada?.paquete || 'Graduación',
+        observaciones: ctaActualizada?.observaciones || '',
         montoAbonado: monto,
         nuevoSaldo: ctaActualizada?.saldo ?? 0,
         tipoPanoramica: ctaActualizada?.tipoPanoramica || '',

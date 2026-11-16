@@ -62,6 +62,9 @@
         <a href="#" onclick="cargarContenido('pagos')" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition-all duration-200 hover:bg-blue-900/40 hover:text-blue-200 text-slate-300 font-medium text-sm">
           📑 Historial de Pagos
         </a>
+        <a href="#" onclick="cargarContenido('egresos')" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition-all duration-200 hover:bg-blue-900/40 hover:text-blue-200 text-slate-300 font-medium text-sm">
+          💸 Egresos / Gastos
+        </a>
         <a href="#" id="navLinkUsuarios" onclick="cargarContenido('usuarios')" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition-all duration-200 hover:bg-blue-900/40 hover:text-blue-200 text-slate-300 font-medium text-sm hidden">
           👥 Usuarios / Staff
         </a>
@@ -182,6 +185,55 @@
     <!-- VISTA DINÁMICA DE PORTAL / DASHBOARD -->
     <div id="contenidoDinamico" class="space-y-6" style="display: none;"></div>
   </main>
+
+  <!-- MODAL NUEVO EGRESO / GASTO -->
+  <div id="modalEgreso" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center hidden z-50 overflow-y-auto p-4">
+    <div class="bg-white p-8 rounded-2xl w-full max-w-md border border-slate-100 shadow-2xl">
+      <div class="flex justify-between items-center mb-4">
+        <h3 class="text-xl font-bold text-slate-900">💸 Registrar Nuevo Egreso / Gasto</h3>
+        <button onclick="cerrarModalEgreso()" class="text-slate-400 hover:text-slate-600 font-bold">✕</button>
+      </div>
+
+      <form onsubmit="guardarEgreso(event)" class="space-y-4">
+        <div>
+          <label class="block text-xs font-bold uppercase text-slate-500 mb-1">Concepto del Gasto (*)</label>
+          <input type="text" id="egresoConcepto" required placeholder="Ej: Cortesía Líder UABJO, Gasolina, Impresión..." class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:border-blue-600">
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-bold uppercase text-slate-500 mb-1">Monto ($)</label>
+            <input type="number" id="egresoMonto" required min="1" step="any" placeholder="500" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-red-600 outline-none focus:border-blue-600 font-mono">
+          </div>
+          <div>
+            <label class="block text-xs font-bold uppercase text-slate-500 mb-1">Categoría</label>
+            <select id="egresoCategoria" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:border-blue-600">
+              <option value="Cortesía / Líder">Cortesía / Líder</option>
+              <option value="Operativo">Operativo</option>
+              <option value="Logística / Transporte">Logística / Transporte</option>
+              <option value="Material / Insumos">Material / Insumos</option>
+              <option value="General">General</option>
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold uppercase text-slate-500 mb-1">Fecha</label>
+          <input type="date" id="egresoFecha" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-blue-600">
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold uppercase text-slate-500 mb-1">Notas / Observaciones</label>
+          <textarea id="egresoNotas" rows="2" placeholder="Detalles opcionales..." class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-blue-600"></textarea>
+        </div>
+
+        <div class="flex justify-end space-x-3 pt-3 border-t border-slate-100">
+          <button type="button" onclick="cerrarModalEgreso()" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl text-xs">Cancelar</button>
+          <button type="submit" id="btnGuardarEgreso" class="px-5 py-2 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl text-xs shadow-md">Guardar Gasto</button>
+        </div>
+      </form>
+    </div>
+  </div>
 
   <!-- MODAL DESGLOSE DE ABONOS DEL ALUMNO (HISTORIAL CONSOLIDADO) -->
   <div id="modalDesglosePagos" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center hidden z-50 overflow-y-auto p-4">
@@ -652,6 +704,7 @@
     let pagoPendientePasarela = null;
 
     let listaUsuariosCargados = [];
+    let listaEgresosCargados = [];
 
     // --- GESTIÓN DE GRUPOS ---
     let grupos = JSON.parse(localStorage.getItem('app_grupos_10p')) || [];
@@ -1078,6 +1131,9 @@
             pagos = data.pagos;
             localStorage.setItem('app_pagos_historial', JSON.stringify(pagos));
           }
+          if (Array.isArray(data.egresos)) {
+            listaEgresosCargados = data.egresos;
+          }
         }
       } catch (err) {
         console.warn('Sin conexión con servidor, usando datos locales:', err);
@@ -1325,6 +1381,11 @@
       });
     }
 
+    function obtenerEgresosFiltrados() {
+      if (!grupoSeleccionadoId) return listaEgresosCargados;
+      return listaEgresosCargados.filter(e => String(e.grupoId || '') === String(grupoSeleccionadoId));
+    }
+
     function cambiarModoVista(nuevoModo) {
       modoAcceso = nuevoModo;
       const navAdmin = document.getElementById('navAdmin');
@@ -1484,7 +1545,132 @@
       }
     }
 
-    function cargarContenido(vista) {
+    async function cargarEgresosServidor() {
+      try {
+        const res = await fetch('/api/egresos', { cache: 'no-store' });
+        if (res.ok) {
+          const data = await res.json();
+          listaEgresosCargados = data.egresos || [];
+        }
+      } catch (e) {
+        console.warn('Error cargando egresos:', e);
+      }
+    }
+
+    function abrirModalEgreso() {
+      document.getElementById('egresoConcepto').value = '';
+      document.getElementById('egresoMonto').value = '';
+      document.getElementById('egresoFecha').value = new Date().toISOString().split('T')[0];
+      document.getElementById('egresoNotas').value = '';
+      document.getElementById('modalEgreso').classList.remove('hidden');
+    }
+
+    function cerrarModalEgreso() {
+      document.getElementById('modalEgreso').classList.add('hidden');
+    }
+
+    async function guardarEgreso(e) {
+      e.preventDefault();
+      const concepto = document.getElementById('egresoConcepto').value.trim();
+      const monto = parseFloat(document.getElementById('egresoMonto').value) || 0;
+      const categoria = document.getElementById('egresoCategoria').value;
+      const fecha = document.getElementById('egresoFecha').value;
+      const notas = document.getElementById('egresoNotas').value.trim();
+
+      const btn = document.getElementById('btnGuardarEgreso');
+      if (btn) {
+        btn.disabled = true;
+        btn.innerText = 'Guardando...';
+      }
+
+      const gObj = grupos.find(gr => String(gr._id || gr.id) === String(grupoSeleccionadoId));
+      const payload = {
+        concepto,
+        monto,
+        categoria,
+        fecha,
+        grupoId: grupoSeleccionadoId || null,
+        grupoNombre: gObj ? gObj.nombre : '',
+        notas
+      };
+
+      try {
+        const res = await fetch('/api/egresos', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        if (res.ok) {
+          cerrarModalEgreso();
+          await cargarEgresosServidor();
+          cargarContenido('egresos');
+        } else {
+          alert('Error al guardar el egreso');
+        }
+      } catch (err) {
+        alert('Error de conexión');
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerText = 'Guardar Gasto';
+        }
+      }
+    }
+
+    async function eliminarEgreso(id) {
+      if (!confirm('¿Deseas eliminar este registro de gasto?')) return;
+      try {
+        await fetch(`/api/egresos/${encodeURIComponent(id)}`, { method: 'DELETE' });
+        await cargarEgresosServidor();
+        cargarContenido('egresos');
+      } catch (e) {
+        alert('Error al eliminar');
+      }
+    }
+
+    function renderizarTablaEgresos(data) {
+      const thead = document.getElementById('encabezadoTabla');
+      const tbody = document.getElementById('cuerpoTabla');
+
+      thead.innerHTML = `
+        <tr>
+          <th class="p-4">Concepto</th>
+          <th class="p-4">Categoría</th>
+          <th class="p-4">Grupo</th>
+          <th class="p-4">Fecha</th>
+          <th class="p-4">Notas</th>
+          <th class="p-4 text-right">Monto</th>
+          <th class="p-4 text-center">Acciones</th>
+        </tr>`;
+
+      tbody.innerHTML = '';
+      if (!data || data.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7" class="p-6 text-center text-slate-400 italic">No hay egresos o gastos registrados.</td></tr>`;
+        return;
+      }
+
+      data.forEach(e => {
+        const g = grupos.find(gr => String(gr._id || gr.id) === String(e.grupoId));
+        const nombreGrupoLabel = g ? g.nombre : (e.grupoNombre || 'General');
+
+        tbody.innerHTML += `
+          <tr class="hover:bg-slate-50 transition-colors">
+            <td class="p-4 font-bold text-slate-900">${e.concepto}</td>
+            <td class="p-4"><span class="bg-slate-100 text-slate-800 px-2.5 py-1 rounded-md text-xs font-semibold border border-slate-200">${e.categoria}</span></td>
+            <td class="p-4 text-xs font-semibold text-blue-700"><span class="bg-blue-50 px-2 py-1 rounded-md border border-blue-200">${nombreGrupoLabel}</span></td>
+            <td class="p-4 text-slate-600 text-xs">${e.fecha || '-'}</td>
+            <td class="p-4 text-slate-500 text-xs">${e.notas || '-'}</td>
+            <td class="p-4 text-right font-extrabold text-red-600">-$${Number(e.monto || 0).toLocaleString()}</td>
+            <td class="p-4 text-center">
+              <button onclick="eliminarEgreso('${e._id || e.id}')" class="text-red-500 hover:text-red-700 font-bold text-xs cursor-pointer">Eliminar</button>
+            </td>
+          </tr>
+        `;
+      });
+    }
+
+    async function cargarContenido(vista) {
       if (vista === 'usuarios' && rolUsuarioConectado !== 'admin') {
         alert('Acceso restringido: esta sección está reservada exclusivamente para el Administrador.');
         cargarContenido('saldos');
@@ -1537,6 +1723,18 @@
         tabla.style.display = "block";
         actualizarOpcionesFiltroEscuelas();
         renderizarTablaAlumnos(obtenerAlumnosFiltrados());
+      } else if (vista === 'egresos') {
+        titulo.innerText = "Control de Egresos y Gastos";
+        textoBtn.innerText = "Nuevo Gasto";
+        iconoBtn.innerText = "+";
+        btnAccion.onclick = abrirModalEgreso;
+        btnAccion.className = "bg-red-700 hover:bg-red-800 text-white px-5 py-2.5 rounded-xl font-semibold shadow-lg shadow-red-600/30 transition-all duration-200 flex items-center gap-2 hover:scale-[1.02]";
+        btnContenedor.style.display = "block";
+        filtroEscuela.classList.add('hidden');
+        filtroPaquete.classList.add('hidden');
+        tabla.style.display = "block";
+        await cargarEgresosServidor();
+        renderizarTablaEgresos(obtenerEgresosFiltrados());
       } else if (vista === 'usuarios') {
         titulo.innerText = "Usuarios del Sistema (Staff / Admin)";
         btnContenedor.style.display = "none";
@@ -1548,12 +1746,17 @@
         titulo.innerText = "Dashboard General, Grupos y Paquetes";
         contenedorFiltros.style.display = "none";
         dinamic.style.display = "block";
+
+        await cargarEgresosServidor();
         
         const saldosUso = obtenerSaldosFiltrados();
+        const egresosUso = obtenerEgresosFiltrados();
         const totalSaldos = saldosUso.length;
         const totalMonto = saldosUso.reduce((acc, s) => acc + (s.monto || 0), 0);
         const totalRecaudado = saldosUso.reduce((acc, s) => acc + calcularTotalPagado(s.pagos), 0);
         const totalPendiente = totalMonto - totalRecaudado;
+        const totalEgresos = egresosUso.reduce((acc, e) => acc + (Number(e.monto) || 0), 0);
+        const utilidadNeta = totalRecaudado - totalEgresos;
 
         const desgloseGrupos = {};
 
@@ -1702,8 +1905,8 @@
 
         dinamic.innerHTML = `
           <div>
-            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">Métricas Globales</h3>
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">Métricas Globales y Balance</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               <div class="bg-slate-900 text-white p-6 rounded-2xl shadow-md">
                 <p class="text-slate-400 text-xs font-bold uppercase tracking-wider">Total Cuentas</p>
                 <h3 class="text-4xl font-extrabold mt-3">${totalSaldos}</h3>
@@ -1713,12 +1916,20 @@
                 <h3 class="text-4xl font-extrabold mt-3 text-blue-700">$${totalMonto.toLocaleString()}</h3>
               </div>
               <div class="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm">
-                <p class="text-slate-500 text-xs font-bold uppercase tracking-wider">Total Cobrado</p>
+                <p class="text-slate-500 text-xs font-bold uppercase tracking-wider">Total Cobrado (Ingresos)</p>
                 <h3 class="text-4xl font-extrabold mt-3 text-emerald-600">$${totalRecaudado.toLocaleString()}</h3>
               </div>
               <div class="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm">
                 <p class="text-slate-500 text-xs font-bold uppercase tracking-wider">Saldo Pendiente Total</p>
                 <h3 class="text-4xl font-extrabold mt-3 text-amber-500">$${totalPendiente.toLocaleString()}</h3>
+              </div>
+              <div class="bg-white p-6 rounded-2xl border border-red-200 shadow-sm">
+                <p class="text-red-500 text-xs font-bold uppercase tracking-wider">Total Egresos / Gastos</p>
+                <h3 class="text-4xl font-extrabold mt-3 text-red-600">-$${totalEgresos.toLocaleString()}</h3>
+              </div>
+              <div class="bg-emerald-950 text-white p-6 rounded-2xl shadow-md">
+                <p class="text-emerald-300 text-xs font-bold uppercase tracking-wider">Utilidad Neta (Cobrado - Gastos)</p>
+                <h3 class="text-4xl font-extrabold mt-3 ${utilidadNeta >= 0 ? 'text-emerald-400' : 'text-red-400'}">$${utilidadNeta.toLocaleString()}</h3>
               </div>
             </div>
           </div>
@@ -2903,6 +3114,11 @@
           return nom.includes(query) || (p.concepto || '').toLowerCase().includes(query);
         });
         renderizarTablaPagos(filtrados);
+      } else if (vistaActual === 'egresos') {
+        const filtrados = obtenerEgresosFiltrados().filter(e => {
+          return (e.concepto || '').toLowerCase().includes(query) || (e.categoria || '').toLowerCase().includes(query) || (e.notas || '').toLowerCase().includes(query);
+        });
+        renderizarTablaEgresos(filtrados);
       }
     }
 
@@ -2960,12 +3176,15 @@
       }
 
       const esBasic = esPaqueteBasic(saldoObj.paquete);
-      const bloqueRegaliasContainer = document.getElementById('bloqueRegaliasAdminContainer');
-      if (bloqueRegaliasContainer) {
-        bloqueRegaliasContainer.style.display = esBasic ? 'none' : 'block';
-      }
+      const selectEleccionWrapper = document.getElementById('selectEleccionAdminWrapper');
+      const wrapperCamisa = document.getElementById('wrapperTallaCamisaAdmin');
+      const wrapperAnillo = document.getElementById('contenedorTallaAnilloAdmin');
 
-      actualizarControlesRegaliaAdmin(saldoObj.eleccionEspecial || "", Number(saldoObj.cargoExtraRegalia) || 0);
+      if (selectEleccionWrapper) selectEleccionWrapper.style.display = esBasic ? 'none' : 'block';
+      if (wrapperCamisa) wrapperCamisa.style.display = esBasic ? 'none' : 'block';
+      if (wrapperAnillo) wrapperAnillo.style.display = esBasic ? 'none' : 'block';
+
+      actualizarControlesRegaliaAdmin(esBasic ? '' : (saldoObj.eleccionEspecial || ""), Number(saldoObj.cargoExtraRegalia) || 0);
 
       const subtituloEl = document.getElementById('entregasSubtitulo');
       if (subtituloEl) {
@@ -3204,9 +3423,10 @@
         avisoModalidad.style.display = 'none';
       }
 
+      const esBasicPdf = esPaqueteBasic(saldoObj.paquete);
       const avisoCargoRegalia = document.getElementById('pdfCargoExtraRegaliaAviso');
       if (avisoCargoRegalia) {
-        if (saldoObj.eleccionEspecial === 'Ambos (Anillo + Personalizador)' && Number(saldoObj.cargoExtraRegalia) > 0) {
+        if (!esBasicPdf && saldoObj.eleccionEspecial === 'Ambos (Anillo + Personalizador)' && Number(saldoObj.cargoExtraRegalia) > 0) {
           avisoCargoRegalia.innerText = `✨ Incluye 2da Regalía Adicional (+$${Number(saldoObj.cargoExtraRegalia).toLocaleString()} MXN)`;
           avisoCargoRegalia.style.display = 'block';
         } else {
@@ -3258,7 +3478,6 @@
       let cantEntregados = 0;
       let cantPendientes = 0;
 
-      const esBasicPdf = esPaqueteBasic(saldoObj.paquete);
       const listaMaterialesPdf = obtenerMaterialesPorPaquete(saldoObj.paquete);
 
       if (!esBasicPdf && saldoObj.eleccionEspecial === 'Sin regalía') {
@@ -3594,7 +3813,7 @@
             <p class="text-xs font-bold text-blue-600 mt-1">Paquete Contratado: ${saldoObj.paquete}</p>
             ${saldoObj.observaciones ? `<p class="text-xs text-slate-600 mt-1 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200"><strong>📝 Observaciones:</strong> ${saldoObj.observaciones}</p>` : ''}
             ${saldoObj.esContadoEfectivo ? '<span class="inline-block mt-2 text-xs font-extrabold bg-emerald-100 text-emerald-800 px-3 py-1 rounded-full border border-emerald-200">🏷️ Modalidad de Contado en Efectivo (-5% Aplicado)</span>' : ''}
-            ${esAmbas && Number(saldoObj.cargoExtraRegalia) > 0 ? `<span class="inline-block mt-2 ml-1 text-xs font-extrabold bg-indigo-100 text-indigo-800 px-3 py-1 rounded-full border border-indigo-200">✨ Combo 2 Regalías (+$${Number(saldoObj.cargoExtraRegalia).toLocaleString()})</span>` : ''}
+            ${!esBasicPortal && esAmbas && Number(saldoObj.cargoExtraRegalia) > 0 ? `<span class="inline-block mt-2 ml-1 text-xs font-extrabold bg-indigo-100 text-indigo-800 px-3 py-1 rounded-full border border-indigo-200">✨ Combo 2 Regalías (+$${Number(saldoObj.cargoExtraRegalia).toLocaleString()})</span>` : ''}
           </div>
           <button onclick="cerrarSesionAlumnoPortal()" class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold px-3 py-2 rounded-xl transition">
             🔒 Cerrar Sesión
