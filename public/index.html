@@ -2056,6 +2056,12 @@
             </div>
           </div>
 
+          <!-- CAMPO DE MODIFICACIONES / OBSERVACIONES RESTAURADO -->
+          <div>
+            <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Modificaciones/Observaciones</label>
+            <textarea id="fObservacionesSaldo" rows="2" placeholder="Ej: Cambio de color de marco, dedicatoria especial, entrega urgente..." class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-600 focus:bg-white transition-all text-sm">${datos.observaciones || ''}</textarea>
+          </div>
+
           <div class="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between">
             <label class="flex items-center gap-3 cursor-pointer">
               <input type="checkbox" id="checkContadoEfectivo" onchange="actualizarPrecioModeloModal()" ${esContadoDef ? 'checked' : ''} class="w-5 h-5 text-emerald-600 rounded focus:ring-emerald-500">
@@ -2192,6 +2198,8 @@
           const modelo = document.getElementById('inputModeloModal').value;
           const monto = parseFloat(document.getElementById('inputMontoModal').value) || 0;
           const paqueteCompleto = `${linea} - ${modelo}`;
+          const observacionesEl = document.getElementById('fObservacionesSaldo');
+          const observacionesTexto = observacionesEl ? observacionesEl.value.trim() : '';
           const esContadoEfectivo = document.getElementById('checkContadoEfectivo').checked;
           const grupoSelectEl = document.getElementById('fSaldoGrupo');
           const grupoIdAsignado = grupoSelectEl ? (grupoSelectEl.value || null) : null;
@@ -2241,6 +2249,7 @@
             saldos[idxEncontrado].alumno = alumnoInput;
             saldos[idxEncontrado].cliente = String(alumnoObj.id);
             saldos[idxEncontrado].paquete = paqueteCompleto;
+            saldos[idxEncontrado].observaciones = observacionesTexto;
             saldos[idxEncontrado].monto = monto;
             saldos[idxEncontrado].pagos = pagosCapturados;
             saldos[idxEncontrado].esContadoEfectivo = esContadoEfectivo;
@@ -2252,6 +2261,7 @@
               cliente: String(alumnoObj.id),
               alumno: alumnoInput, 
               paquete: paqueteCompleto, 
+              observaciones: observacionesTexto,
               monto, 
               pagos: pagosCapturados, 
               entregas: {}, 
@@ -2507,7 +2517,10 @@
           <td class="p-3 font-semibold text-xs text-blue-700">
             <span class="bg-blue-50 px-2 py-1 rounded-md border border-blue-200">${nombreGrupoLabel}</span>
           </td>
-          <td class="p-3 text-slate-600 font-medium">${item.paquete}</td>
+          <td class="p-3 text-slate-600 font-medium">
+            <div>${item.paquete}</div>
+            ${item.observaciones ? `<div class="text-[11px] text-amber-700 font-semibold mt-0.5 max-w-[200px] truncate" title="${item.observaciones}">📝 ${item.observaciones}</div>` : ''}
+          </td>
           <td class="p-3 font-extrabold text-slate-900">$${parseFloat(item.monto).toLocaleString()}</td>`;
 
         for (let i = 0; i < 10; i++) {
@@ -2852,7 +2865,7 @@
 
       if (vistaActual === 'saldos') {
         const filtrados = obtenerSaldosFiltrados().filter(s => {
-          const coincideTexto = (s.alumno || '').toLowerCase().includes(query) || (s.paquete || '').toLowerCase().includes(query);
+          const coincideTexto = (s.alumno || '').toLowerCase().includes(query) || (s.paquete || '').toLowerCase().includes(query) || (s.observaciones || '').toLowerCase().includes(query);
           const coincidePaquete = !paqueteSel || (s.paquete || '').toLowerCase().startsWith(paqueteSel);
           return coincideTexto && coincidePaquete;
         });
@@ -3128,7 +3141,7 @@
       const saldoObj = saldos.find(s => {
         const nom = (s.alumno || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
         return nom === keyNorm || (pagoObj.cuentaId && String(s.id || s._id) === String(pagoObj.cuentaId)) || (alumnoObj.id && String(s.cliente) === String(alumnoObj.id));
-      }) || { paquete: 'No especificado', monto: 0, pagos: [], entregas: {}, eleccionEspecial: "", cargoExtraRegalia: 0, tipoPanoramica: "", tallaCamisa: "", tallaAnillo: "", esContadoEfectivo: false };
+      }) || { paquete: 'No especificado', observaciones: '', monto: 0, pagos: [], entregas: {}, eleccionEspecial: "", cargoExtraRegalia: 0, tipoPanoramica: "", tallaCamisa: "", tallaAnillo: "", esContadoEfectivo: false };
 
       const listaPagosAlumno = pagos.filter(p => {
         const nom = resolverNombreAlumnoReal(p).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -3141,6 +3154,17 @@
       document.getElementById('pdfAlumnoUniversidad').innerText = `Universidad: ${alumnoObj.universidad || 'No especificada'}`;
       document.getElementById('pdfAlumnoCarrera').innerText = `Carrera/Facultad: ${alumnoObj.escuela || alumnoObj.facultad || 'No especificada'}`;
       document.getElementById('pdfPaqueteNombre').innerText = saldoObj.paquete;
+
+      const bloqueObs = document.getElementById('pdfObservacionesBloque');
+      const textoObs = document.getElementById('pdfObservacionesTexto');
+      if (bloqueObs && textoObs) {
+        if (saldoObj.observaciones && saldoObj.observaciones.trim() !== '') {
+          textoObs.innerText = saldoObj.observaciones.trim();
+          bloqueObs.style.display = 'block';
+        } else {
+          bloqueObs.style.display = 'none';
+        }
+      }
 
       const avisoModalidad = document.getElementById('pdfModalidadPagoAviso');
       if (saldoObj.esContadoEfectivo) {
@@ -3375,7 +3399,7 @@
       }
 
       const nombreSesion = (alumnoSesionActual.nombre || alumnoSesionActual.alumno || '').trim();
-      const saldoObj = saldos.find(s => s.alumno && s.alumno.toLowerCase() === nombreSesion.toLowerCase()) || { monto: 0, pagos: [0,0,0,0,0,0,0,0,0,0], entregas: {}, paquete: 'Sin Paquete', eleccionEspecial: '', cargoExtraRegalia: 0, tipoPanoramica: '', tallaCamisa: '', tallaAnillo: '', esContadoEfectivo: false };
+      const saldoObj = saldos.find(s => s.alumno && s.alumno.toLowerCase() === nombreSesion.toLowerCase()) || { monto: 0, pagos: [0,0,0,0,0,0,0,0,0,0], entregas: {}, paquete: 'Sin Paquete', observaciones: '', eleccionEspecial: '', cargoExtraRegalia: 0, tipoPanoramica: '', tallaCamisa: '', tallaAnillo: '', esContadoEfectivo: false };
       const totalPagado = calcularTotalPagado(saldoObj.pagos);
       const saldoPendiente = Math.max(0, saldoObj.monto - totalPagado);
       const porcentajeAvance = saldoObj.monto > 0 ? Math.min(100, Math.round((totalPagado / saldoObj.monto) * 100)) : 0;
@@ -3471,6 +3495,7 @@
             <h3 class="text-2xl font-black text-slate-900">¡Hola, ${nombreSesion}! 👋</h3>
             <p class="text-xs font-semibold text-slate-500">${alumnoSesionActual.universidad || 'Universidad'} | ${alumnoSesionActual.escuela || alumnoSesionActual.facultad || 'Carrera'}</p>
             <p class="text-xs font-bold text-blue-600 mt-1">Paquete Contratado: ${saldoObj.paquete}</p>
+            ${saldoObj.observaciones ? `<p class="text-xs text-slate-600 mt-1 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200"><strong>📝 Observaciones:</strong> ${saldoObj.observaciones}</p>` : ''}
             ${saldoObj.esContadoEfectivo ? '<span class="inline-block mt-2 text-xs font-extrabold bg-emerald-100 text-emerald-800 px-3 py-1 rounded-full border border-emerald-200">🏷️ Modalidad de Contado en Efectivo (-5% Aplicado)</span>' : ''}
             ${esAmbas && Number(saldoObj.cargoExtraRegalia) > 0 ? `<span class="inline-block mt-2 ml-1 text-xs font-extrabold bg-indigo-100 text-indigo-800 px-3 py-1 rounded-full border border-indigo-200">✨ Combo 2 Regalías (+$${Number(saldoObj.cargoExtraRegalia).toLocaleString()})</span>` : ''}
           </div>
