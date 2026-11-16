@@ -401,8 +401,8 @@
         <button onclick="cerrarModalEntregas()" class="text-slate-400 hover:text-slate-600 font-bold text-lg">✕</button>
       </div>
 
-      <div class="bg-blue-50/70 p-4 rounded-xl border border-blue-200 mb-4 space-y-3">
-        <div>
+      <div class="bg-blue-50/70 p-4 rounded-xl border border-blue-200 mb-4 space-y-3" id="bloqueRegaliasAdminContainer">
+        <div id="selectEleccionAdminWrapper">
           <label class="block text-xs font-bold uppercase text-blue-900 mb-1">✨ Asignar / Cambiar Elección de Regalía</label>
           <select id="selectEleccionAdmin" onchange="cambiarEleccionAdmin(this.value)" class="w-full p-2.5 bg-white border border-blue-300 text-slate-800 text-sm font-semibold rounded-lg outline-none focus:border-blue-600">
             <option value="">Pendiente de elección por el alumno</option>
@@ -428,7 +428,7 @@
         </div>
 
         <!-- ACABADO PANORÁMICA Y TALLAS DE CAMISA / ANILLO -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2 border-t border-blue-200/70">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2 border-t border-blue-200/70" id="contenedorTallasAdminGrid">
           <div>
             <label class="block text-[11px] font-bold uppercase text-blue-900 mb-1">🖼️ Panorámica con marco</label>
             <select id="selectTipoPanoramicaAdmin" onchange="cambiarOpcionesEntregaAdmin()" class="w-full p-2 bg-white border border-blue-300 text-slate-800 text-xs font-bold rounded-lg outline-none focus:border-blue-600">
@@ -438,7 +438,7 @@
             </select>
           </div>
 
-          <div>
+          <div id="wrapperTallaCamisaAdmin">
             <label class="block text-[11px] font-bold uppercase text-blue-900 mb-1">👕 Talla Camisa</label>
             <select id="selectTallaCamisaAdmin" onchange="cambiarOpcionesEntregaAdmin()" class="w-full p-2 bg-white border border-blue-300 text-slate-800 text-xs font-bold rounded-lg outline-none focus:border-blue-600">
               <option value="">Sin especificar</option>
@@ -670,6 +670,22 @@
       "Anillo de Plata 925",
       "Personalizador"
     ];
+
+    function esPaqueteBasic(paqueteStr) {
+      return String(paqueteStr || '').toLowerCase().includes('línea basic') || 
+             String(paqueteStr || '').toLowerCase().includes('linea basic');
+    }
+
+    function obtenerMaterialesPorPaquete(paqueteStr) {
+      if (esPaqueteBasic(paqueteStr)) {
+        return MATERIALES_ENTREGAS_COMPLETO.filter(mat => 
+          mat !== "Camisa personalizada" && 
+          mat !== "Anillo de Plata 925" && 
+          mat !== "Personalizador"
+        );
+      }
+      return MATERIALES_ENTREGAS_COMPLETO;
+    }
 
     const PAQUETES_CATALOGO_BASE = {
       "Línea Basic 1 Solo Fotos": [
@@ -2023,7 +2039,6 @@
           opcionesLineasHtml += `<option value="${lin}" ${lineaDef === lin ? 'selected' : ''}>${lin}</option>`;
         });
 
-        // Respaldo seguro en caso de editar un saldo previo con nombre de línea antigua
         if (lineaDef && !catalogoActivo[lineaDef]) {
           opcionesLineasHtml += `<option value="${lineaDef}" selected>${lineaDef}</option>`;
         }
@@ -2056,7 +2071,6 @@
             </div>
           </div>
 
-          <!-- CAMPO DE MODIFICACIONES / OBSERVACIONES RESTAURADO -->
           <div>
             <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Modificaciones/Observaciones</label>
             <textarea id="fObservacionesSaldo" rows="2" placeholder="Ej: Cambio de color de marco, dedicatoria especial, entrega urgente..." class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-600 focus:bg-white transition-all text-sm">${datos.observaciones || ''}</textarea>
@@ -2185,7 +2199,6 @@
             idxEncontrado = indiceEdicion;
           }
 
-          // VALIDACIÓN ANTI-DUPLICADOS
           const saldoDuplicado = saldos.find((s, idx) => idx !== idxEncontrado && normalizarTextoComparacion(s.alumno) === alumnoNorm);
           if (saldoDuplicado) {
             alertaError.innerText = `⚠️ El alumno "${saldoDuplicado.alumno}" ya tiene un saldo registrado (${saldoDuplicado.paquete || 'Paquete contratado'}). Para evitar duplicados, utiliza el botón "Editar" en su fila correspondiente.`;
@@ -2492,17 +2505,24 @@
 
         const entregasObj = item.entregas || {};
         const esAmbas = item.eleccionEspecial === 'Ambos (Anillo + Personalizador)';
-        const totalEntregados = MATERIALES_ENTREGAS_COMPLETO.filter(mat => {
-          if (item.eleccionEspecial === 'Sin regalía' && (mat === 'Anillo de Plata 925' || mat === 'Personalizador')) return false;
-          if (!esAmbas && item.eleccionEspecial && item.eleccionEspecial !== mat && (mat === 'Anillo de Plata 925' || mat === 'Personalizador')) return false;
+        const esBasic = esPaqueteBasic(item.paquete);
+        const listaMaterialesLocal = obtenerMaterialesPorPaquete(item.paquete);
+
+        const totalEntregados = listaMaterialesLocal.filter(mat => {
+          if (!esBasic) {
+            if (item.eleccionEspecial === 'Sin regalía' && (mat === 'Anillo de Plata 925' || mat === 'Personalizador')) return false;
+            if (!esAmbas && item.eleccionEspecial && item.eleccionEspecial !== mat && (mat === 'Anillo de Plata 925' || mat === 'Personalizador')) return false;
+          }
           return !!entregasObj[mat];
         }).length;
 
-        const totalMateriales = item.eleccionEspecial === 'Sin regalía' 
-          ? MATERIALES_ENTREGAS_COMPLETO.length - 2 
-          : (esAmbas 
-              ? MATERIALES_ENTREGAS_COMPLETO.length 
-              : (item.eleccionEspecial ? MATERIALES_ENTREGAS_COMPLETO.length - 1 : MATERIALES_ENTREGAS_COMPLETO.length));
+        const totalMateriales = esBasic
+          ? listaMaterialesLocal.length
+          : (item.eleccionEspecial === 'Sin regalía' 
+              ? listaMaterialesLocal.length - 2 
+              : (esAmbas 
+                  ? listaMaterialesLocal.length 
+                  : (item.eleccionEspecial ? listaMaterialesLocal.length - 1 : listaMaterialesLocal.length)));
 
         const g = grupos.find(gr => String(gr._id || gr.id) === String(item.grupoId));
         const nombreGrupoLabel = g ? g.nombre : (item.grupoNombre || 'General');
@@ -2939,6 +2959,12 @@
         selectAnilloEl.value = saldoObj.tallaAnillo || "";
       }
 
+      const esBasic = esPaqueteBasic(saldoObj.paquete);
+      const bloqueRegaliasContainer = document.getElementById('bloqueRegaliasAdminContainer');
+      if (bloqueRegaliasContainer) {
+        bloqueRegaliasContainer.style.display = esBasic ? 'none' : 'block';
+      }
+
       actualizarControlesRegaliaAdmin(saldoObj.eleccionEspecial || "", Number(saldoObj.cargoExtraRegalia) || 0);
 
       const subtituloEl = document.getElementById('entregasSubtitulo');
@@ -3033,26 +3059,31 @@
       const contenedor = document.getElementById('listaMaterialesEntregas');
       contenedor.innerHTML = '';
 
-      if (saldoObj.eleccionEspecial === 'Sin regalía') {
-        contenedor.innerHTML += `
-          <div class="p-3 bg-slate-100 border border-slate-300 rounded-xl text-xs font-bold text-slate-700 flex items-center gap-2">
-            <span>🚫</span>
-            <span>El alumno indicó que no desea ninguna regalía especial.</span>
-          </div>
-        `;
-      } else if (saldoObj.eleccionEspecial === 'Ambos (Anillo + Personalizador)') {
-        contenedor.innerHTML += `
-          <div class="p-3 bg-indigo-50 border border-indigo-200 rounded-xl text-xs font-bold text-indigo-900 flex items-center justify-between">
-            <span>✨ El alumno adquirió ambas regalías (+$${Number(saldoObj.cargoExtraRegalia || 0).toLocaleString()} sumados al paquete)</span>
-          </div>
-        `;
+      const esBasic = esPaqueteBasic(saldoObj.paquete);
+      const listaMaterialesLocal = obtenerMaterialesPorPaquete(saldoObj.paquete);
+
+      if (!esBasic) {
+        if (saldoObj.eleccionEspecial === 'Sin regalía') {
+          contenedor.innerHTML += `
+            <div class="p-3 bg-slate-100 border border-slate-300 rounded-xl text-xs font-bold text-slate-700 flex items-center gap-2">
+              <span>🚫</span>
+              <span>El alumno indicó que no desea ninguna regalía especial.</span>
+            </div>
+          `;
+        } else if (saldoObj.eleccionEspecial === 'Ambos (Anillo + Personalizador)') {
+          contenedor.innerHTML += `
+            <div class="p-3 bg-indigo-50 border border-indigo-200 rounded-xl text-xs font-bold text-indigo-900 flex items-center justify-between">
+              <span>✨ El alumno adquirió ambas regalías (+$${Number(saldoObj.cargoExtraRegalia || 0).toLocaleString()} sumados al paquete)</span>
+            </div>
+          `;
+        }
       }
 
       const esAmbas = saldoObj.eleccionEspecial === 'Ambos (Anillo + Personalizador)';
 
-      MATERIALES_ENTREGAS_COMPLETO.forEach((mat) => {
+      listaMaterialesLocal.forEach((mat) => {
         const estaEntregado = !!saldoObj.entregas[mat];
-        const esEspecial = mat === "Anillo de Plata 925" || mat === "Personalizador";
+        const esEspecial = !esBasic && (mat === "Anillo de Plata 925" || mat === "Personalizador");
         const esLaSeleccionada = esEspecial && (esAmbas || saldoObj.eleccionEspecial === mat);
         const esLaDescartada = esEspecial && saldoObj.eleccionEspecial && !esLaSeleccionada;
 
@@ -3227,7 +3258,10 @@
       let cantEntregados = 0;
       let cantPendientes = 0;
 
-      if (saldoObj.eleccionEspecial === 'Sin regalía') {
+      const esBasicPdf = esPaqueteBasic(saldoObj.paquete);
+      const listaMaterialesPdf = obtenerMaterialesPorPaquete(saldoObj.paquete);
+
+      if (!esBasicPdf && saldoObj.eleccionEspecial === 'Sin regalía') {
         htmlEntregados += `<li style="margin-bottom: 3px; color: #475569;"><em>Regalía Especial: El alumno optó por no recibir regalía.</em></li>`;
         cantEntregados++;
       }
@@ -3235,8 +3269,8 @@
       let yaAgregadaAclaracionPendiente = false;
       const esAmbas = saldoObj.eleccionEspecial === 'Ambos (Anillo + Personalizador)';
 
-      MATERIALES_ENTREGAS_COMPLETO.forEach(mat => {
-        const esEspecial = mat === "Anillo de Plata 925" || mat === "Personalizador";
+      listaMaterialesPdf.forEach(mat => {
+        const esEspecial = !esBasicPdf && (mat === "Anillo de Plata 925" || mat === "Personalizador");
         
         if (esEspecial && !saldoObj.eleccionEspecial) {
           if (!yaAgregadaAclaracionPendiente) {
@@ -3408,6 +3442,7 @@
       const eleccionActual = saldoObj.eleccionEspecial || '';
       const tieneEleccionDefinitiva = !!eleccionActual;
       const esAmbas = eleccionActual === 'Ambos (Anillo + Personalizador)';
+      const esBasicPortal = esPaqueteBasic(saldoObj.paquete);
 
       let abonosCardsHtml = '';
       for (let i = 0; i < 10; i++) {
@@ -3434,17 +3469,20 @@
       }
 
       let entregasChecklistHtml = '';
-      if (eleccionActual === 'Sin regalía') {
-        entregasChecklistHtml += `
-          <div class="p-3 bg-slate-100 rounded-xl border border-slate-300 flex justify-between items-center text-sm">
-            <span class="font-semibold text-slate-700">🚫 Regalía Especial</span>
-            <span class="text-xs font-bold text-slate-500">Sin regalía (Por elección del alumno)</span>
-          </div>
-        `;
+      if (!esBasicPortal) {
+        if (eleccionActual === 'Sin regalía') {
+          entregasChecklistHtml += `
+            <div class="p-3 bg-slate-100 rounded-xl border border-slate-300 flex justify-between items-center text-sm">
+              <span class="font-semibold text-slate-700">🚫 Regalía Especial</span>
+              <span class="text-xs font-bold text-slate-500">Sin regalía (Por elección del alumno)</span>
+            </div>
+          `;
+        }
       }
 
-      MATERIALES_ENTREGAS_COMPLETO.forEach(mat => {
-        const esEspecial = mat === "Anillo de Plata 925" || mat === "Personalizador";
+      const listaMaterialesPortal = obtenerMaterialesPorPaquete(saldoObj.paquete);
+      listaMaterialesPortal.forEach(mat => {
+        const esEspecial = !esBasicPortal && (mat === "Anillo de Plata 925" || mat === "Personalizador");
         
         if (esEspecial && !eleccionActual) {
           if (mat === "Anillo de Plata 925") {
@@ -3489,6 +3527,65 @@
         `;
       });
 
+      let seccionRegaliasAlumnoHtml = '';
+      if (!esBasicPortal) {
+        seccionRegaliasAlumnoHtml = `
+          <div class="bg-gradient-to-r from-blue-900 to-indigo-900 text-white p-6 rounded-2xl shadow-md mb-8">
+            <div class="flex items-center gap-2 mb-2">
+              <span class="text-2xl">✨</span>
+              <h4 class="text-lg font-extrabold">Elección de Regalía Especial (1 Opción Incluida o Ambas por Cargo Extra)</h4>
+            </div>
+
+            <div class="bg-amber-500/20 border border-amber-400/40 p-3 rounded-xl mb-4 flex items-center gap-2 text-amber-200 text-xs font-semibold">
+              <span>⚠️</span>
+              <span><strong>Advertencia de Selección:</strong> Una vez confirmada tu elección con el administrador o en este portal, no se permiten cambios posteriores. Por favor asegúrate de tu decisión antes de guardar.</span>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div onclick="${tieneEleccionDefinitiva ? '' : "guardarEleccionAlumno('Anillo de Plata 925')"}" class="p-4 rounded-xl border-2 ${tieneEleccionDefinitiva ? 'cursor-not-allowed opacity-90' : 'cursor-pointer hover:bg-white/20'} transition-all ${eleccionActual === 'Anillo de Plata 925' ? 'bg-white text-slate-900 border-emerald-400 font-bold shadow-lg' : 'bg-white/10 text-white border-white/20'} flex items-center justify-between">
+                <div>
+                  <p class="text-sm font-bold">💍 Anillo de Plata 925</p>
+                  <p class="text-[11px] ${eleccionActual === 'Anillo de Plata 925' ? 'text-emerald-700' : 'text-blue-200'}">Incluido en el paquete</p>
+                </div>
+                <span class="text-xs font-bold px-3 py-1 rounded-full ${eleccionActual === 'Anillo de Plata 925' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-800 text-slate-300'}">
+                  ${eleccionActual === 'Anillo de Plata 925' ? '🔒 Seleccionado' : (tieneEleccionDefinitiva ? 'No Elegido' : 'Elegir')}
+                </span>
+              </div>
+
+              <div onclick="${tieneEleccionDefinitiva ? '' : "guardarEleccionAlumno('Personalizador')"}" class="p-4 rounded-xl border-2 ${tieneEleccionDefinitiva ? 'cursor-not-allowed opacity-90' : 'cursor-pointer hover:bg-white/20'} transition-all ${eleccionActual === 'Personalizador' ? 'bg-white text-slate-900 border-emerald-400 font-bold shadow-lg' : 'bg-white/10 text-white border-white/20'} flex items-center justify-between">
+                <div>
+                  <p class="text-sm font-bold">✒️ Personalizador</p>
+                  <p class="text-[11px] ${eleccionActual === 'Personalizador' ? 'text-emerald-700' : 'text-blue-200'}">Incluido en el paquete</p>
+                </div>
+                <span class="text-xs font-bold px-3 py-1 rounded-full ${eleccionActual === 'Personalizador' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-800 text-slate-300'}">
+                  ${eleccionActual === 'Personalizador' ? '🔒 Seleccionado' : (tieneEleccionDefinitiva ? 'No Elegido' : 'Elegir')}
+                </span>
+              </div>
+
+              <div onclick="${tieneEleccionDefinitiva ? '' : "guardarEleccionAlumno('Ambos (Anillo + Personalizador)')"}" class="p-4 rounded-xl border-2 ${tieneEleccionDefinitiva ? 'cursor-not-allowed opacity-90' : 'cursor-pointer hover:bg-white/20'} transition-all ${esAmbas ? 'bg-white text-slate-900 border-emerald-400 font-bold shadow-lg' : 'bg-indigo-600/40 text-white border-indigo-400/50'} flex items-center justify-between">
+                <div>
+                  <p class="text-sm font-bold">✨ Ambos (Anillo + Personalizador)</p>
+                  <p class="text-[11px] ${esAmbas ? 'text-indigo-700' : 'text-indigo-200'}">Recibe ambas regalías (+$${Number(saldoObj.cargoExtraRegalia || CARGO_EXTRA_AMBAS_REGALIAS_DEFAULT).toLocaleString()} extra)</p>
+                </div>
+                <span class="text-xs font-bold px-3 py-1 rounded-full ${esAmbas ? 'bg-emerald-100 text-emerald-800' : 'bg-indigo-900 text-indigo-200'}">
+                  ${esAmbas ? '🔒 Seleccionado' : (tieneEleccionDefinitiva ? 'No Elegido' : 'Elegir Ambos')}
+                </span>
+              </div>
+
+              <div onclick="${tieneEleccionDefinitiva ? '' : "guardarEleccionAlumno('Sin regalía')"}" class="p-4 rounded-xl border-2 ${tieneEleccionDefinitiva ? 'cursor-not-allowed opacity-90' : 'cursor-pointer hover:bg-white/20'} transition-all ${eleccionActual === 'Sin regalía' ? 'bg-white text-slate-900 border-emerald-400 font-bold shadow-lg' : 'bg-white/10 text-white border-white/20'} flex items-center justify-between">
+                <div>
+                  <p class="text-sm font-bold">🚫 No quiero ninguna regalía</p>
+                  <p class="text-[11px] ${eleccionActual === 'Sin regalía' ? 'text-emerald-700' : 'text-blue-200'}">Renunciar a la regalía incluida</p>
+                </div>
+                <span class="text-xs font-bold px-3 py-1 rounded-full ${eleccionActual === 'Sin regalía' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-800 text-slate-300'}">
+                  ${eleccionActual === 'Sin regalía' ? '🔒 Seleccionado' : (tieneEleccionDefinitiva ? 'No Elegido' : 'Elegir')}
+                </span>
+              </div>
+            </div>
+          </div>
+        `;
+      }
+
       dinamic.innerHTML = `
         <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm mb-6 flex flex-wrap justify-between items-center gap-4">
           <div>
@@ -3504,58 +3601,7 @@
           </button>
         </div>
 
-        <div class="bg-gradient-to-r from-blue-900 to-indigo-900 text-white p-6 rounded-2xl shadow-md mb-8">
-          <div class="flex items-center gap-2 mb-2">
-            <span class="text-2xl">✨</span>
-            <h4 class="text-lg font-extrabold">Elección de Regalía Especial (1 Opción Incluida o Ambas por Cargo Extra)</h4>
-          </div>
-
-          <div class="bg-amber-500/20 border border-amber-400/40 p-3 rounded-xl mb-4 flex items-center gap-2 text-amber-200 text-xs font-semibold">
-            <span>⚠️</span>
-            <span><strong>Advertencia de Selección:</strong> Una vez confirmada tu elección con el administrador o en este portal, no se permiten cambios posteriores. Por favor asegúrate de tu decisión antes de guardar.</span>
-          </div>
-
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div onclick="${tieneEleccionDefinitiva ? '' : "guardarEleccionAlumno('Anillo de Plata 925')"}" class="p-4 rounded-xl border-2 ${tieneEleccionDefinitiva ? 'cursor-not-allowed opacity-90' : 'cursor-pointer hover:bg-white/20'} transition-all ${eleccionActual === 'Anillo de Plata 925' ? 'bg-white text-slate-900 border-emerald-400 font-bold shadow-lg' : 'bg-white/10 text-white border-white/20'} flex items-center justify-between">
-              <div>
-                <p class="text-sm font-bold">💍 Anillo de Plata 925</p>
-                <p class="text-[11px] ${eleccionActual === 'Anillo de Plata 925' ? 'text-emerald-700' : 'text-blue-200'}">Incluido en el paquete</p>
-              </div>
-              <span class="text-xs font-bold px-3 py-1 rounded-full ${eleccionActual === 'Anillo de Plata 925' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-800 text-slate-300'}">
-                ${eleccionActual === 'Anillo de Plata 925' ? '🔒 Seleccionado' : (tieneEleccionDefinitiva ? 'No Elegido' : 'Elegir')}
-              </span>
-            </div>
-
-            <div onclick="${tieneEleccionDefinitiva ? '' : "guardarEleccionAlumno('Personalizador')"}" class="p-4 rounded-xl border-2 ${tieneEleccionDefinitiva ? 'cursor-not-allowed opacity-90' : 'cursor-pointer hover:bg-white/20'} transition-all ${eleccionActual === 'Personalizador' ? 'bg-white text-slate-900 border-emerald-400 font-bold shadow-lg' : 'bg-white/10 text-white border-white/20'} flex items-center justify-between">
-              <div>
-                <p class="text-sm font-bold">✒️ Personalizador</p>
-                <p class="text-[11px] ${eleccionActual === 'Personalizador' ? 'text-emerald-700' : 'text-blue-200'}">Incluido en el paquete</p>
-              </div>
-              <span class="text-xs font-bold px-3 py-1 rounded-full ${eleccionActual === 'Personalizador' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-800 text-slate-300'}">
-                ${eleccionActual === 'Personalizador' ? '🔒 Seleccionado' : (tieneEleccionDefinitiva ? 'No Elegido' : 'Elegir')}
-              </span>
-            </div>
-
-            <div onclick="${tieneEleccionDefinitiva ? '' : "guardarEleccionAlumno('Ambos (Anillo + Personalizador)')"}" class="p-4 rounded-xl border-2 ${tieneEleccionDefinitiva ? 'cursor-not-allowed opacity-90' : 'cursor-pointer hover:bg-white/20'} transition-all ${esAmbas ? 'bg-white text-slate-900 border-emerald-400 font-bold shadow-lg' : 'bg-indigo-600/40 text-white border-indigo-400/50'} flex items-center justify-between">
-              <div>
-                <p class="text-sm font-bold">✨ Ambos (Anillo + Personalizador)</p>
-                <p class="text-[11px] ${esAmbas ? 'text-indigo-700' : 'text-indigo-200'}">Recibe ambas regalías (+$${Number(saldoObj.cargoExtraRegalia || CARGO_EXTRA_AMBAS_REGALIAS_DEFAULT).toLocaleString()} extra)</p>
-              </div>
-              <span class="text-xs font-bold px-3 py-1 rounded-full ${esAmbas ? 'bg-emerald-100 text-emerald-800' : 'bg-indigo-900 text-indigo-200'}">
-                ${esAmbas ? '🔒 Seleccionado' : (tieneEleccionDefinitiva ? 'No Elegido' : 'Elegir Ambos')}
-              </span>
-            </div>
-
-            <div onclick="${tieneEleccionDefinitiva ? '' : "guardarEleccionAlumno('Sin regalía')"}" class="p-4 rounded-xl border-2 ${tieneEleccionDefinitiva ? 'cursor-not-allowed opacity-90' : 'cursor-pointer hover:bg-white/20'} transition-all ${eleccionActual === 'Sin regalía' ? 'bg-white text-slate-900 border-emerald-400 font-bold shadow-lg' : 'bg-white/10 text-white border-white/20'} flex items-center justify-between">
-              <div>
-                <p class="text-sm font-bold">🚫 No quiero ninguna regalía</p>
-                <p class="text-[11px] ${eleccionActual === 'Sin regalía' ? 'text-emerald-700' : 'text-blue-200'}">Renunciar a la regalía incluida</p>
-              </div>
-              <span class="text-xs font-bold px-3 py-1 rounded-full ${eleccionActual === 'Sin regalía' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-800 text-slate-300'}">
-                ${eleccionActual === 'Sin regalía' ? '🔒 Seleccionado' : (tieneEleccionDefinitiva ? 'No Elegido' : 'Elegir')}
-              </span>
-            </div>
-          </div>
+        ${seccionRegaliasAlumnoHtml}
 
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 mt-6">
           <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
