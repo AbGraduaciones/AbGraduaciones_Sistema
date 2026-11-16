@@ -63,12 +63,12 @@ const Cuenta = cargarModelo(['./models/Cuenta', './models/cuenta', './models/Cue
   cliente: mongoose.Schema.Types.Mixed,
   alumno: String,
   paquete: String,
-  observaciones: { type: String, default: '' },
   monto: Number,
   saldo: Number,
   pagos: [Number],
   entregas: mongoose.Schema.Types.Mixed,
   eleccionEspecial: String,
+  cargoExtraRegalia: { type: Number, default: 0 },
   tipoPanoramica: { type: String, default: '' },
   tallaCamisa: { type: String, default: '' },
   tallaAnillo: { type: String, default: '' },
@@ -298,13 +298,13 @@ async function sincronizarMemoriaDesdeBD() {
         cliente: cta.cliente ? String(cta.cliente) : '',
         alumno: (cta.alumno || '').trim(),
         paquete: cta.paquete,
-        observaciones: cta.observaciones || '',
         monto: montoTotal,
         saldo: saldoFinal,
         saldoPendiente: saldoFinal,
         pagos: pagosArr,
         entregas: cta.entregas || {},
         eleccionEspecial: cta.eleccionEspecial || '',
+        cargoExtraRegalia: Number(cta.cargoExtraRegalia) || 0,
         tipoPanoramica: cta.tipoPanoramica || '',
         tallaCamisa: cta.tallaCamisa || '',
         tallaAnillo: cta.tallaAnillo || '',
@@ -471,12 +471,12 @@ app.post('/api/datos', async (req, res) => {
               cliente: s.cliente || (cuentaExistente ? cuentaExistente.cliente : '1001'),
               alumno: (s.alumno || '').trim(),
               paquete: s.paquete,
-              observaciones: s.observaciones !== undefined ? s.observaciones : (cuentaExistente ? cuentaExistente.observaciones : ''),
               monto: montoTotal,
               saldo: saldoFinal,
               pagos: pagosArr,
               entregas: s.entregas || {},
               eleccionEspecial: s.eleccionEspecial !== undefined ? s.eleccionEspecial : (cuentaExistente ? cuentaExistente.eleccionEspecial : ''),
+              cargoExtraRegalia: s.cargoExtraRegalia !== undefined ? Number(s.cargoExtraRegalia) : (cuentaExistente ? Number(cuentaExistente.cargoExtraRegalia || 0) : 0),
               tipoPanoramica: s.tipoPanoramica !== undefined ? s.tipoPanoramica : (cuentaExistente ? cuentaExistente.tipoPanoramica : ''),
               tallaCamisa: s.tallaCamisa !== undefined ? s.tallaCamisa : (cuentaExistente ? cuentaExistente.tallaCamisa : ''),
               tallaAnillo: s.tallaAnillo !== undefined ? s.tallaAnillo : (cuentaExistente ? cuentaExistente.tallaAnillo : ''),
@@ -753,8 +753,8 @@ app.put('/api/historial-pagos/:id', async (req, res) => {
   }
 });
 
-// Generador de PDF en servidor (incluye observaciones, Panorámica, tallas de camisa y anillo)
-function generarReciboPDFBuffer({ folio, fecha, alumno, universidad, carrera, paquete, observaciones, montoAbonado, nuevoSaldo, tipoPanoramica, tallaCamisa, tallaAnillo, eleccionEspecial }) {
+// Generador de PDF en servidor (incluye Panorámica, tallas de camisa/anillo y combo de 2 regalías)
+function generarReciboPDFBuffer({ folio, fecha, alumno, universidad, carrera, paquete, montoAbonado, nuevoSaldo, tipoPanoramica, tallaCamisa, tallaAnillo, eleccionEspecial, cargoExtraRegalia }) {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ margin: 40, size: 'A4' });
     const buffers = [];
@@ -782,12 +782,6 @@ function generarReciboPDFBuffer({ folio, fecha, alumno, universidad, carrera, pa
     doc.text(`Paquete: ${paquete}`, 50);
     doc.moveDown(2);
 
-    if (observaciones && observaciones.trim() !== '') {
-      doc.fillColor('#0369a1').fontSize(10).text('MODIFICACIONES / OBSERVACIONES:');
-      doc.fillColor('#334155').fontSize(10).text(observaciones.trim());
-      doc.moveDown();
-    }
-
     // Detalle económico
     doc.fillColor('#15803d').fontSize(12).text(`Monto Abonado: $${Number(montoAbonado).toLocaleString()} MXN`);
     doc.fillColor('#b45309').fontSize(12).text(`Saldo Pendiente Restante: $${Number(nuevoSaldo).toLocaleString()} MXN`);
@@ -801,6 +795,10 @@ function generarReciboPDFBuffer({ folio, fecha, alumno, universidad, carrera, pa
       if (tallaCamisa) doc.text(`• Camisa personalizada: Talla ${tallaCamisa}`);
       if (eleccionEspecial === 'Sin regalía') {
         doc.text(`• Regalía Especial: El alumno optó por no recibir regalía`);
+      } else if (eleccionEspecial === 'Ambos (Anillo + Personalizador)') {
+        const extraAnillo = tallaAnillo ? ` - Número ${tallaAnillo}` : '';
+        const extraMonto = Number(cargoExtraRegalia) > 0 ? ` (+$${Number(cargoExtraRegalia).toLocaleString()} MXN adicionales incluidos)` : '';
+        doc.text(`• Regalía Especial: Ambas regalías incluidas (Anillo de Plata 925${extraAnillo} y Personalizador)${extraMonto}`);
       } else if (eleccionEspecial) {
         const extraAnillo = (eleccionEspecial === 'Anillo de Plata 925' && tallaAnillo) ? ` (Número ${tallaAnillo})` : '';
         doc.text(`• Regalía Especial: ${eleccionEspecial}${extraAnillo}`);
@@ -968,13 +966,13 @@ app.get('/api/verificar-sesion-stripe/:sessionId', async (req, res) => {
         universidad: cliDatos?.universidad || 'Universidad',
         carrera: cliDatos?.escuela || cliDatos?.facultad || 'Carrera',
         paquete: ctaActualizada?.paquete || 'Graduación',
-        observaciones: ctaActualizada?.observaciones || '',
         montoAbonado: monto,
         nuevoSaldo: ctaActualizada?.saldo ?? 0,
         tipoPanoramica: ctaActualizada?.tipoPanoramica || '',
         tallaCamisa: ctaActualizada?.tallaCamisa || '',
         tallaAnillo: ctaActualizada?.tallaAnillo || '',
-        eleccionEspecial: ctaActualizada?.eleccionEspecial || ''
+        eleccionEspecial: ctaActualizada?.eleccionEspecial || '',
+        cargoExtraRegalia: Number(ctaActualizada?.cargoExtraRegalia) || 0
       });
     }
 

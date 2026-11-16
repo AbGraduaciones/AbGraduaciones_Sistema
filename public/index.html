@@ -408,8 +408,23 @@
             <option value="">Pendiente de elección por el alumno</option>
             <option value="Anillo de Plata 925">💍 Anillo de Plata 925</option>
             <option value="Personalizador">✒️ Personalizador</option>
+            <option value="Ambos (Anillo + Personalizador)">✨ Ambos (Anillo + Personalizador - Cargo extra)</option>
             <option value="Sin regalía">🚫 No quiere ninguna regalía</option>
           </select>
+        </div>
+
+        <!-- CAMPO DE CARGO ADICIONAL CUANDO ELIGE AMBAS REGALÍAS -->
+        <div id="contenedorCargoExtraRegalia" class="hidden p-3 bg-indigo-100/80 border border-indigo-300 rounded-xl">
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <label class="block text-[11px] font-extrabold uppercase text-indigo-950">💵 Cargo Adicional por 2da Regalía ($)</label>
+              <span class="text-[10px] text-indigo-800">Este monto se suma automáticamente al total del paquete del alumno.</span>
+            </div>
+            <div class="flex items-center gap-1">
+              <span class="text-indigo-800 font-bold text-sm">$</span>
+              <input type="number" id="inputCargoExtraRegaliaAdmin" min="0" step="10" value="500" onchange="cambiarCargoExtraRegaliaAdmin()" class="w-28 p-2 bg-white border border-indigo-400 rounded-lg text-right font-extrabold text-indigo-900 text-sm outline-none focus:border-indigo-700">
+            </div>
+          </div>
         </div>
 
         <!-- ACABADO PANORÁMICA Y TALLAS DE CAMISA / ANILLO -->
@@ -461,7 +476,7 @@
             </select>
           </div>
         </div>
-        <p class="text-[11px] text-blue-700">Las elecciones y tallas guardadas aquí se reflejarán automáticamente en el recibo PDF del alumno.</p>
+        <p class="text-[11px] text-blue-700">Las elecciones, cargos adicionales y tallas guardadas aquí se reflejarán automáticamente en el recibo PDF del alumno.</p>
       </div>
 
       <div id="listaMaterialesEntregas" class="space-y-3 my-4 max-h-[42vh] overflow-y-auto pr-1"></div>
@@ -513,6 +528,7 @@
             <div style="font-size: 10px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.05em; color: #0284c7; margin-bottom: 4px;">Información del Paquete</div>
             <div style="font-size: 14px; font-weight: bold; color: #1e3a8a;" id="pdfPaqueteNombre">Línea Basic - Modelo Bandera</div>
             <div id="pdfModalidadPagoAviso" style="font-size: 11px; color: #16a34a; font-weight: bold; margin-top: 2px; display: none;">🏷️ Modalidad: Pago Contado Efectivo (-5% Descuento Aplicado)</div>
+            <div id="pdfCargoExtraRegaliaAviso" style="font-size: 11px; color: #4338ca; font-weight: bold; margin-top: 2px; display: none;">✨ Incluye 2da Regalía Adicional (+$0.00)</div>
             <div style="font-size: 11px; color: #334155; margin-top: 4px;">Monto Total Contratado: <span id="pdfMontoTotalHeader" style="font-weight: bold; color: #0f172a;">$0.00</span></div>
             <div id="pdfObservacionesBloque" style="font-size: 11px; color: #334155; margin-top: 6px; padding-top: 5px; border-top: 1px dashed #cbd5e1; display: none;">
               <strong style="color: #0284c7;">Modificaciones / Observaciones:</strong> <span id="pdfObservacionesTexto">-</span>
@@ -620,6 +636,8 @@
   </div>
 
   <script>
+    const CARGO_EXTRA_AMBAS_REGALIAS_DEFAULT = 500;
+
     let modoAcceso = 'admin';
     let rolUsuarioConectado = 'staff';
     let alumnoSesionActual = null;
@@ -1970,15 +1988,21 @@
       const precioBase = parseFloat(option.dataset.precio) || 0;
       const esContado = checkContado && checkContado.checked;
 
-      let precioFinal = precioBase;
+      // Conservar cargo extra por 2da regalía si ya estaba activo al editar
+      let cargoExtraActual = 0;
+      if (indiceEdicion !== null && saldos[indiceEdicion] && saldos[indiceEdicion].eleccionEspecial === 'Ambos (Anillo + Personalizador)') {
+        cargoExtraActual = Number(saldos[indiceEdicion].cargoExtraRegalia) || 0;
+      }
+
+      let precioFinal = precioBase + cargoExtraActual;
       if (esContado) {
-        precioFinal = Math.round(precioBase * 0.95);
+        precioFinal = Math.round(precioBase * 0.95) + cargoExtraActual;
         if (labelDescuento) {
           labelDescuento.innerText = `(Precio lista: $${precioBase.toLocaleString()} - 5% Descuento Efectivo Contado = $${precioFinal.toLocaleString()})`;
         }
       } else {
         if (labelDescuento) {
-          labelDescuento.innerText = '';
+          labelDescuento.innerText = cargoExtraActual > 0 ? `(Incluye +$${cargoExtraActual.toLocaleString()} por 2da regalía)` : '';
         }
       }
 
@@ -2055,12 +2079,6 @@
                 <option value="">${lineaDef ? 'Seleccionar Modelo...' : 'Primero elige línea'}</option>
               </select>
             </div>
-          </div>
-
-          <!-- CAMPO DE MODIFICACIONES / OBSERVACIONES -->
-          <div>
-            <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Modificaciones/Observaciones</label>
-            <textarea id="fObservacionesSaldo" rows="2" placeholder="Ej: Cambio de color de marco, dedicatoria especial, entrega urgente..." class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-600 focus:bg-white transition-all text-sm">${datos.observaciones || ''}</textarea>
           </div>
 
           <div class="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between">
@@ -2173,8 +2191,6 @@
           const modelo = document.getElementById('inputModeloModal').value;
           const monto = parseFloat(document.getElementById('inputMontoModal').value) || 0;
           const paqueteCompleto = `${linea} - ${modelo}`;
-          const observacionesEl = document.getElementById('fObservacionesSaldo');
-          const observacionesTexto = observacionesEl ? observacionesEl.value.trim() : '';
           const esContadoEfectivo = document.getElementById('checkContadoEfectivo').checked;
           const grupoSelectEl = document.getElementById('fSaldoGrupo');
           const grupoIdAsignado = grupoSelectEl ? (grupoSelectEl.value || null) : null;
@@ -2231,7 +2247,6 @@
             saldos[idxEncontrado].alumno = alumnoInput;
             saldos[idxEncontrado].cliente = String(alumnoObj.id);
             saldos[idxEncontrado].paquete = paqueteCompleto;
-            saldos[idxEncontrado].observaciones = observacionesTexto;
             saldos[idxEncontrado].monto = monto;
             saldos[idxEncontrado].pagos = pagosCapturados;
             saldos[idxEncontrado].esContadoEfectivo = esContadoEfectivo;
@@ -2243,11 +2258,11 @@
               cliente: String(alumnoObj.id),
               alumno: alumnoInput, 
               paquete: paqueteCompleto, 
-              observaciones: observacionesTexto,
               monto, 
               pagos: pagosCapturados, 
               entregas: {}, 
               eleccionEspecial: "", 
+              cargoExtraRegalia: 0,
               tipoPanoramica: "",
               tallaCamisa: "",
               tallaAnillo: "",
@@ -2472,15 +2487,18 @@
           : 'bg-amber-100 text-amber-800 border border-amber-200 font-semibold';
 
         const entregasObj = item.entregas || {};
+        const esAmbas = item.eleccionEspecial === 'Ambos (Anillo + Personalizador)';
         const totalEntregados = MATERIALES_ENTREGAS_COMPLETO.filter(mat => {
           if (item.eleccionEspecial === 'Sin regalía' && (mat === 'Anillo de Plata 925' || mat === 'Personalizador')) return false;
-          if (item.eleccionEspecial && item.eleccionEspecial !== mat && (mat === 'Anillo de Plata 925' || mat === 'Personalizador')) return false;
+          if (!esAmbas && item.eleccionEspecial && item.eleccionEspecial !== mat && (mat === 'Anillo de Plata 925' || mat === 'Personalizador')) return false;
           return !!entregasObj[mat];
         }).length;
 
         const totalMateriales = item.eleccionEspecial === 'Sin regalía' 
           ? MATERIALES_ENTREGAS_COMPLETO.length - 2 
-          : (item.eleccionEspecial ? MATERIALES_ENTREGAS_COMPLETO.length - 1 : MATERIALES_ENTREGAS_COMPLETO.length);
+          : (esAmbas 
+              ? MATERIALES_ENTREGAS_COMPLETO.length 
+              : (item.eleccionEspecial ? MATERIALES_ENTREGAS_COMPLETO.length - 1 : MATERIALES_ENTREGAS_COMPLETO.length));
 
         const g = grupos.find(gr => String(gr._id || gr.id) === String(item.grupoId));
         const nombreGrupoLabel = g ? g.nombre : (item.grupoNombre || 'General');
@@ -2490,14 +2508,12 @@
           <td class="p-3 font-bold text-slate-800 sticky left-0 bg-white z-10 border-r border-slate-100">
             <div>${item.alumno}</div>
             ${item.esContadoEfectivo ? '<span class="inline-block text-[10px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded font-bold mt-0.5">Contado Efectivo (-5%)</span>' : ''}
+            ${esAmbas && item.cargoExtraRegalia > 0 ? `<span class="inline-block text-[10px] bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded font-bold mt-0.5">2da Regalía (+$${Number(item.cargoExtraRegalia).toLocaleString()})</span>` : ''}
           </td>
           <td class="p-3 font-semibold text-xs text-blue-700">
             <span class="bg-blue-50 px-2 py-1 rounded-md border border-blue-200">${nombreGrupoLabel}</span>
           </td>
-          <td class="p-3 text-slate-600 font-medium">
-            <div>${item.paquete}</div>
-            ${item.observaciones ? `<div class="text-[11px] text-amber-700 font-semibold mt-0.5 max-w-[200px] truncate" title="${item.observaciones}">📝 ${item.observaciones}</div>` : ''}
-          </td>
+          <td class="p-3 text-slate-600 font-medium">${item.paquete}</td>
           <td class="p-3 font-extrabold text-slate-900">$${parseFloat(item.monto).toLocaleString()}</td>`;
 
         for (let i = 0; i < 10; i++) {
@@ -2842,7 +2858,7 @@
 
       if (vistaActual === 'saldos') {
         const filtrados = obtenerSaldosFiltrados().filter(s => {
-          const coincideTexto = (s.alumno || '').toLowerCase().includes(query) || (s.paquete || '').toLowerCase().includes(query) || (s.observaciones || '').toLowerCase().includes(query);
+          const coincideTexto = (s.alumno || '').toLowerCase().includes(query) || (s.paquete || '').toLowerCase().includes(query);
           const coincidePaquete = !paqueteSel || (s.paquete || '').toLowerCase().startsWith(paqueteSel);
           return coincideTexto && coincidePaquete;
         });
@@ -2863,13 +2879,25 @@
       }
     }
 
-    function actualizarVisibilidadTallaAnillo(eleccion) {
+    function actualizarControlesRegaliaAdmin(eleccion, cargoExtraActual = 0) {
       const contAnillo = document.getElementById('contenedorTallaAnilloAdmin');
-      if (!contAnillo) return;
-      if (eleccion === 'Sin regalía' || eleccion === 'Personalizador') {
-        contAnillo.classList.add('opacity-40');
-      } else {
-        contAnillo.classList.remove('opacity-40');
+      if (contAnillo) {
+        if (eleccion === 'Sin regalía' || eleccion === 'Personalizador') {
+          contAnillo.classList.add('opacity-40');
+        } else {
+          contAnillo.classList.remove('opacity-40');
+        }
+      }
+
+      const contCargo = document.getElementById('contenedorCargoExtraRegalia');
+      const inputCargo = document.getElementById('inputCargoExtraRegaliaAdmin');
+      if (contCargo && inputCargo) {
+        if (eleccion === 'Ambos (Anillo + Personalizador)') {
+          contCargo.classList.remove('hidden');
+          inputCargo.value = cargoExtraActual > 0 ? cargoExtraActual : CARGO_EXTRA_AMBAS_REGALIAS_DEFAULT;
+        } else {
+          contCargo.classList.add('hidden');
+        }
       }
     }
 
@@ -2904,7 +2932,7 @@
         selectAnilloEl.value = saldoObj.tallaAnillo || "";
       }
 
-      actualizarVisibilidadTallaAnillo(saldoObj.eleccionEspecial || "");
+      actualizarControlesRegaliaAdmin(saldoObj.eleccionEspecial || "", Number(saldoObj.cargoExtraRegalia) || 0);
 
       const subtituloEl = document.getElementById('entregasSubtitulo');
       if (subtituloEl) {
@@ -2932,13 +2960,52 @@
       renderizarItemsModalEntregas(saldoObj);
     }
 
+    async function cambiarCargoExtraRegaliaAdmin() {
+      if (indiceSaldoEntregaActual === null) return;
+      const saldoObj = saldos[indiceSaldoEntregaActual];
+      if (!saldoObj || saldoObj.eleccionEspecial !== 'Ambos (Anillo + Personalizador)') return;
+
+      const inputCargo = document.getElementById('inputCargoExtraRegaliaAdmin');
+      const nuevoCargo = Math.max(0, parseFloat(inputCargo ? inputCargo.value : 0) || 0);
+      const cargoAnterior = Number(saldoObj.cargoExtraRegalia) || 0;
+
+      const montoBaseSinCargo = Math.max(0, (Number(saldoObj.monto) || 0) - cargoAnterior);
+      saldoObj.cargoExtraRegalia = nuevoCargo;
+      saldoObj.monto = montoBaseSinCargo + nuevoCargo;
+
+      const totalPagado = calcularTotalPagado(saldoObj.pagos);
+      saldoObj.saldo = Math.max(0, saldoObj.monto - totalPagado);
+      saldoObj.saldoPendiente = saldoObj.saldo;
+
+      await guardarEnLocalStorage();
+      renderizarTablaSaldos(obtenerSaldosFiltrados());
+    }
+
     async function cambiarEleccionAdmin(nuevaOpcion) {
       if (indiceSaldoEntregaActual === null) return;
       const saldoObj = saldos[indiceSaldoEntregaActual];
       if (!saldoObj) return;
 
+      const cargoAnterior = Number(saldoObj.cargoExtraRegalia) || 0;
+      const montoBaseSinCargo = Math.max(0, (Number(saldoObj.monto) || 0) - cargoAnterior);
+
       saldoObj.eleccionEspecial = nuevaOpcion;
-      actualizarVisibilidadTallaAnillo(nuevaOpcion);
+
+      if (nuevaOpcion === 'Ambos (Anillo + Personalizador)') {
+        const inputCargo = document.getElementById('inputCargoExtraRegaliaAdmin');
+        const cargoAplicar = cargoAnterior > 0 ? cargoAnterior : (parseFloat(inputCargo ? inputCargo.value : 0) || CARGO_EXTRA_AMBAS_REGALIAS_DEFAULT);
+        saldoObj.cargoExtraRegalia = cargoAplicar;
+        saldoObj.monto = montoBaseSinCargo + cargoAplicar;
+      } else {
+        saldoObj.cargoExtraRegalia = 0;
+        saldoObj.monto = montoBaseSinCargo;
+      }
+
+      const totalPagado = calcularTotalPagado(saldoObj.pagos);
+      saldoObj.saldo = Math.max(0, saldoObj.monto - totalPagado);
+      saldoObj.saldoPendiente = saldoObj.saldo;
+
+      actualizarControlesRegaliaAdmin(nuevaOpcion, saldoObj.cargoExtraRegalia);
 
       if (!saldoObj.entregas) saldoObj.entregas = {};
       if (nuevaOpcion === 'Sin regalía' || nuevaOpcion === '') {
@@ -2966,12 +3033,20 @@
             <span>El alumno indicó que no desea ninguna regalía especial.</span>
           </div>
         `;
+      } else if (saldoObj.eleccionEspecial === 'Ambos (Anillo + Personalizador)') {
+        contenedor.innerHTML += `
+          <div class="p-3 bg-indigo-50 border border-indigo-200 rounded-xl text-xs font-bold text-indigo-900 flex items-center justify-between">
+            <span>✨ El alumno adquirió ambas regalías (+$${Number(saldoObj.cargoExtraRegalia || 0).toLocaleString()} sumados al paquete)</span>
+          </div>
+        `;
       }
+
+      const esAmbas = saldoObj.eleccionEspecial === 'Ambos (Anillo + Personalizador)';
 
       MATERIALES_ENTREGAS_COMPLETO.forEach((mat) => {
         const estaEntregado = !!saldoObj.entregas[mat];
         const esEspecial = mat === "Anillo de Plata 925" || mat === "Personalizador";
-        const esLaSeleccionada = saldoObj.eleccionEspecial === mat;
+        const esLaSeleccionada = esEspecial && (esAmbas || saldoObj.eleccionEspecial === mat);
         const esLaDescartada = esEspecial && saldoObj.eleccionEspecial && !esLaSeleccionada;
 
         let claseEstilo = 'bg-slate-50 border-slate-200';
@@ -2992,7 +3067,7 @@
             textoEtiqueta = '(Pendiente de elección por alumno)';
           } else if (esLaSeleccionada) {
             claseEstilo = 'bg-emerald-50 border-emerald-300 font-bold';
-            textoEtiqueta += ' (Regalía Seleccionada ✅)';
+            textoEtiqueta += esAmbas ? ' (Incluida en Combo ✅)' : ' (Regalía Seleccionada ✅)';
           } else if (esLaDescartada) {
             claseEstilo = 'bg-slate-100 border-slate-200 opacity-50';
             textoEtiqueta = saldoObj.eleccionEspecial === 'Sin regalía' ? '(Renunció a regalía)' : '(Opción Descartada)';
@@ -3059,7 +3134,7 @@
       const saldoObj = saldos.find(s => {
         const nom = (s.alumno || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
         return nom === keyNorm || (pagoObj.cuentaId && String(s.id || s._id) === String(pagoObj.cuentaId)) || (alumnoObj.id && String(s.cliente) === String(alumnoObj.id));
-      }) || { paquete: 'No especificado', observaciones: '', monto: 0, pagos: [], entregas: {}, eleccionEspecial: "", tipoPanoramica: "", tallaCamisa: "", tallaAnillo: "", esContadoEfectivo: false };
+      }) || { paquete: 'No especificado', monto: 0, pagos: [], entregas: {}, eleccionEspecial: "", cargoExtraRegalia: 0, tipoPanoramica: "", tallaCamisa: "", tallaAnillo: "", esContadoEfectivo: false };
 
       const listaPagosAlumno = pagos.filter(p => {
         const nom = resolverNombreAlumnoReal(p).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -3073,22 +3148,21 @@
       document.getElementById('pdfAlumnoCarrera').innerText = `Carrera/Facultad: ${alumnoObj.escuela || alumnoObj.facultad || 'No especificada'}`;
       document.getElementById('pdfPaqueteNombre').innerText = saldoObj.paquete;
 
-      const bloqueObs = document.getElementById('pdfObservacionesBloque');
-      const textoObs = document.getElementById('pdfObservacionesTexto');
-      if (bloqueObs && textoObs) {
-        if (saldoObj.observaciones && saldoObj.observaciones.trim() !== '') {
-          textoObs.innerText = saldoObj.observaciones.trim();
-          bloqueObs.style.display = 'block';
-        } else {
-          bloqueObs.style.display = 'none';
-        }
-      }
-
       const avisoModalidad = document.getElementById('pdfModalidadPagoAviso');
       if (saldoObj.esContadoEfectivo) {
         avisoModalidad.style.display = 'block';
       } else {
         avisoModalidad.style.display = 'none';
+      }
+
+      const avisoCargoRegalia = document.getElementById('pdfCargoExtraRegaliaAviso');
+      if (avisoCargoRegalia) {
+        if (saldoObj.eleccionEspecial === 'Ambos (Anillo + Personalizador)' && Number(saldoObj.cargoExtraRegalia) > 0) {
+          avisoCargoRegalia.innerText = `✨ Incluye 2da Regalía Adicional (+$${Number(saldoObj.cargoExtraRegalia).toLocaleString()} MXN)`;
+          avisoCargoRegalia.style.display = 'block';
+        } else {
+          avisoCargoRegalia.style.display = 'none';
+        }
       }
 
       document.getElementById('pdfPag2Alumno').innerText = nombreVerificado;
@@ -3141,6 +3215,7 @@
       }
 
       let yaAgregadaAclaracionPendiente = false;
+      const esAmbas = saldoObj.eleccionEspecial === 'Ambos (Anillo + Personalizador)';
 
       MATERIALES_ENTREGAS_COMPLETO.forEach(mat => {
         const esEspecial = mat === "Anillo de Plata 925" || mat === "Personalizador";
@@ -3154,7 +3229,7 @@
           return;
         }
 
-        if (esEspecial && saldoObj.eleccionEspecial && saldoObj.eleccionEspecial !== mat) return;
+        if (esEspecial && !esAmbas && saldoObj.eleccionEspecial && saldoObj.eleccionEspecial !== mat) return;
 
         let textoMaterialPdf = mat;
         if (mat === "Panorámica con marco" && saldoObj.tipoPanoramica) {
@@ -3306,7 +3381,7 @@
       }
 
       const nombreSesion = (alumnoSesionActual.nombre || alumnoSesionActual.alumno || '').trim();
-      const saldoObj = saldos.find(s => s.alumno && s.alumno.toLowerCase() === nombreSesion.toLowerCase()) || { monto: 0, pagos: [0,0,0,0,0,0,0,0,0,0], entregas: {}, paquete: 'Sin Paquete', observaciones: '', eleccionEspecial: '', tipoPanoramica: '', tallaCamisa: '', tallaAnillo: '', esContadoEfectivo: false };
+      const saldoObj = saldos.find(s => s.alumno && s.alumno.toLowerCase() === nombreSesion.toLowerCase()) || { monto: 0, pagos: [0,0,0,0,0,0,0,0,0,0], entregas: {}, paquete: 'Sin Paquete', eleccionEspecial: '', cargoExtraRegalia: 0, tipoPanoramica: '', tallaCamisa: '', tallaAnillo: '', esContadoEfectivo: false };
       const totalPagado = calcularTotalPagado(saldoObj.pagos);
       const saldoPendiente = Math.max(0, saldoObj.monto - totalPagado);
       const porcentajeAvance = saldoObj.monto > 0 ? Math.min(100, Math.round((totalPagado / saldoObj.monto) * 100)) : 0;
@@ -3314,6 +3389,7 @@
 
       const eleccionActual = saldoObj.eleccionEspecial || '';
       const tieneEleccionDefinitiva = !!eleccionActual;
+      const esAmbas = eleccionActual === 'Ambos (Anillo + Personalizador)';
 
       let abonosCardsHtml = '';
       for (let i = 0; i < 10; i++) {
@@ -3364,7 +3440,7 @@
           return;
         }
 
-        if (esEspecial && eleccionActual && eleccionActual !== mat) return;
+        if (esEspecial && !esAmbas && eleccionActual && eleccionActual !== mat) return;
 
         let textoMatAlumno = mat;
         if (mat === "Panorámica con marco") {
@@ -3401,8 +3477,8 @@
             <h3 class="text-2xl font-black text-slate-900">¡Hola, ${nombreSesion}! 👋</h3>
             <p class="text-xs font-semibold text-slate-500">${alumnoSesionActual.universidad || 'Universidad'} | ${alumnoSesionActual.escuela || alumnoSesionActual.facultad || 'Carrera'}</p>
             <p class="text-xs font-bold text-blue-600 mt-1">Paquete Contratado: ${saldoObj.paquete}</p>
-            ${saldoObj.observaciones ? `<p class="text-xs text-slate-600 mt-1 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200"><strong>📝 Observaciones:</strong> ${saldoObj.observaciones}</p>` : ''}
             ${saldoObj.esContadoEfectivo ? '<span class="inline-block mt-2 text-xs font-extrabold bg-emerald-100 text-emerald-800 px-3 py-1 rounded-full border border-emerald-200">🏷️ Modalidad de Contado en Efectivo (-5% Aplicado)</span>' : ''}
+            ${esAmbas && Number(saldoObj.cargoExtraRegalia) > 0 ? `<span class="inline-block mt-2 ml-1 text-xs font-extrabold bg-indigo-100 text-indigo-800 px-3 py-1 rounded-full border border-indigo-200">✨ Combo 2 Regalías (+$${Number(saldoObj.cargoExtraRegalia).toLocaleString()})</span>` : ''}
           </div>
           <button onclick="cerrarSesionAlumnoPortal()" class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold px-3 py-2 rounded-xl transition">
             🔒 Cerrar Sesión
@@ -3412,7 +3488,7 @@
         <div class="bg-gradient-to-r from-blue-900 to-indigo-900 text-white p-6 rounded-2xl shadow-md mb-8">
           <div class="flex items-center gap-2 mb-2">
             <span class="text-2xl">✨</span>
-            <h4 class="text-lg font-extrabold">Elección de Regalía Especial (1 Opción Incluida)</h4>
+            <h4 class="text-lg font-extrabold">Elección de Regalía Especial (1 Opción Incluida o Ambas por Cargo Extra)</h4>
           </div>
 
           <div class="bg-amber-500/20 border border-amber-400/40 p-3 rounded-xl mb-4 flex items-center gap-2 text-amber-200 text-xs font-semibold">
@@ -3420,11 +3496,11 @@
             <span><strong>Advertencia de Selección:</strong> Una vez confirmada tu elección con el administrador o en este portal, no se permiten cambios posteriores. Por favor asegúrate de tu decisión antes de guardar.</span>
           </div>
 
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div onclick="${tieneEleccionDefinitiva ? '' : "guardarEleccionAlumno('Anillo de Plata 925')"}" class="p-4 rounded-xl border-2 ${tieneEleccionDefinitiva ? 'cursor-not-allowed opacity-90' : 'cursor-pointer hover:bg-white/20'} transition-all ${eleccionActual === 'Anillo de Plata 925' ? 'bg-white text-slate-900 border-emerald-400 font-bold shadow-lg' : 'bg-white/10 text-white border-white/20'} flex items-center justify-between">
               <div>
                 <p class="text-sm font-bold">💍 Anillo de Plata 925</p>
-                <p class="text-[11px] ${eleccionActual === 'Anillo de Plata 925' ? 'text-emerald-700' : 'text-blue-200'}">Anillo conmemorativo grabado</p>
+                <p class="text-[11px] ${eleccionActual === 'Anillo de Plata 925' ? 'text-emerald-700' : 'text-blue-200'}">Incluido en el paquete</p>
               </div>
               <span class="text-xs font-bold px-3 py-1 rounded-full ${eleccionActual === 'Anillo de Plata 925' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-800 text-slate-300'}">
                 ${eleccionActual === 'Anillo de Plata 925' ? '🔒 Seleccionado' : (tieneEleccionDefinitiva ? 'No Elegido' : 'Elegir')}
@@ -3434,10 +3510,20 @@
             <div onclick="${tieneEleccionDefinitiva ? '' : "guardarEleccionAlumno('Personalizador')"}" class="p-4 rounded-xl border-2 ${tieneEleccionDefinitiva ? 'cursor-not-allowed opacity-90' : 'cursor-pointer hover:bg-white/20'} transition-all ${eleccionActual === 'Personalizador' ? 'bg-white text-slate-900 border-emerald-400 font-bold shadow-lg' : 'bg-white/10 text-white border-white/20'} flex items-center justify-between">
               <div>
                 <p class="text-sm font-bold">✒️ Personalizador</p>
-                <p class="text-[11px] ${eleccionActual === 'Personalizador' ? 'text-emerald-700' : 'text-blue-200'}">Pluma o accesorio grabado</p>
+                <p class="text-[11px] ${eleccionActual === 'Personalizador' ? 'text-emerald-700' : 'text-blue-200'}">Incluido en el paquete</p>
               </div>
               <span class="text-xs font-bold px-3 py-1 rounded-full ${eleccionActual === 'Personalizador' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-800 text-slate-300'}">
                 ${eleccionActual === 'Personalizador' ? '🔒 Seleccionado' : (tieneEleccionDefinitiva ? 'No Elegido' : 'Elegir')}
+              </span>
+            </div>
+
+            <div onclick="${tieneEleccionDefinitiva ? '' : "guardarEleccionAlumno('Ambos (Anillo + Personalizador)')"}" class="p-4 rounded-xl border-2 ${tieneEleccionDefinitiva ? 'cursor-not-allowed opacity-90' : 'cursor-pointer hover:bg-white/20'} transition-all ${esAmbas ? 'bg-white text-slate-900 border-emerald-400 font-bold shadow-lg' : 'bg-indigo-600/40 text-white border-indigo-400/50'} flex items-center justify-between">
+              <div>
+                <p class="text-sm font-bold">✨ Ambos (Anillo + Personalizador)</p>
+                <p class="text-[11px] ${esAmbas ? 'text-indigo-700' : 'text-indigo-200'}">Recibe ambas regalías (+$${Number(saldoObj.cargoExtraRegalia || CARGO_EXTRA_AMBAS_REGALIAS_DEFAULT).toLocaleString()} extra)</p>
+              </div>
+              <span class="text-xs font-bold px-3 py-1 rounded-full ${esAmbas ? 'bg-emerald-100 text-emerald-800' : 'bg-indigo-900 text-indigo-200'}">
+                ${esAmbas ? '🔒 Seleccionado' : (tieneEleccionDefinitiva ? 'No Elegido' : 'Elegir Ambos')}
               </span>
             </div>
 
@@ -3528,10 +3614,22 @@
         return;
       }
 
-      const confirmar = confirm(`⚠️ ADVERTENCIA DE SELECCIÓN DEFINITIVA:\n\n¿Estás completamente seguro/a de elegir "${opcionElegida}"?\n\nUna vez confirmada, esta selección no se podrá modificar.`);
+      const esCombo = opcionElegida === 'Ambos (Anillo + Personalizador)';
+      const mensajeConfirm = esCombo
+        ? `⚠️ ADVERTENCIA DE SELECCIÓN DEFINITIVA:\n\n¿Confirmas que deseas AMBAS regalías (Anillo + Personalizador)?\n\nSe sumará un cargo adicional de $${CARGO_EXTRA_AMBAS_REGALIAS_DEFAULT.toLocaleString()} a tu saldo total y una vez confirmada no se podrá modificar.`
+        : `⚠️ ADVERTENCIA DE SELECCIÓN DEFINITIVA:\n\n¿Estás completamente seguro/a de elegir "${opcionElegida}"?\n\nUna vez confirmada, esta selección no se podrá modificar.`;
+
+      const confirmar = confirm(mensajeConfirm);
 
       if (confirmar) {
         saldoObj.eleccionEspecial = opcionElegida;
+        if (esCombo) {
+          saldoObj.cargoExtraRegalia = CARGO_EXTRA_AMBAS_REGALIAS_DEFAULT;
+          saldoObj.monto = (Number(saldoObj.monto) || 0) + CARGO_EXTRA_AMBAS_REGALIAS_DEFAULT;
+          const totalPagado = calcularTotalPagado(saldoObj.pagos);
+          saldoObj.saldo = Math.max(0, saldoObj.monto - totalPagado);
+          saldoObj.saldoPendiente = saldoObj.saldo;
+        }
         await guardarEnLocalStorage();
         alert(`✅ ¡Elección guardada con éxito! Tu regalía registrada es: ${opcionElegida}.`);
         renderizarPortalAlumno();
