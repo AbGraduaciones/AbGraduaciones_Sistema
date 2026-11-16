@@ -526,7 +526,7 @@
           </td>
           <td style="vertical-align: top; width: 50%; padding: 14px; border-left: 1px solid #cbd5e1;">
             <div style="font-size: 10px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.05em; color: #0284c7; margin-bottom: 4px;">Información del Paquete</div>
-            <div style="font-size: 14px; font-weight: bold; color: #1e3a8a;" id="pdfPaqueteNombre">Línea Basic - Modelo Bandera</div>
+            <div style="font-size: 14px; font-weight: bold; color: #1e3a8a;" id="pdfPaqueteNombre">Línea Basic 1 Solo Fotos - Modelo Bandera</div>
             <div id="pdfModalidadPagoAviso" style="font-size: 11px; color: #16a34a; font-weight: bold; margin-top: 2px; display: none;">🏷️ Modalidad: Pago Contado Efectivo (-5% Descuento Aplicado)</div>
             <div id="pdfCargoExtraRegaliaAviso" style="font-size: 11px; color: #4338ca; font-weight: bold; margin-top: 2px; display: none;">✨ Incluye 2da Regalía Adicional (+$0.00)</div>
             <div style="font-size: 11px; color: #334155; margin-top: 4px;">Monto Total Contratado: <span id="pdfMontoTotalHeader" style="font-weight: bold; color: #0f172a;">$0.00</span></div>
@@ -672,53 +672,13 @@
     ];
 
     const PAQUETES_CATALOGO_BASE = {
-      "Línea Basic 1 Fotos Calenda After": [
+      "Línea Basic 1 Solo Fotos": [
         { modelo: "Bandera", precio: 8000 },
         { modelo: "Bandera Vino", precio: 8000 },
         { modelo: "Líneas", precio: 8000 },
         { modelo: "Cuatro Banderas", precio: 8000 },
         { modelo: "Bicolor", precio: 8000 },
         { modelo: "Líneas D", precio: 8000 }
-      ],
-      "Línea Basic 2 Fotos Calenda Cena": [
-        { modelo: "Bandera", precio: 8000 },
-        { modelo: "Bandera Vino", precio: 8000 },
-        { modelo: "Líneas", precio: 8000 },
-        { modelo: "Cuatro Banderas", precio: 8000 },
-        { modelo: "Bicolor", precio: 8000 },
-        { modelo: "Líneas D", precio: 8000 }
-      ],    
-      "Línea Basic 3 Fotos Calenda After Cena": [
-        { modelo: "Bandera", precio: 8000 },
-        { modelo: "Bandera Vino", precio: 8000 },
-        { modelo: "Líneas", precio: 8000 },
-        { modelo: "Cuatro Banderas", precio: 8000 },
-        { modelo: "Bicolor", precio: 8000 },
-        { modelo: "Líneas D", precio: 8000 }
-      ],
-      "Línea Basic 4 Fotos Calenda": [
-        { modelo: "Bandera", precio: 7400 },
-        { modelo: "Bandera Vino", precio: 7400 },
-        { modelo: "Líneas", precio: 7400 },
-        { modelo: "Cuatro Banderas", precio: 7400 },
-        { modelo: "Bicolor", precio: 7400 },
-        { modelo: "Líneas D", precio: 7400 }
-      ],
-      "Línea Basic 5 Fotos After": [
-        { modelo: "Bandera", precio: 7400 },
-        { modelo: "Bandera Vino", precio: 7400 },
-        { modelo: "Líneas", precio: 7400 },
-        { modelo: "Cuatro Banderas", precio: 7400 },
-        { modelo: "Bicolor", precio: 8000 },
-        { modelo: "Líneas D", precio: 7400 }
-      ],
-      "Línea Basic 6 Solo Fotos": [
-        { modelo: "Bandera", precio: 6800 },
-        { modelo: "Bandera Vino", precio: 6800 },
-        { modelo: "Líneas", precio: 6800 },
-        { modelo: "Cuatro Banderas", precio: 6800 },
-        { modelo: "Bicolor", precio: 6800 },
-        { modelo: "Líneas D", precio: 6800 }
       ],
       "Línea Deluxe 1 Fotos Calenda After": [
         { modelo: "Rayas", precio: 11900 },
@@ -2063,6 +2023,11 @@
           opcionesLineasHtml += `<option value="${lin}" ${lineaDef === lin ? 'selected' : ''}>${lin}</option>`;
         });
 
+        // Respaldo seguro en caso de editar un saldo previo con nombre de línea antigua
+        if (lineaDef && !catalogoActivo[lineaDef]) {
+          opcionesLineasHtml += `<option value="${lineaDef}" selected>${lineaDef}</option>`;
+        }
+
         contenedor.innerHTML = `
           <div class="grid grid-cols-2 gap-4">
             <div>
@@ -2117,17 +2082,26 @@
           </div>
         `;
 
-        if (lineaDef && catalogoActivo[lineaDef]) {
+        if (lineaDef) {
           const selectModelo = document.getElementById('inputModeloModal');
-          catalogoActivo[lineaDef].forEach(item => {
+          if (catalogoActivo[lineaDef]) {
+            catalogoActivo[lineaDef].forEach(item => {
+              const opt = document.createElement('option');
+              opt.value = item.modelo;
+              opt.textContent = `${item.modelo} - $${item.precio.toLocaleString()}`;
+              opt.dataset.precio = item.precio;
+              if (item.modelo === modeloDef) opt.selected = true;
+              selectModelo.appendChild(opt);
+            });
+            actualizarPrecioModeloModal();
+          } else if (modeloDef) {
             const opt = document.createElement('option');
-            opt.value = item.modelo;
-            opt.textContent = `${item.modelo} - $${item.precio.toLocaleString()}`;
-            opt.dataset.precio = item.precio;
-            if (item.modelo === modeloDef) opt.selected = true;
+            opt.value = modeloDef;
+            opt.textContent = `${modeloDef} - $${(datos.monto || 0).toLocaleString()}`;
+            opt.dataset.precio = datos.monto || 0;
+            opt.selected = true;
             selectModelo.appendChild(opt);
-          });
-          actualizarPrecioModeloModal();
+          }
         }
       } else if (vistaActual === 'alumnos') {
         const idSugerido = datos.id || generarNuevoIdAlumno();
@@ -2205,7 +2179,7 @@
             idxEncontrado = indiceEdicion;
           }
 
-          // VALIDACIÓN ANTI-DUPLICADOS: Impide capturar un saldo nuevo para un alumno que ya tiene cuenta
+          // VALIDACIÓN ANTI-DUPLICADOS
           const saldoDuplicado = saldos.find((s, idx) => idx !== idxEncontrado && normalizarTextoComparacion(s.alumno) === alumnoNorm);
           if (saldoDuplicado) {
             alertaError.innerText = `⚠️ El alumno "${saldoDuplicado.alumno}" ya tiene un saldo registrado (${saldoDuplicado.paquete || 'Paquete contratado'}). Para evitar duplicados, utiliza el botón "Editar" en su fila correspondiente.`;
