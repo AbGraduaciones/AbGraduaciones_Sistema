@@ -63,6 +63,7 @@ const Cuenta = cargarModelo(['./models/Cuenta', './models/cuenta', './models/Cue
   cliente: mongoose.Schema.Types.Mixed,
   alumno: String,
   paquete: String,
+  observaciones: { type: String, default: '' },
   monto: Number,
   saldo: Number,
   pagos: [Number],
@@ -297,6 +298,7 @@ async function sincronizarMemoriaDesdeBD() {
         cliente: cta.cliente ? String(cta.cliente) : '',
         alumno: (cta.alumno || '').trim(),
         paquete: cta.paquete,
+        observaciones: cta.observaciones || '',
         monto: montoTotal,
         saldo: saldoFinal,
         saldoPendiente: saldoFinal,
@@ -469,6 +471,7 @@ app.post('/api/datos', async (req, res) => {
               cliente: s.cliente || (cuentaExistente ? cuentaExistente.cliente : '1001'),
               alumno: (s.alumno || '').trim(),
               paquete: s.paquete,
+              observaciones: s.observaciones !== undefined ? s.observaciones : (cuentaExistente ? cuentaExistente.observaciones : ''),
               monto: montoTotal,
               saldo: saldoFinal,
               pagos: pagosArr,
@@ -750,8 +753,8 @@ app.put('/api/historial-pagos/:id', async (req, res) => {
   }
 });
 
-// Generador de PDF en servidor (incluye Panorámica, tallas de camisa y anillo)
-function generarReciboPDFBuffer({ folio, fecha, alumno, universidad, carrera, paquete, montoAbonado, nuevoSaldo, tipoPanoramica, tallaCamisa, tallaAnillo, eleccionEspecial }) {
+// Generador de PDF en servidor (incluye observaciones, Panorámica, tallas de camisa y anillo)
+function generarReciboPDFBuffer({ folio, fecha, alumno, universidad, carrera, paquete, observaciones, montoAbonado, nuevoSaldo, tipoPanoramica, tallaCamisa, tallaAnillo, eleccionEspecial }) {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ margin: 40, size: 'A4' });
     const buffers = [];
@@ -778,6 +781,12 @@ function generarReciboPDFBuffer({ folio, fecha, alumno, universidad, carrera, pa
     doc.fontSize(10).text(`Carrera / Institución: ${carrera} - ${universidad}`, 50);
     doc.text(`Paquete: ${paquete}`, 50);
     doc.moveDown(2);
+
+    if (observaciones && observaciones.trim() !== '') {
+      doc.fillColor('#0369a1').fontSize(10).text('MODIFICACIONES / OBSERVACIONES:');
+      doc.fillColor('#334155').fontSize(10).text(observaciones.trim());
+      doc.moveDown();
+    }
 
     // Detalle económico
     doc.fillColor('#15803d').fontSize(12).text(`Monto Abonado: $${Number(montoAbonado).toLocaleString()} MXN`);
@@ -959,6 +968,7 @@ app.get('/api/verificar-sesion-stripe/:sessionId', async (req, res) => {
         universidad: cliDatos?.universidad || 'Universidad',
         carrera: cliDatos?.escuela || cliDatos?.facultad || 'Carrera',
         paquete: ctaActualizada?.paquete || 'Graduación',
+        observaciones: ctaActualizada?.observaciones || '',
         montoAbonado: monto,
         nuevoSaldo: ctaActualizada?.saldo ?? 0,
         tipoPanoramica: ctaActualizada?.tipoPanoramica || '',

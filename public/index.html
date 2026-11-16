@@ -514,6 +514,9 @@
             <div style="font-size: 14px; font-weight: bold; color: #1e3a8a;" id="pdfPaqueteNombre">Línea Basic - Modelo Bandera</div>
             <div id="pdfModalidadPagoAviso" style="font-size: 11px; color: #16a34a; font-weight: bold; margin-top: 2px; display: none;">🏷️ Modalidad: Pago Contado Efectivo (-5% Descuento Aplicado)</div>
             <div style="font-size: 11px; color: #334155; margin-top: 4px;">Monto Total Contratado: <span id="pdfMontoTotalHeader" style="font-weight: bold; color: #0f172a;">$0.00</span></div>
+            <div id="pdfObservacionesBloque" style="font-size: 11px; color: #334155; margin-top: 6px; padding-top: 5px; border-top: 1px dashed #cbd5e1; display: none;">
+              <strong style="color: #0284c7;">Modificaciones / Observaciones:</strong> <span id="pdfObservacionesTexto">-</span>
+            </div>
           </td>
         </tr>
       </table>
@@ -896,7 +899,6 @@
 
     let pagosConsolidadosCache = [];
 
-    // RESOLUCIÓN ROBUSTA: Garantiza extraer el nombre verdadero del estudiante
     function resolverNombreAlumnoReal(pagoObj) {
       if (!pagoObj) return 'Alumno';
 
@@ -2055,6 +2057,12 @@
             </div>
           </div>
 
+          <!-- CAMPO DE MODIFICACIONES / OBSERVACIONES -->
+          <div>
+            <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Modificaciones/Observaciones</label>
+            <textarea id="fObservacionesSaldo" rows="2" placeholder="Ej: Cambio de color de marco, dedicatoria especial, entrega urgente..." class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-600 focus:bg-white transition-all text-sm">${datos.observaciones || ''}</textarea>
+          </div>
+
           <div class="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between">
             <label class="flex items-center gap-3 cursor-pointer">
               <input type="checkbox" id="checkContadoEfectivo" onchange="actualizarPrecioModeloModal()" ${esContadoDef ? 'checked' : ''} class="w-5 h-5 text-emerald-600 rounded focus:ring-emerald-500">
@@ -2165,6 +2173,8 @@
           const modelo = document.getElementById('inputModeloModal').value;
           const monto = parseFloat(document.getElementById('inputMontoModal').value) || 0;
           const paqueteCompleto = `${linea} - ${modelo}`;
+          const observacionesEl = document.getElementById('fObservacionesSaldo');
+          const observacionesTexto = observacionesEl ? observacionesEl.value.trim() : '';
           const esContadoEfectivo = document.getElementById('checkContadoEfectivo').checked;
           const grupoSelectEl = document.getElementById('fSaldoGrupo');
           const grupoIdAsignado = grupoSelectEl ? (grupoSelectEl.value || null) : null;
@@ -2221,6 +2231,7 @@
             saldos[idxEncontrado].alumno = alumnoInput;
             saldos[idxEncontrado].cliente = String(alumnoObj.id);
             saldos[idxEncontrado].paquete = paqueteCompleto;
+            saldos[idxEncontrado].observaciones = observacionesTexto;
             saldos[idxEncontrado].monto = monto;
             saldos[idxEncontrado].pagos = pagosCapturados;
             saldos[idxEncontrado].esContadoEfectivo = esContadoEfectivo;
@@ -2232,6 +2243,7 @@
               cliente: String(alumnoObj.id),
               alumno: alumnoInput, 
               paquete: paqueteCompleto, 
+              observaciones: observacionesTexto,
               monto, 
               pagos: pagosCapturados, 
               entregas: {}, 
@@ -2482,7 +2494,10 @@
           <td class="p-3 font-semibold text-xs text-blue-700">
             <span class="bg-blue-50 px-2 py-1 rounded-md border border-blue-200">${nombreGrupoLabel}</span>
           </td>
-          <td class="p-3 text-slate-600 font-medium">${item.paquete}</td>
+          <td class="p-3 text-slate-600 font-medium">
+            <div>${item.paquete}</div>
+            ${item.observaciones ? `<div class="text-[11px] text-amber-700 font-semibold mt-0.5 max-w-[200px] truncate" title="${item.observaciones}">📝 ${item.observaciones}</div>` : ''}
+          </td>
           <td class="p-3 font-extrabold text-slate-900">$${parseFloat(item.monto).toLocaleString()}</td>`;
 
         for (let i = 0; i < 10; i++) {
@@ -2827,7 +2842,7 @@
 
       if (vistaActual === 'saldos') {
         const filtrados = obtenerSaldosFiltrados().filter(s => {
-          const coincideTexto = (s.alumno || '').toLowerCase().includes(query) || (s.paquete || '').toLowerCase().includes(query);
+          const coincideTexto = (s.alumno || '').toLowerCase().includes(query) || (s.paquete || '').toLowerCase().includes(query) || (s.observaciones || '').toLowerCase().includes(query);
           const coincidePaquete = !paqueteSel || (s.paquete || '').toLowerCase().startsWith(paqueteSel);
           return coincideTexto && coincidePaquete;
         });
@@ -2962,7 +2977,6 @@
         let claseEstilo = 'bg-slate-50 border-slate-200';
         let textoEtiqueta = estaEntregado ? 'Entregado' : 'Pendiente';
 
-        // Etiqueta visual para Panorámica, Camisa y Anillo
         let badgeExtra = '';
         if (mat === "Panorámica con marco" && saldoObj.tipoPanoramica) {
           badgeExtra = `<span class="ml-1.5 text-[11px] font-extrabold bg-blue-100 text-blue-800 px-2 py-0.5 rounded-md border border-blue-200">${saldoObj.tipoPanoramica}</span>`;
@@ -3045,7 +3059,7 @@
       const saldoObj = saldos.find(s => {
         const nom = (s.alumno || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
         return nom === keyNorm || (pagoObj.cuentaId && String(s.id || s._id) === String(pagoObj.cuentaId)) || (alumnoObj.id && String(s.cliente) === String(alumnoObj.id));
-      }) || { paquete: 'No especificado', monto: 0, pagos: [], entregas: {}, eleccionEspecial: "", tipoPanoramica: "", tallaCamisa: "", tallaAnillo: "", esContadoEfectivo: false };
+      }) || { paquete: 'No especificado', observaciones: '', monto: 0, pagos: [], entregas: {}, eleccionEspecial: "", tipoPanoramica: "", tallaCamisa: "", tallaAnillo: "", esContadoEfectivo: false };
 
       const listaPagosAlumno = pagos.filter(p => {
         const nom = resolverNombreAlumnoReal(p).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -3058,6 +3072,17 @@
       document.getElementById('pdfAlumnoUniversidad').innerText = `Universidad: ${alumnoObj.universidad || 'No especificada'}`;
       document.getElementById('pdfAlumnoCarrera').innerText = `Carrera/Facultad: ${alumnoObj.escuela || alumnoObj.facultad || 'No especificada'}`;
       document.getElementById('pdfPaqueteNombre').innerText = saldoObj.paquete;
+
+      const bloqueObs = document.getElementById('pdfObservacionesBloque');
+      const textoObs = document.getElementById('pdfObservacionesTexto');
+      if (bloqueObs && textoObs) {
+        if (saldoObj.observaciones && saldoObj.observaciones.trim() !== '') {
+          textoObs.innerText = saldoObj.observaciones.trim();
+          bloqueObs.style.display = 'block';
+        } else {
+          bloqueObs.style.display = 'none';
+        }
+      }
 
       const avisoModalidad = document.getElementById('pdfModalidadPagoAviso');
       if (saldoObj.esContadoEfectivo) {
@@ -3131,7 +3156,6 @@
 
         if (esEspecial && saldoObj.eleccionEspecial && saldoObj.eleccionEspecial !== mat) return;
 
-        // Formatear nombre con acabado o talla en el PDF
         let textoMaterialPdf = mat;
         if (mat === "Panorámica con marco" && saldoObj.tipoPanoramica) {
           textoMaterialPdf += ` (${saldoObj.tipoPanoramica})`;
@@ -3282,7 +3306,7 @@
       }
 
       const nombreSesion = (alumnoSesionActual.nombre || alumnoSesionActual.alumno || '').trim();
-      const saldoObj = saldos.find(s => s.alumno && s.alumno.toLowerCase() === nombreSesion.toLowerCase()) || { monto: 0, pagos: [0,0,0,0,0,0,0,0,0,0], entregas: {}, paquete: 'Sin Paquete', eleccionEspecial: '', tipoPanoramica: '', tallaCamisa: '', tallaAnillo: '', esContadoEfectivo: false };
+      const saldoObj = saldos.find(s => s.alumno && s.alumno.toLowerCase() === nombreSesion.toLowerCase()) || { monto: 0, pagos: [0,0,0,0,0,0,0,0,0,0], entregas: {}, paquete: 'Sin Paquete', observaciones: '', eleccionEspecial: '', tipoPanoramica: '', tallaCamisa: '', tallaAnillo: '', esContadoEfectivo: false };
       const totalPagado = calcularTotalPagado(saldoObj.pagos);
       const saldoPendiente = Math.max(0, saldoObj.monto - totalPagado);
       const porcentajeAvance = saldoObj.monto > 0 ? Math.min(100, Math.round((totalPagado / saldoObj.monto) * 100)) : 0;
@@ -3377,6 +3401,7 @@
             <h3 class="text-2xl font-black text-slate-900">¡Hola, ${nombreSesion}! 👋</h3>
             <p class="text-xs font-semibold text-slate-500">${alumnoSesionActual.universidad || 'Universidad'} | ${alumnoSesionActual.escuela || alumnoSesionActual.facultad || 'Carrera'}</p>
             <p class="text-xs font-bold text-blue-600 mt-1">Paquete Contratado: ${saldoObj.paquete}</p>
+            ${saldoObj.observaciones ? `<p class="text-xs text-slate-600 mt-1 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200"><strong>📝 Observaciones:</strong> ${saldoObj.observaciones}</p>` : ''}
             ${saldoObj.esContadoEfectivo ? '<span class="inline-block mt-2 text-xs font-extrabold bg-emerald-100 text-emerald-800 px-3 py-1 rounded-full border border-emerald-200">🏷️ Modalidad de Contado en Efectivo (-5% Aplicado)</span>' : ''}
           </div>
           <button onclick="cerrarSesionAlumnoPortal()" class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold px-3 py-2 rounded-xl transition">
