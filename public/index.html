@@ -803,6 +803,24 @@
         { modelo: "Frida", precio: 10700 },
         { modelo: "Ramas", precio: 11300 }
       ],
+      "Línea Deluxe 7 Fotos After Cena": [
+        { modelo: "Rayas", precio: 12700 },
+        { modelo: "Jirafa", precio: 12700 },
+        { modelo: "Roma Puntos", precio: 12700 },
+        { modelo: "Cocodrilo", precio: 12700 },
+        { modelo: "Azteca", precio: 12700 },
+        { modelo: "Frida", precio: 12700 },
+        { modelo: "Ramas", precio: 12700 }
+      ],
+      "Línea Deluxe 8 Fotos Cena": [
+        { modelo: "Rayas", precio: 12100 },
+        { modelo: "Jirafa", precio: 12100 },
+        { modelo: "Roma Puntos", precio: 12100 },
+        { modelo: "Cocodrilo", precio: 12100 },
+        { modelo: "Azteca", precio: 12100 },
+        { modelo: "Frida", precio: 12100 },
+        { modelo: "Ramas", precio: 12100 }
+      ],
       "Línea Prime 1 Fotos Calenda After": [
         { modelo: "Espejo", precio: 12600 },
         { modelo: "Cedro", precio: 12600 },
@@ -881,6 +899,32 @@
         { modelo: "Jirafa Estrella", precio: 11400 },
         { modelo: "Mercurio", precio: 11400 }
       ],
+      "Línea Prime 7 Fotos After Cena": [
+        { modelo: "Espejo", precio: 13200 },
+        { modelo: "Cedro", precio: 13200 },
+        { modelo: "Olimpia", precio: 13200 },
+        { modelo: "Espejo Vino", precio: 13200 },
+        { modelo: "Pirámide V", precio: 13200 },
+        { modelo: "Eslovenia", precio: 13200 },
+        { modelo: "Negativo", precio: 13200 },
+        { modelo: "California", precio: 13200 },
+        { modelo: "Robótico Vino", precio: 13200 },
+        { modelo: "Jirafa Estrella", precio: 13200 },
+        { modelo: "Mercurio", precio: 13200 }
+      ],
+      "Línea Prime 8 Fotos Cena": [
+        { modelo: "Espejo", precio: 12600 },
+        { modelo: "Cedro", precio: 12600 },
+        { modelo: "Olimpia", precio: 12600 },
+        { modelo: "Espejo Vino", precio: 12600 },
+        { modelo: "Pirámide V", precio: 12600 },
+        { modelo: "Eslovenia", precio: 12600 },
+        { modelo: "Negativo", precio: 12600 },
+        { modelo: "California", precio: 12600 },
+        { modelo: "Robótico Vino", precio: 12600 },
+        { modelo: "Jirafa Estrella", precio: 12600 },
+        { modelo: "Mercurio", precio: 12600 }
+      ],
       "Línea Elite 1 Fotos Calenda After": [
         { modelo: "Jirafa Espejo", precio: 12900 },
         { modelo: "Estrella Espejo", precio: 12900 },
@@ -928,6 +972,22 @@
         { modelo: "Glass Viena", precio: 11700 },
         { modelo: "Dublin", precio: 11700 },
         { modelo: "Oxford", precio: 11700 }
+      ],
+      "Línea Elite 7 Fotos After Cena": [
+        { modelo: "Jirafa Espejo", precio: 13600 },
+        { modelo: "Estrella Espejo", precio: 13600 },
+        { modelo: "Robótico Chapetones", precio: 13600 },
+        { modelo: "Glass Viena", precio: 13600 },
+        { modelo: "Dublin", precio: 13600 },
+        { modelo: "Oxford", precio: 13600 }
+      ],
+      "Línea Elite 8 Fotos Cena": [
+        { modelo: "Jirafa Espejo", precio: 13200 },
+        { modelo: "Estrella Espejo", precio: 13200 },
+        { modelo: "Robótico Chapetones", precio: 13200 },
+        { modelo: "Glass Viena", precio: 13200 },
+        { modelo: "Dublin", precio: 13200 },
+        { modelo: "Oxford", precio: 13200 }
       ]
     };
 
@@ -1149,9 +1209,9 @@
       if (conteoTodosEl) conteoTodosEl.innerText = totalTodos;
 
       let html = `
-        <button onclick="seleccionarGrupo(null)" id="btnGrupo_todos" class="w-full text-left px-3 py-2 rounded-xl text-xs font-bold transition flex items-center justify-between ${grupoSeleccionadoId === null ? 'bg-blue-600 text-white shadow' : 'text-slate-300 hover:bg-slate-800'}">
+        <button onclick="seleccionarGrupo(null)" id="btnGrupo_todos" class="w-full text-left px-3 py-2 rounded-xl text-xs font-bold transition flex items-center justify-between bg-blue-600 text-white">
           <span>🌐 Todos los Alumnos</span>
-          <span class="text-[10px] bg-white/20 px-1.5 py-0.5 rounded-full">${totalTodos}</span>
+          <span class="text-[10px] bg-white/20 px-1.5 py-0.5 rounded-full" id="conteoGrupo_todos">${totalTodos}</span>
         </button>
       `;
 
@@ -4207,9 +4267,9 @@
         } else {
           console.error('Error del servidor:', data);
           alert(`Error al generar la pasarela de pago: ${data.message || data.error || 'Respuesta inesperada del servidor'}`);
-          if (btnPagar) {
-            btnPagar.disabled = false;
-            btnPagar.innerText = '🔒 Pagar Ahora con Seguridad (Stripe)';
+          if (btnPager) {
+            btnPager.disabled = false;
+            btnPager.innerText = '🔒 Pagar Ahora con Seguridad (Stripe)';
           }
         }
       } catch (error) {
