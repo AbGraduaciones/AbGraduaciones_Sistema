@@ -13,7 +13,8 @@
       page-break-before: always;
       break-before: page;
     }
-    .tr-pdf-evitar-corte {
+    /* Evita que cualquier fila de la tabla del reporte se corte entre páginas */
+    #plantillaPdfReporteGrupo tr {
       page-break-inside: avoid !important;
       break-inside: avoid !important;
     }
@@ -695,21 +696,21 @@
   </div>
 
   <!-- CONTENEDOR OCULTO PARA REPORTE PDF DE GRUPO -->
-  <div id="contenedorPdfReporteOculto" style="display: none;">
-    <div id="plantillaPdfReporteGrupo" style="background-color: #ffffff; color: #0f172a; font-family: Arial, Helvetica, sans-serif; width: 700px; padding: 10px; box-sizing: border-box;">
-      <div style="border-bottom: 2px solid #2563eb; padding-bottom: 6px; margin-bottom: 8px;">
-        <h2 style="color: #1e3a8a; font-size: 14px; font-weight: 900; margin: 0;" id="pdfReporteTituloGrupo">Reporte General del Grupo</h2>
-        <p style="font-size: 8px; color: #64748b; margin: 2px 0 0 0;">Ab Graduaciones - Concentrado de Alumnos, Saldos y Entregas</p>
+  <div style="position: absolute; left: -9999px; top: 0; width: 700px;">
+    <div id="plantillaPdfReporteGrupo" style="background-color: #ffffff; color: #0f172a; font-family: Arial, Helvetica, sans-serif; width: 700px; padding: 15px; box-sizing: border-box;">
+      <div style="border-bottom: 3px solid #2563eb; padding-bottom: 8px; margin-bottom: 10px;">
+        <h2 style="color: #1e3a8a; font-size: 16px; font-weight: 900; margin: 0;" id="pdfReporteTituloGrupo">Reporte General del Grupo</h2>
+        <p style="font-size: 9px; color: #64748b; margin: 2px 0 0 0;">Ab Graduaciones - Concentrado de Alumnos, Saldos y Entregas</p>
       </div>
       
-      <table style="width: 100%; border-collapse: collapse; font-size: 8px;">
+      <table style="width: 100%; border-collapse: collapse; font-size: 8.5px;">
         <thead>
           <tr style="background-color: #f1f5f9; color: #1e293b; text-transform: uppercase; font-weight: bold; border-bottom: 2px solid #cbd5e1;">
-            <th style="padding: 3px; text-align: left;">ID / Alumno</th>
-            <th style="padding: 3px; text-align: left;">Teléfono</th>
-            <th style="padding: 3px; text-align: left;">Paquete</th>
-            <th style="padding: 3px; text-align: right;">Total / Saldo</th>
-            <th style="padding: 3px; text-align: left;">Regalía / Acabado</th>
+            <th style="padding: 4px; text-align: left;">ID / Alumno</th>
+            <th style="padding: 4px; text-align: left;">Teléfono</th>
+            <th style="padding: 4px; text-align: left;">Paquete</th>
+            <th style="padding: 4px; text-align: right;">Total / Saldo</th>
+            <th style="padding: 4px; text-align: left;">Regalía / Acabado</th>
           </tr>
         </thead>
         <tbody id="pdfCuerpoTablaReporteGrupo"></tbody>
@@ -2203,7 +2204,7 @@
 
         if (!res.ok || !data.ok) {
           alerta.innerText = data.error || 'No se pudo guardar la información del usuario.';
-          alerta.classList.add('hidden');
+          alerta.classList.remove('hidden');
           btn.disabled = false;
           btn.innerText = 'Guardar Cambios';
           return;
@@ -2214,7 +2215,7 @@
       } catch (err) {
         console.error('Error al actualizar usuario:', err);
         alerta.innerText = 'Error de conexión con el servidor.';
-        alerta.classList.add('hidden');
+        alerta.classList.remove('hidden');
       }
 
       btn.disabled = false;
@@ -3903,7 +3904,7 @@
             <p class="text-xs font-bold text-blue-600 mt-1">Paquete Contratado: ${saldoObj.paquete}</p>
             ${saldoObj.observaciones ? `<p class="text-xs text-slate-600 mt-1 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200"><strong>📝 Observaciones:</strong> ${saldoObj.observaciones}</p>` : ''}
             ${saldoObj.esContadoEfectivo ? '<span class="inline-block mt-2 text-xs font-extrabold bg-emerald-100 text-emerald-800 px-3 py-1 rounded-full border border-emerald-200">🏷️ Modalidad de Contado en Efectivo (-5% Aplicado)</span>' : ''}
-            ${!esBasicPortal && esAmbas && Number(saldoObj.cargoExtraRegalia) > 0 ? `<span class="inline-block mt-2 ml-1 text-xs font-extrabold bg-indigo-100 text-indigo-800 px-3 py-1 rounded-full border border-indigo-200">✨ Combo 2 Regalías (+$${Number(saldoObj.cargoExtraRegalia).toLocaleString()})</span>` : ''}
+            ${!esBasicPortal && esAmbas && Number(saldoObj.cargoExtraRegalia) > 0 ? `<span class="inline-block mt-2 ml-1 text-xs font-extrabold bg-indigo-100 text-indigo-800 px-3 py-1 rounded-full border border-emerald-200">✨ Combo 2 Regalías (+$${Number(saldoObj.cargoExtraRegalia).toLocaleString()})</span>` : ''}
           </div>
           <button onclick="cerrarSesionAlumnoPortal()" class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold px-3 py-2 rounded-xl transition">
             🔒 Cerrar Sesión
@@ -4333,8 +4334,7 @@
         return;
       }
 
-      // Renderizamos el 100% de los alumnos del grupo (los 163 completos) asegurando numeración correlativa
-      alumnosDelGrupo.forEach((a, index) => {
+      alumnosDelGrupo.forEach(a => {
         const saldoObj = saldosDelGrupo.find(s => 
           (s.cliente && String(s.cliente) === String(a.id)) || 
           (s.alumno && a.nombre && s.alumno.toLowerCase().trim() === a.nombre.toLowerCase().trim())
@@ -4354,54 +4354,37 @@
         const extraStr = detallesExtra.length > 0 ? ` (${detallesExtra.join(', ')})` : '';
 
         tbodyPdf.innerHTML += `
-          <tr style="border-bottom: 1px solid #cbd5e1; page-break-inside: avoid; break-inside: avoid;">
-            <td style="padding: 5px 4px; vertical-align: top; font-size: 8px;">
-              <strong>${index + 1}. [${a.id}]</strong> ${a.nombre}<br>
-              <span style="color: #64748b; font-size: 7px;">${a.escuela || a.facultad || ''}</span>
+          <tr class="tr-pdf-evitar-corte" style="border-bottom: 1px solid #e2e8f0;">
+            <td style="padding: 5px 6px; vertical-align: top;">
+              <strong>[${a.id}]</strong> ${a.nombre}<br>
+              <span style="color: #64748b; font-size: 8px;">${a.escuela || a.facultad || ''}</span>
             </td>
-            <td style="padding: 5px 4px; vertical-align: top; font-family: monospace; font-size: 8px; white-space: nowrap;">${a.telefono || '-'}</td>
-            <td style="padding: 5px 4px; vertical-align: top; font-size: 8px;">${saldoObj.paquete}</td>
-            <td style="padding: 5px 4px; vertical-align: top; text-align: right; white-space: nowrap; font-size: 8px;">
+            <td style="padding: 5px 6px; vertical-align: top; font-family: monospace;">${a.telefono || '-'}</td>
+            <td style="padding: 5px 6px; vertical-align: top;">${saldoObj.paquete}</td>
+            <td style="padding: 5px 6px; vertical-align: top; text-align: right; white-space: nowrap;">
               <strong>$${(saldoObj.monto || 0).toLocaleString()}</strong><br>
-              <span style="color: #d97706; font-size: 7.5px;">Saldo: $${saldoPendiente.toLocaleString()}</span>
+              <span style="color: #d97706;">Saldo: $${saldoPendiente.toLocaleString()}</span>
             </td>
-            <td style="padding: 5px 4px; vertical-align: top; font-size: 8px;">
+            <td style="padding: 5px 6px; vertical-align: top;">
               ${regaliaTexto}${extraStr}
             </td>
           </tr>
         `;
       });
 
-      // Hacemos visible el contenedor en modo seguro para lectura móvil y de escritorio
-      const contenedorPadre = document.getElementById('contenedorPdfReporteOculto');
-      contenedorPadre.style.display = 'block';
-      contenedorPadre.style.position = 'fixed';
-      contenedorPadre.style.left = '0';
-      contenedorPadre.style.top = '0';
-      contenedorPadre.style.zIndex = '-9999';
-      contenedorPadre.style.visibility = 'hidden';
-
-      // Esperamos un momento para que el DOM procese las más de 160 filas insertadas
-      await new Promise(r => setTimeout(r, 800));
+      await new Promise(r => setTimeout(r, 300));
 
       const elemento = document.getElementById('plantillaPdfReporteGrupo');
       const opciones = {
-        margin:       [5, 5, 5, 5],
+        margin:       [6, 6, 6, 6],
         filename:     `Reporte_Grupo_${nombreGrupo.replace(/\s+/g, '_')}.pdf`,
         image:        { type: 'jpeg', quality: 0.98 },
-        html2canvas:  { 
-          scale: 1.5, // Escala equilibrada para evitar desbordamiento en celulares
-          useCORS: true, 
-          logging: false,
-          letterRendering: true
-        },
-        jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' },
-        pagebreak:    { mode: ['css', 'legacy'] }
+        html2canvas:  { scale: 2, useCORS: true },
+        jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
       };
 
-      try {
-        await html2pdf().set(opciones).from(elemento).save();
-      } finally {
-        contenedorPadre.style.display = 'none';
-      }
+      return html2pdf().set(opciones).from(elemento).save();
     }
+  </script>
+</body>
+</html>
