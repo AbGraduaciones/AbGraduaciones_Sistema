@@ -127,6 +127,9 @@
         <p id="bannerGrupoDetalles" class="text-xs text-blue-200 mt-1">Precios y alumnos filtrados específicamente para este grupo.</p>
       </div>
       <div class="flex items-center gap-2">
+        <button onclick="exportarReporteGrupoPDF()" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition shadow">
+          📥 Descargar Reporte PDF del Grupo
+        </button>
         <button onclick="editarGrupoActivo()" class="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white text-xs font-bold rounded-xl transition border border-white/20">
           ⚙️ Editar Tarifas / Nombre
         </button>
@@ -686,6 +689,29 @@
 
     </div>
   </div>
+
+  <!-- CONTENEDOR OCULTO PARA REPORTE PDF DE GRUPO -->
+<div style="position: absolute; left: -9999px; top: 0; width: 800px;">
+  <div id="plantillaPdfReporteGrupo" style="background-color: #ffffff; color: #0f172a; font-family: Arial, Helvetica, sans-serif; width: 800px; padding: 24px; box-sizing: border-box; border: 1px solid #e2e8f0;">
+    <div style="border-bottom: 3px solid #2563eb; padding-bottom: 12px; margin-bottom: 15px;">
+      <h2 style="color: #1e3a8a; font-size: 20px; font-weight: 900; margin: 0;" id="pdfReporteTituloGrupo">Reporte General del Grupo</h2>
+      <p style="font-size: 11px; color: #64748b; margin: 4px 0 0 0;">Ab Graduaciones - Concentrado de Alumnos, Saldos y Entregas</p>
+    </div>
+    
+    <table style="width: 100%; border-collapse: collapse; font-size: 10px;">
+      <thead>
+        <tr style="background-color: #f1f5f9; color: #1e293b; text-transform: uppercase; font-weight: bold; border-bottom: 2px solid #cbd5e1;">
+          <th style="padding: 6px; text-align: left;">ID / Alumno</th>
+          <th style="padding: 6px; text-align: left;">Teléfono</th>
+          <th style="padding: 6px; text-align: left;">Paquete</th>
+          <th style="padding: 6px; text-align: right;">Total / Saldo</th>
+          <th style="padding: 6px; text-align: left;">Regalía / Acabado</th>
+        </tr>
+      </thead>
+      <tbody id="pdfCuerpoTablaReporteGrupo"></tbody>
+    </table>
+  </div>
+</div>
 
   <script>
     const CARGO_EXTRA_AMBAS_REGALIAS_DEFAULT = 500;
@@ -4284,3 +4310,76 @@
   </script>
 </body>
 </html>
+
+async function exportarReporteGrupoPDF() {
+  if (!grupoSeleccionadoId) {
+    alert('⚠️ Por favor selecciona un Grupo Activo en la barra lateral para generar su reporte.');
+    return;
+  }
+
+  const grupoObj = grupos.find(g => String(g._id || g.id) === String(grupoSeleccionadoId));
+  const nombreGrupo = grupoObj ? grupoObj.nombre : 'Grupo';
+
+  document.getElementById('pdfReporteTituloGrupo').innerText = `Reporte Consolidado: ${nombreGrupo}`;
+  
+  const alumnosDelGrupo = obtenerAlumnosFiltrados();
+  const saldosDelGrupo = obtenerSaldosFiltrados();
+  const tbodyPdf = document.getElementById('pdfCuerpoTablaReporteGrupo');
+  tbodyPdf.innerHTML = '';
+
+  if (alumnosDelGrupo.length === 0) {
+    alert('No hay alumnos registrados en este grupo.');
+    return;
+  }
+
+  alumnosDelGrupo.forEach(a => {
+    const saldoObj = saldosDelGrupo.find(s => 
+      (s.cliente && String(s.cliente) === String(a.id)) || 
+      (s.alumno && a.nombre && s.alumno.toLowerCase().trim() === a.nombre.toLowerCase().trim())
+    ) || { paquete: 'Sin registrar', monto: 0, pagos: [], entregas: {}, eleccionEspecial: '-', tallaAnillo: '-', tallaCamisa: '-', tipoPanoramica: '-' };
+
+    const totalPagado = calcularTotalPagado(saldoObj.pagos);
+    const saldoPendiente = Math.max(0, (saldoObj.monto || 0) - totalPagado);
+
+    let regaliaTexto = saldoObj.eleccionEspecial || 'Pendiente';
+    if (regaliaTexto.includes('Ambos')) regaliaTexto = 'Ambos (Anillo + Personalizador)';
+
+    let detallesExtra = [];
+    if (saldoObj.tallaAnillo && saldoObj.tallaAnillo !== '-') detallesExtra.push(`Anillo: #${saldoObj.tallaAnillo}`);
+    if (saldoObj.tallaCamisa && saldoObj.tallaCamisa !== '-') detallesExtra.push(`Camisa: ${saldoObj.tallaCamisa}`);
+    if (saldoObj.tipoPanoramica) detallesExtra.push(saldoObj.tipoPanoramica);
+
+    const extraStr = detallesExtra.length > 0 ? ` (${detallesExtra.join(', ')})` : '';
+
+    tbodyPdf.innerHTML += `
+      <tr style="border-bottom: 1px solid #e2e8f0;">
+        <td style="padding: 6px; vertical-align: top;">
+          <strong>[${a.id}]</strong> ${a.nombre}<br>
+          <span style="color: #64748b; font-size: 9px;">${a.escuela || a.facultad || ''}</span>
+        </td>
+        <td style="padding: 6px; vertical-align: top; font-family: monospace;">${a.telefono || '-'}</td>
+        <td style="padding: 6px; vertical-align: top;">${saldoObj.paquete}</td>
+        <td style="padding: 6px; vertical-align: top; text-align: right; white-space: nowrap;">
+          <strong>$${(saldoObj.monto || 0).toLocaleString()}</strong><br>
+          <span style="color: #d97706;">Saldo: $${saldoPendiente.toLocaleString()}</span>
+        </td>
+        <td style="padding: 6px; vertical-align: top;">
+          ${regaliaTexto}${extraStr}
+        </td>
+      </tr>
+    `;
+  });
+
+  await new Promise(r => setTimeout(r, 300));
+
+  const elemento = document.getElementById('plantillaPdfReporteGrupo');
+  const opciones = {
+    margin:       [8, 8, 8, 8],
+    filename:     `Reporte_Grupo_${nombreGrupo.replace(/\s+/g, '_')}.pdf`,
+    image:        { type: 'jpeg', quality: 0.98 },
+    html2canvas:  { scale: 2, useCORS: true },
+    jsPDF:        { unit: 'mm', format: 'a4', orientation: 'landscape' }
+  };
+
+  return html2pdf().set(opciones).from(elemento).save();
+}
