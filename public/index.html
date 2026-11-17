@@ -695,7 +695,7 @@
   </div>
 
   <!-- CONTENEDOR OCULTO PARA REPORTE PDF DE GRUPO -->
-  <div style="position: absolute; left: -9999px; top: 0; width: 700px;">
+  <div id="contenedorPdfReporteOculto" style="display: none;">
     <div id="plantillaPdfReporteGrupo" style="background-color: #ffffff; color: #0f172a; font-family: Arial, Helvetica, sans-serif; width: 700px; padding: 10px; box-sizing: border-box;">
       <div style="border-bottom: 2px solid #2563eb; padding-bottom: 6px; margin-bottom: 8px;">
         <h2 style="color: #1e3a8a; font-size: 14px; font-weight: 900; margin: 0;" id="pdfReporteTituloGrupo">Reporte General del Grupo</h2>
@@ -2203,7 +2203,7 @@
 
         if (!res.ok || !data.ok) {
           alerta.innerText = data.error || 'No se pudo guardar la información del usuario.';
-          alerta.classList.remove('hidden');
+          alerta.classList.add('hidden');
           btn.disabled = false;
           btn.innerText = 'Guardar Cambios';
           return;
@@ -2214,7 +2214,7 @@
       } catch (err) {
         console.error('Error al actualizar usuario:', err);
         alerta.innerText = 'Error de conexión con el servidor.';
-        alerta.classList.remove('hidden');
+        alerta.classList.add('hidden');
       }
 
       btn.disabled = false;
@@ -3917,7 +3917,7 @@
             <p class="text-xs font-bold text-slate-400 uppercase">Costo Total del Paquete</p>
             <h4 class="text-3xl font-extrabold text-slate-900 mt-2">$${saldoObj.monto.toLocaleString()}</h4>
           </div>
-          <div class="bg-emerald-50 p-6 rounded-2xl border border-slate-200 shadow-sm">
+          <div class="bg-emerald-50 p-6 rounded-2xl border border-emerald-200 shadow-sm">
             <p class="text-xs font-bold text-emerald-700 uppercase">Total Abonado</p>
             <h4 class="text-3xl font-extrabold text-emerald-800 mt-2">$${totalPagado.toLocaleString()}</h4>
           </div>
@@ -4372,7 +4372,16 @@
         `;
       });
 
-      await new Promise(r => setTimeout(r, 500));
+      // Hacemos visible el contenedor temporalmente para que el celular lo capture bien sin espacios vacíos
+      const contenedorPadre = document.getElementById('contenedorPdfReporteOculto');
+      contenedorPadre.style.display = 'block';
+      contenedorPadre.style.position = 'fixed';
+      contenedorPadre.style.left = '0';
+      contenedorPadre.style.top = '0';
+      contenedorPadre.style.zIndex = '-9999';
+      contenedorPadre.style.visibility = 'hidden';
+
+      await new Promise(r => setTimeout(r, 600));
 
       const elemento = document.getElementById('plantillaPdfReporteGrupo');
       const opciones = {
@@ -4383,13 +4392,17 @@
           scale: 2, 
           useCORS: true, 
           logging: false,
-          windowWidth: 700 
+          letterRendering: true
         },
         jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' },
-        pagebreak:    { mode: ['css', 'legacy'] }
+        pagebreak:    { mode: ['css', 'legacy'], avoid: ['tr'] }
       };
 
-      return html2pdf().set(opciones).from(elemento).save();
+      try {
+        await html2pdf().set(opciones).from(elemento).save();
+      } finally {
+        contenedorPadre.style.display = 'none';
+      }
     }
   </script>
 </body>
