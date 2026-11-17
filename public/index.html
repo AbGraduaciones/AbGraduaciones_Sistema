@@ -4334,7 +4334,7 @@
         return;
       }
 
-      alumnosDelGrupo.forEach(a => {
+      alumnosDelGrupo.forEach((a, index) => {
         const saldoObj = saldosDelGrupo.find(s => 
           (s.cliente && String(s.cliente) === String(a.id)) || 
           (s.alumno && a.nombre && s.alumno.toLowerCase().trim() === a.nombre.toLowerCase().trim())
@@ -4356,7 +4356,7 @@
         tbodyPdf.innerHTML += `
           <tr class="tr-pdf-evitar-corte" style="border-bottom: 1px solid #e2e8f0;">
             <td style="padding: 5px 6px; vertical-align: top;">
-              <strong>[${a.id}]</strong> ${a.nombre}<br>
+              <strong>${index + 1}. [${a.id}]</strong> ${a.nombre}<br>
               <span style="color: #64748b; font-size: 8px;">${a.escuela || a.facultad || ''}</span>
             </td>
             <td style="padding: 5px 6px; vertical-align: top; font-family: monospace;">${a.telefono || '-'}</td>
@@ -4372,19 +4372,27 @@
         `;
       });
 
-      await new Promise(r => setTimeout(r, 300));
+      await new Promise(r => setTimeout(r, 400));
 
       const elemento = document.getElementById('plantillaPdfReporteGrupo');
+      
+      // Detectamos si el usuario está abriendo la app desde un celular
+      const esMovil = window.innerWidth < 768;
+
       const opciones = {
         margin:       [6, 6, 6, 6],
         filename:     `Reporte_Grupo_${nombreGrupo.replace(/\s+/g, '_')}.pdf`,
         image:        { type: 'jpeg', quality: 0.98 },
-        html2canvas:  { scale: 2, useCORS: true },
-        jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        html2canvas:  { 
+          scale: esMovil ? 1.4 : 2, // Reducimos ligeramente la escala en móvil para que el Pixel procese bien el canvas largo sin cortarlo
+          useCORS: true, 
+          logging: false,
+          letterRendering: true,
+          windowWidth: 700 // Forzamos el ancho de escritorio para evitar que el celular interprete mal los estilos responsive
+        },
+        jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' },
+        pagebreak:    { mode: ['css', 'legacy'] }
       };
 
       return html2pdf().set(opciones).from(elemento).save();
     }
-  </script>
-</body>
-</html>
