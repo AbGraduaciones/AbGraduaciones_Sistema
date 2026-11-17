@@ -4334,7 +4334,8 @@
         return;
       }
 
-      alumnosDelGrupo.forEach(a => {
+      // Renderizamos el total de los alumnos asegurando orden correlativo
+      alumnosDelGrupo.forEach((a, index) => {
         const saldoObj = saldosDelGrupo.find(s => 
           (s.cliente && String(s.cliente) === String(a.id)) || 
           (s.alumno && a.nombre && s.alumno.toLowerCase().trim() === a.nombre.toLowerCase().trim())
@@ -4354,37 +4355,58 @@
         const extraStr = detallesExtra.length > 0 ? ` (${detallesExtra.join(', ')})` : '';
 
         tbodyPdf.innerHTML += `
-          <tr class="tr-pdf-evitar-corte" style="border-bottom: 1px solid #e2e8f0;">
-            <td style="padding: 5px 6px; vertical-align: top;">
-              <strong>[${a.id}]</strong> ${a.nombre}<br>
-              <span style="color: #64748b; font-size: 8px;">${a.escuela || a.facultad || ''}</span>
+          <tr style="border-bottom: 1px solid #e2e8f0; page-break-inside: avoid; break-inside: avoid;">
+            <td style="padding: 4px 5px; vertical-align: top; font-size: 8px;">
+              <strong>${index + 1}. [${a.id}]</strong> ${a.nombre}<br>
+              <span style="color: #64748b; font-size: 7px;">${a.escuela || a.facultad || ''}</span>
             </td>
-            <td style="padding: 5px 6px; vertical-align: top; font-family: monospace;">${a.telefono || '-'}</td>
-            <td style="padding: 5px 6px; vertical-align: top;">${saldoObj.paquete}</td>
-            <td style="padding: 5px 6px; vertical-align: top; text-align: right; white-space: nowrap;">
+            <td style="padding: 4px 5px; vertical-align: top; font-family: monospace; font-size: 8px; white-space: nowrap;">${a.telefono || '-'}</td>
+            <td style="padding: 4px 5px; vertical-align: top; font-size: 8px;">${saldoObj.paquete}</td>
+            <td style="padding: 4px 5px; vertical-align: top; text-align: right; white-space: nowrap; font-size: 8px;">
               <strong>$${(saldoObj.monto || 0).toLocaleString()}</strong><br>
-              <span style="color: #d97706;">Saldo: $${saldoPendiente.toLocaleString()}</span>
+              <span style="color: #d97706; font-size: 7.5px;">Saldo: $${saldoPendiente.toLocaleString()}</span>
             </td>
-            <td style="padding: 5px 6px; vertical-align: top;">
+            <td style="padding: 4px 5px; vertical-align: top; font-size: 8px;">
               ${regaliaTexto}${extraStr}
             </td>
           </tr>
         `;
       });
 
-      await new Promise(r => setTimeout(r, 300));
+      // Contenedor temporal fijo y oculto para procesar el canvas sin colapsar la pantalla móvil
+      const contenedorPadre = document.getElementById('contenedorPdfReporteOculto');
+      if (contenedorPadre) {
+        contenedorPadre.style.display = 'block';
+        contenedorPadre.style.position = 'fixed';
+        contenedorPadre.style.left = '0';
+        contenedorPadre.style.top = '0';
+        contenedorPadre.style.zIndex = '-9999';
+        contenedorPadre.style.visibility = 'hidden';
+      }
+
+      await new Promise(r => setTimeout(r, 600));
 
       const elemento = document.getElementById('plantillaPdfReporteGrupo');
       const opciones = {
-        margin:       [6, 6, 6, 6],
+        margin:       [4, 4, 4, 4],
         filename:     `Reporte_Grupo_${nombreGrupo.replace(/\s+/g, '_')}.pdf`,
         image:        { type: 'jpeg', quality: 0.98 },
-        html2canvas:  { scale: 2, useCORS: true },
-        jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        html2canvas:  { 
+          scale: 1.5, // Escala equilibrada para evitar sobrecarga de memoria en celulares
+          useCORS: true, 
+          logging: false,
+          letterRendering: true,
+          windowWidth: 700 // Forzar ancho de renderizado estándar de escritorio
+        },
+        jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' },
+        pagebreak:    { mode: ['css', 'legacy'] }
       };
 
-      return html2pdf().set(opciones).from(elemento).save();
+      try {
+        await html2pdf().set(opciones).from(elemento).save();
+      } finally {
+        if (contenedorPadre) {
+          contenedorPadre.style.display = 'none';
+        }
+      }
     }
-  </script>
-</body>
-</html>
