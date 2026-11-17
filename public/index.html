@@ -13,6 +13,10 @@
       page-break-before: always;
       break-before: page;
     }
+    .tr-pdf-evitar-corte {
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
   </style>
 </head>
 <body class="bg-slate-50 text-slate-800 flex flex-col md:flex-row min-h-screen font-sans">
@@ -691,21 +695,21 @@
   </div>
 
   <!-- CONTENEDOR OCULTO PARA REPORTE PDF DE GRUPO -->
-  <div style="position: absolute; left: -9999px; top: 0; width: 800px;">
-    <div id="plantillaPdfReporteGrupo" style="background-color: #ffffff; color: #0f172a; font-family: Arial, Helvetica, sans-serif; width: 800px; padding: 24px; box-sizing: border-box; border: 1px solid #e2e8f0;">
-      <div style="border-bottom: 3px solid #2563eb; padding-bottom: 12px; margin-bottom: 15px;">
-        <h2 style="color: #1e3a8a; font-size: 20px; font-weight: 900; margin: 0;" id="pdfReporteTituloGrupo">Reporte General del Grupo</h2>
-        <p style="font-size: 11px; color: #64748b; margin: 4px 0 0 0;">Ab Graduaciones - Concentrado de Alumnos, Saldos y Entregas</p>
+  <div style="position: absolute; left: -9999px; top: 0; width: 700px;">
+    <div id="plantillaPdfReporteGrupo" style="background-color: #ffffff; color: #0f172a; font-family: Arial, Helvetica, sans-serif; width: 700px; padding: 20px; box-sizing: border-box; border: 1px solid #e2e8f0;">
+      <div style="border-bottom: 3px solid #2563eb; padding-bottom: 10px; margin-bottom: 12px;">
+        <h2 style="color: #1e3a8a; font-size: 18px; font-weight: 900; margin: 0;" id="pdfReporteTituloGrupo">Reporte General del Grupo</h2>
+        <p style="font-size: 10px; color: #64748b; margin: 3px 0 0 0;">Ab Graduaciones - Concentrado de Alumnos, Saldos y Entregas</p>
       </div>
       
-      <table style="width: 100%; border-collapse: collapse; font-size: 10px;">
+      <table style="width: 100%; border-collapse: collapse; font-size: 9px;">
         <thead>
           <tr style="background-color: #f1f5f9; color: #1e293b; text-transform: uppercase; font-weight: bold; border-bottom: 2px solid #cbd5e1;">
-            <th style="padding: 6px; text-align: left;">ID / Alumno</th>
-            <th style="padding: 6px; text-align: left;">Teléfono</th>
-            <th style="padding: 6px; text-align: left;">Paquete</th>
-            <th style="padding: 6px; text-align: right;">Total / Saldo</th>
-            <th style="padding: 6px; text-align: left;">Regalía / Acabado</th>
+            <th style="padding: 5px; text-align: left;">ID / Alumno</th>
+            <th style="padding: 5px; text-align: left;">Teléfono</th>
+            <th style="padding: 5px; text-align: left;">Paquete</th>
+            <th style="padding: 5px; text-align: right;">Total / Saldo</th>
+            <th style="padding: 5px; text-align: left;">Regalía / Acabado</th>
           </tr>
         </thead>
         <tbody id="pdfCuerpoTablaReporteGrupo"></tbody>
@@ -2210,7 +2214,7 @@
       } catch (err) {
         console.error('Error al actualizar usuario:', err);
         alerta.innerText = 'Error de conexión con el servidor.';
-        alerta.classList.remove('hidden');
+        alerta.classList.add('hidden');
       }
 
       btn.disabled = false;
@@ -4317,7 +4321,7 @@
       const grupoObj = grupos.find(g => String(g._id || g.id) === String(grupoSeleccionadoId));
       const nombreGrupo = grupoObj ? grupoObj.nombre : 'Grupo';
 
-      document.getElementById('pdfReporteTituloGrupo').innerText = `Reporte Consolidado: ${nombreGrupo}`;
+      document.getElementById('pdfReporteTituloGrupo').innerText = `Reporte General del Grupo: ${nombreGrupo}`;
       
       const alumnosDelGrupo = obtenerAlumnosFiltrados();
       const saldosDelGrupo = obtenerSaldosFiltrados();
@@ -4349,18 +4353,18 @@
         const extraStr = detallesExtra.length > 0 ? ` (${detallesExtra.join(', ')})` : '';
 
         tbodyPdf.innerHTML += `
-          <tr style="border-bottom: 1px solid #e2e8f0;">
-            <td style="padding: 6px; vertical-align: top;">
+          <tr class="tr-pdf-evitar-corte" style="border-bottom: 1px solid #e2e8f0;">
+            <td style="padding: 5px 6px; vertical-align: top;">
               <strong>[${a.id}]</strong> ${a.nombre}<br>
-              <span style="color: #64748b; font-size: 9px;">${a.escuela || a.facultad || ''}</span>
+              <span style="color: #64748b; font-size: 8px;">${a.escuela || a.facultad || ''}</span>
             </td>
-            <td style="padding: 6px; vertical-align: top; font-family: monospace;">${a.telefono || '-'}</td>
-            <td style="padding: 6px; vertical-align: top;">${saldoObj.paquete}</td>
-            <td style="padding: 6px; vertical-align: top; text-align: right; white-space: nowrap;">
+            <td style="padding: 5px 6px; vertical-align: top; font-family: monospace;">${a.telefono || '-'}</td>
+            <td style="padding: 5px 6px; vertical-align: top;">${saldoObj.paquete}</td>
+            <td style="padding: 5px 6px; vertical-align: top; text-align: right; white-space: nowrap;">
               <strong>$${(saldoObj.monto || 0).toLocaleString()}</strong><br>
               <span style="color: #d97706;">Saldo: $${saldoPendiente.toLocaleString()}</span>
             </td>
-            <td style="padding: 6px; vertical-align: top;">
+            <td style="padding: 5px 6px; vertical-align: top;">
               ${regaliaTexto}${extraStr}
             </td>
           </tr>
@@ -4371,11 +4375,11 @@
 
       const elemento = document.getElementById('plantillaPdfReporteGrupo');
       const opciones = {
-        margin:       [8, 8, 8, 8],
+        margin:       [6, 6, 6, 6],
         filename:     `Reporte_Grupo_${nombreGrupo.replace(/\s+/g, '_')}.pdf`,
         image:        { type: 'jpeg', quality: 0.98 },
         html2canvas:  { scale: 2, useCORS: true },
-        jsPDF:        { unit: 'mm', format: 'a4', orientation: 'landscape' }
+        jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
       };
 
       return html2pdf().set(opciones).from(elemento).save();
