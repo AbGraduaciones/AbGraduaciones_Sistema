@@ -13,9 +13,10 @@
       page-break-before: always;
       break-before: page;
     }
-    .tr-pdf-evitar-corte {
-      page-break-inside: avoid;
-      break-inside: avoid;
+    /* Evita que cualquier fila de la tabla del reporte se corte entre páginas */
+    #plantillaPdfReporteGrupo tr {
+      page-break-inside: avoid !important;
+      break-inside: avoid !important;
     }
   </style>
 </head>
@@ -696,20 +697,20 @@
 
   <!-- CONTENEDOR OCULTO PARA REPORTE PDF DE GRUPO -->
   <div style="position: absolute; left: -9999px; top: 0; width: 700px;">
-    <div id="plantillaPdfReporteGrupo" style="background-color: #ffffff; color: #0f172a; font-family: Arial, Helvetica, sans-serif; width: 700px; padding: 20px; box-sizing: border-box; border: 1px solid #e2e8f0;">
-      <div style="border-bottom: 3px solid #2563eb; padding-bottom: 10px; margin-bottom: 12px;">
-        <h2 style="color: #1e3a8a; font-size: 18px; font-weight: 900; margin: 0;" id="pdfReporteTituloGrupo">Reporte General del Grupo</h2>
-        <p style="font-size: 10px; color: #64748b; margin: 3px 0 0 0;">Ab Graduaciones - Concentrado de Alumnos, Saldos y Entregas</p>
+    <div id="plantillaPdfReporteGrupo" style="background-color: #ffffff; color: #0f172a; font-family: Arial, Helvetica, sans-serif; width: 700px; padding: 15px; box-sizing: border-box;">
+      <div style="border-bottom: 3px solid #2563eb; padding-bottom: 8px; margin-bottom: 10px;">
+        <h2 style="color: #1e3a8a; font-size: 16px; font-weight: 900; margin: 0;" id="pdfReporteTituloGrupo">Reporte General del Grupo</h2>
+        <p style="font-size: 9px; color: #64748b; margin: 2px 0 0 0;">Ab Graduaciones - Concentrado de Alumnos, Saldos y Entregas</p>
       </div>
       
-      <table style="width: 100%; border-collapse: collapse; font-size: 9px;">
+      <table style="width: 100%; border-collapse: collapse; font-size: 8.5px;">
         <thead>
           <tr style="background-color: #f1f5f9; color: #1e293b; text-transform: uppercase; font-weight: bold; border-bottom: 2px solid #cbd5e1;">
-            <th style="padding: 5px; text-align: left;">ID / Alumno</th>
-            <th style="padding: 5px; text-align: left;">Teléfono</th>
-            <th style="padding: 5px; text-align: left;">Paquete</th>
-            <th style="padding: 5px; text-align: right;">Total / Saldo</th>
-            <th style="padding: 5px; text-align: left;">Regalía / Acabado</th>
+            <th style="padding: 4px; text-align: left;">ID / Alumno</th>
+            <th style="padding: 4px; text-align: left;">Teléfono</th>
+            <th style="padding: 4px; text-align: left;">Paquete</th>
+            <th style="padding: 4px; text-align: right;">Total / Saldo</th>
+            <th style="padding: 4px; text-align: left;">Regalía / Acabado</th>
           </tr>
         </thead>
         <tbody id="pdfCuerpoTablaReporteGrupo"></tbody>
@@ -2203,7 +2204,7 @@
 
         if (!res.ok || !data.ok) {
           alerta.innerText = data.error || 'No se pudo guardar la información del usuario.';
-          alerta.classList.add('hidden');
+          alerta.classList.remove('hidden');
           btn.disabled = false;
           btn.innerText = 'Guardar Cambios';
           return;
@@ -2214,7 +2215,7 @@
       } catch (err) {
         console.error('Error al actualizar usuario:', err);
         alerta.innerText = 'Error de conexión con el servidor.';
-        alerta.classList.add('hidden');
+        alerta.classList.remove('hidden');
       }
 
       btn.disabled = false;
@@ -2606,7 +2607,7 @@
 
           if (!telefono.startsWith('+') || soloNumeros.length < 8 || !regexLadaInternacional.test(telefono)) {
             alertaError.innerText = `Formato de teléfono inválido. Debe incluir la LADA internacional con el signo '+' (Ejemplo: +52 5551234567 o +1 3232435251).`;
-            alertaError.classList.add('hidden');
+            alertaError.classList.remove('hidden');
             btnGuardar.disabled = false;
             return;
           }
@@ -2619,7 +2620,7 @@
           const idExiste = alumnos.some((a, idx) => idx !== idxReal && String(a.id).trim().toLowerCase() === idManual.toLowerCase());
           if (idExiste) {
             alertaError.innerText = `El ID "${idManual}" ya está en uso. Ingresa uno distinto.`;
-            alertaError.classList.add('hidden');
+            alertaError.classList.remove('hidden');
             btnGuardar.disabled = false;
             return;
           }
@@ -2629,7 +2630,7 @@
             const emailExiste = alumnos.some((a, idx) => idx !== idxReal && (a.email || '').toLowerCase() === emailLimpio);
             if (emailExiste) {
               alertaError.innerText = `El correo "${email}" ya se encuentra registrado. Ingresa un correo distinto.`;
-              alertaError.classList.add('hidden');
+              alertaError.classList.remove('hidden');
               btnGuardar.disabled = false;
               return;
             }
@@ -2638,7 +2639,7 @@
           const telExiste = alumnos.some((a, idx) => idx !== idxReal && (a.telefono || '').replace(/\D/g, '') === soloNumeros);
           if (telExiste) {
             alertaError.innerText = `El teléfono "${telefono}" ya pertenece a otro alumno registrado.`;
-            alertaError.classList.add('hidden');
+            alertaError.classList.remove('hidden');
             btnGuardar.disabled = false;
             return;
           }
@@ -2692,7 +2693,7 @@
       } catch (errSubmit) {
         console.error('Error al procesar guardarRegistro:', errSubmit);
         alertaError.innerText = 'Ocurrió un error al guardar: ' + errSubmit.message;
-        alertaError.classList.add('hidden');
+        alertaError.classList.remove('hidden');
       } finally {
         btnGuardar.disabled = false;
       }
