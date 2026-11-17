@@ -13,8 +13,7 @@
       page-break-before: always;
       break-before: page;
     }
-    /* Evita que cualquier fila de la tabla del reporte se corte entre páginas */
-    #plantillaPdfReporteGrupo tr {
+    .tr-pdf-evitar-corte {
       page-break-inside: avoid !important;
       break-inside: avoid !important;
     }
@@ -697,20 +696,20 @@
 
   <!-- CONTENEDOR OCULTO PARA REPORTE PDF DE GRUPO -->
   <div style="position: absolute; left: -9999px; top: 0; width: 700px;">
-    <div id="plantillaPdfReporteGrupo" style="background-color: #ffffff; color: #0f172a; font-family: Arial, Helvetica, sans-serif; width: 700px; padding: 15px; box-sizing: border-box;">
-      <div style="border-bottom: 3px solid #2563eb; padding-bottom: 8px; margin-bottom: 10px;">
-        <h2 style="color: #1e3a8a; font-size: 16px; font-weight: 900; margin: 0;" id="pdfReporteTituloGrupo">Reporte General del Grupo</h2>
-        <p style="font-size: 9px; color: #64748b; margin: 2px 0 0 0;">Ab Graduaciones - Concentrado de Alumnos, Saldos y Entregas</p>
+    <div id="plantillaPdfReporteGrupo" style="background-color: #ffffff; color: #0f172a; font-family: Arial, Helvetica, sans-serif; width: 700px; padding: 10px; box-sizing: border-box;">
+      <div style="border-bottom: 2px solid #2563eb; padding-bottom: 6px; margin-bottom: 8px;">
+        <h2 style="color: #1e3a8a; font-size: 14px; font-weight: 900; margin: 0;" id="pdfReporteTituloGrupo">Reporte General del Grupo</h2>
+        <p style="font-size: 8px; color: #64748b; margin: 2px 0 0 0;">Ab Graduaciones - Concentrado de Alumnos, Saldos y Entregas</p>
       </div>
       
-      <table style="width: 100%; border-collapse: collapse; font-size: 8.5px;">
+      <table style="width: 100%; border-collapse: collapse; font-size: 8px;">
         <thead>
           <tr style="background-color: #f1f5f9; color: #1e293b; text-transform: uppercase; font-weight: bold; border-bottom: 2px solid #cbd5e1;">
-            <th style="padding: 4px; text-align: left;">ID / Alumno</th>
-            <th style="padding: 4px; text-align: left;">Teléfono</th>
-            <th style="padding: 4px; text-align: left;">Paquete</th>
-            <th style="padding: 4px; text-align: right;">Total / Saldo</th>
-            <th style="padding: 4px; text-align: left;">Regalía / Acabado</th>
+            <th style="padding: 3px; text-align: left;">ID / Alumno</th>
+            <th style="padding: 3px; text-align: left;">Teléfono</th>
+            <th style="padding: 3px; text-align: left;">Paquete</th>
+            <th style="padding: 3px; text-align: right;">Total / Saldo</th>
+            <th style="padding: 3px; text-align: left;">Regalía / Acabado</th>
           </tr>
         </thead>
         <tbody id="pdfCuerpoTablaReporteGrupo"></tbody>
@@ -3918,7 +3917,7 @@
             <p class="text-xs font-bold text-slate-400 uppercase">Costo Total del Paquete</p>
             <h4 class="text-3xl font-extrabold text-slate-900 mt-2">$${saldoObj.monto.toLocaleString()}</h4>
           </div>
-          <div class="bg-emerald-50 p-6 rounded-2xl border border-emerald-200 shadow-sm">
+          <div class="bg-emerald-50 p-6 rounded-2xl border border-slate-200 shadow-sm">
             <p class="text-xs font-bold text-emerald-700 uppercase">Total Abonado</p>
             <h4 class="text-3xl font-extrabold text-emerald-800 mt-2">$${totalPagado.toLocaleString()}</h4>
           </div>
@@ -4334,8 +4333,8 @@
         return;
       }
 
-      // Renderizamos TODOS los alumnos del grupo sin omitir ninguno
-      alumnosDelGrupo.forEach(a => {
+      // Renderizamos ABSOLUTAMENTE TODOS los alumnos del grupo sin filtros previos
+      alumnosDelGrupo.forEach((a, index) => {
         const saldoObj = saldosDelGrupo.find(s => 
           (s.cliente && String(s.cliente) === String(a.id)) || 
           (s.alumno && a.nombre && s.alumno.toLowerCase().trim() === a.nombre.toLowerCase().trim())
@@ -4356,35 +4355,32 @@
 
         tbodyPdf.innerHTML += `
           <tr class="tr-pdf-evitar-corte" style="border-bottom: 1px solid #e2e8f0;">
-            <td style="padding: 5px 6px; vertical-align: top;">
-              <strong>[${a.id}]</strong> ${a.nombre}<br>
-              <span style="color: #64748b; font-size: 8px;">${a.escuela || a.facultad || ''}</span>
+            <td style="padding: 4px 5px; vertical-align: top;">
+              <strong>${index + 1}. [${a.id}]</strong> ${a.nombre}<br>
+              <span style="color: #64748b; font-size: 7.5px;">${a.escuela || a.facultad || ''}</span>
             </td>
-            <td style="padding: 5px 6px; vertical-align: top; font-family: monospace;">${a.telefono || '-'}</td>
-            <td style="padding: 5px 6px; vertical-align: top;">${saldoObj.paquete}</td>
-            <td style="padding: 5px 6px; vertical-align: top; text-align: right; white-space: nowrap;">
+            <td style="padding: 4px 5px; vertical-align: top; font-family: monospace;">${a.telefono || '-'}</td>
+            <td style="padding: 4px 5px; vertical-align: top;">${saldoObj.paquete}</td>
+            <td style="padding: 4px 5px; vertical-align: top; text-align: right; white-space: nowrap;">
               <strong>$${(saldoObj.monto || 0).toLocaleString()}</strong><br>
-              <span style="color: #d97706;">Saldo: $${saldoPendiente.toLocaleString()}</span>
+              <span style="color: #d97706; font-size: 8px;">Saldo: $${saldoPendiente.toLocaleString()}</span>
             </td>
-            <td style="padding: 5px 6px; vertical-align: top;">
+            <td style="padding: 4px 5px; vertical-align: top;">
               ${regaliaTexto}${extraStr}
             </td>
           </tr>
         `;
       });
 
-      // Pausa breve para asegurar que el DOM pinte todos los elementos antes de capturar el canvas
       await new Promise(r => setTimeout(r, 500));
 
       const elemento = document.getElementById('plantillaPdfReporteGrupo');
-      const esMovil = window.innerWidth < 768;
-
       const opciones = {
-        margin:       [5, 5, 5, 5],
+        margin:       [4, 4, 4, 4],
         filename:     `Reporte_Grupo_${nombreGrupo.replace(/\s+/g, '_')}.pdf`,
         image:        { type: 'jpeg', quality: 0.98 },
         html2canvas:  { 
-          scale: esMovil ? 1.5 : 2, 
+          scale: 2, 
           useCORS: true, 
           logging: false,
           windowWidth: 700 
