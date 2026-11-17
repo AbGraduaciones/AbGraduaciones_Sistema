@@ -853,7 +853,7 @@
         { modelo: "Olimpia", precio: 13800 },
         { modelo: "Espejo Vino", precio: 13800 },
         { modelo: "Pirámide V", precio: 13800 },
-        { modelo: "Eslovenia", precio: 13800 },
+        { modelo: "Eslovenia", precio: 12700 },
         { modelo: "Negativo", precio: 13800 },
         { modelo: "California", precio: 13800 },
         { modelo: "Robótico Vino", precio: 13800 },
@@ -982,12 +982,12 @@
         { modelo: "Oxford", precio: 13600 }
       ],
       "Línea Elite 8 Fotos Cena": [
-        { modelo: "Jirafa Espejo", precio: 13000 },
-        { modelo: "Estrella Espejo", precio: 13000 },
-        { modelo: "Robótico Chapetones", precio: 13000 },
-        { modelo: "Glass Viena", precio: 13000 },
-        { modelo: "Dublin", precio: 13000 },
-        { modelo: "Oxford", precio: 13000 }
+        { modelo: "Jirafa Espejo", precio: 13200 },
+        { modelo: "Estrella Espejo", precio: 13200 },
+        { modelo: "Robótico Chapetones", precio: 13200 },
+        { modelo: "Glass Viena", precio: 13200 },
+        { modelo: "Dublin", precio: 13200 },
+        { modelo: "Oxford", precio: 13200 }
       ]
     };
 
@@ -4267,9 +4267,9 @@
         } else {
           console.error('Error del servidor:', data);
           alert(`Error al generar la pasarela de pago: ${data.message || data.error || 'Respuesta inesperada del servidor'}`);
-          if (btnPager) {
-            btnPager.disabled = false;
-            btnPager.innerText = '🔒 Pagar Ahora con Seguridad (Stripe)';
+          if (btnPagar) {
+            btnPagar.disabled = false;
+            btnPagar.innerText = '🔒 Pagar Ahora con Seguridad (Stripe)';
           }
         }
       } catch (error) {
