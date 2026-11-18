@@ -55,7 +55,7 @@
       <!-- NAVEGACIÓN ADMINISTRADOR GENERAL -->
       <div class="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2 px-2">General</div>
       <nav id="navAdmin" class="space-y-1">
-        <a href="#" onclick="cargarContenido('dashboard')" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition-all duration-200 hover:bg-blue-900/40 hover:text-blue-200 text-slate-300 font-medium text-sm">
+        <a href="#" id="navLinkDashboard" onclick="cargarContenido('dashboard')" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition-all duration-200 hover:bg-blue-900/40 hover:text-blue-200 text-slate-300 font-medium text-sm hidden">
           📊 Dashboard
         </a>
         <a href="#" onclick="cargarContenido('alumnos')" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition-all duration-200 hover:bg-blue-900/40 hover:text-blue-200 text-slate-300 font-medium text-sm">
@@ -67,7 +67,7 @@
         <a href="#" onclick="cargarContenido('pagos')" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition-all duration-200 hover:bg-blue-900/40 hover:text-blue-200 text-slate-300 font-medium text-sm">
           📑 Historial de Pagos
         </a>
-        <a href="#" onclick="cargarContenido('egresos')" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition-all duration-200 hover:bg-blue-900/40 hover:text-blue-200 text-slate-300 font-medium text-sm">
+        <a href="#" id="navLinkEgresos" onclick="cargarContenido('egresos')" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition-all duration-200 hover:bg-blue-900/40 hover:text-blue-200 text-slate-300 font-medium text-sm hidden">
           💸 Egresos / Gastos
         </a>
         <a href="#" id="navLinkUsuarios" onclick="cargarContenido('usuarios')" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition-all duration-200 hover:bg-blue-900/40 hover:text-blue-200 text-slate-300 font-medium text-sm hidden">
@@ -1142,14 +1142,17 @@
         console.warn('No se pudo verificar el perfil en sesión:', e);
       }
 
-      const navLink = document.getElementById('navLinkUsuarios');
-      if (navLink) {
-        if (rolUsuarioConectado === 'admin') {
-          navLink.classList.remove('hidden');
-        } else {
-          navLink.classList.add('hidden');
+      const linksSoloAdmin = ['navLinkDashboard', 'navLinkEgresos', 'navLinkUsuarios'];
+      linksSoloAdmin.forEach(idLink => {
+        const el = document.getElementById(idLink);
+        if (el) {
+          if (rolUsuarioConectado === 'admin') {
+            el.classList.remove('hidden');
+          } else {
+            el.classList.add('hidden');
+          }
         }
-      }
+      });
     }
 
     document.addEventListener('DOMContentLoaded', async () => {
@@ -1762,8 +1765,9 @@
     }
 
     async function cargarContenido(vista) {
-      if (vista === 'usuarios' && rolUsuarioConectado !== 'admin') {
-        alert('Acceso restringido: esta sección está reservada exclusivamente para el Administrador.');
+      const vistasRestringidasAdmin = ['dashboard', 'egresos', 'usuarios'];
+      if (vistasRestringidasAdmin.includes(vista) && rolUsuarioConectado !== 'admin') {
+        alert('🔒 Acceso restringido: esta sección está reservada exclusivamente para el Administrador.');
         cargarContenido('saldos');
         return;
       }
