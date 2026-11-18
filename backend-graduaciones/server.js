@@ -7,7 +7,6 @@ const mongoose = require('mongoose');
 const nodemailer = require('nodemailer');
 const PDFDocument = require('pdfkit');
 
-// Carga segura de bcryptjs
 let bcrypt;
 try {
   bcrypt = require('bcryptjs');
@@ -18,10 +17,8 @@ try {
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Almacén temporal en memoria para códigos OTP de acceso
 const codigosOtpTemporales = new Map();
 
-// Carga tolerante de modelos
 const cargarModelo = (rutas) => {
   for (const r of rutas) {
     try {
@@ -35,7 +32,6 @@ const cargarModelo = (rutas) => {
   return null;
 };
 
-// Modelo Grupo
 const GrupoSchema = new mongoose.Schema({
   nombre: { type: String, required: true, trim: true },
   institucion: { type: String, trim: true, default: '' },
@@ -112,7 +108,6 @@ const Usuario = cargarModelo(['./models/Usuario', './models/usuario', './models/
   activo: { type: Boolean, default: true }
 }, { timestamps: true }));
 
-// Middleware de autenticación (Asigna nombre Harold al administrador principal)
 const requireAuth = async (req, res, next) => {
   const authHeader = req.headers.authorization;
 
@@ -176,7 +171,6 @@ const requireAdmin = (req, res, next) => {
   return res.status(403).json({ ok: false, error: 'Acceso no autorizado: requiere permisos de Administrador' });
 };
 
-// Memoria compartida accesible globalmente
 global.datosCompartidos = {
   alumnos: [],
   saldos: [],
@@ -194,7 +188,6 @@ function normalizarNombreServidor(txt) {
     .replace(/[\u0300-\u036f]/g, "");
 }
 
-// Saneamiento de pagos anónimos en base de datos
 async function sanearPagosAnonimosEnBD() {
   if (mongoose.connection.readyState !== 1) return;
   try {
@@ -274,7 +267,6 @@ async function sanearPagosAnonimosEnBD() {
   }
 }
 
-// Sincronización desde MongoDB Atlas hacia la Memoria Global
 async function sincronizarMemoriaDesdeBD() {
   if (mongoose.connection.readyState !== 1) return;
   try {
@@ -386,7 +378,6 @@ async function sincronizarMemoriaDesdeBD() {
   }
 }
 
-// 1. Conexión a MongoDB
 const mongoUri = process.env.MONGODB_URI || process.env.MONGOOSE_URI;
 if (mongoUri) {
   mongoose.connect(mongoUri, { serverSelectionTimeoutMS: 5000 })
@@ -397,7 +388,6 @@ if (mongoUri) {
     .catch((err) => console.error('❌ Error de conexión a MongoDB:', err.message));
 }
 
-// 2. Controlador de pagos
 let pagoController = null;
 const rutasPosibles = [
   './controllers/pagoController',
@@ -419,7 +409,6 @@ for (const ruta of rutasPosibles) {
 
 const stripe = process.env.STRIPE_SECRET_KEY ? require('stripe')(process.env.STRIPE_SECRET_KEY) : null;
 
-// 3. Webhook de Stripe
 app.post('/webhook', express.raw({ type: '*/*' }), async (req, res) => {
   if (pagoController && typeof pagoController.handleStripeWebhook === 'function') {
     try {
@@ -433,11 +422,9 @@ app.post('/webhook', express.raw({ type: '*/*' }), async (req, res) => {
   return res.status(200).json({ received: true });
 });
 
-// 4. Middlewares
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
-// 5. Rutas de sincronización general
 app.get('/api/datos', async (req, res) => {
   if (mongoose.connection.readyState === 1) {
     await sincronizarMemoriaDesdeBD();
@@ -587,7 +574,6 @@ app.post('/api/datos', async (req, res) => {
   }
 });
 
-// Rutas de Egresos / Gastos
 app.get('/api/egresos', requireAuth, async (req, res) => {
   try {
     if (mongoose.connection.readyState === 1) {
@@ -871,7 +857,6 @@ app.put('/api/historial-pagos/:id', async (req, res) => {
   }
 });
 
-// Generador de PDF en servidor (excluye camisa/regalías si es Línea Basic e incluye observaciones)
 function generarReciboPDFBuffer({ folio, fecha, alumno, universidad, carrera, paquete, observaciones, montoAbonado, nuevoSaldo, tipoPanoramica, tallaCamisa, tallaAnillo, eleccionEspecial, cargoExtraRegalia }) {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ margin: 40, size: 'A4' });
@@ -881,18 +866,15 @@ function generarReciboPDFBuffer({ folio, fecha, alumno, universidad, carrera, pa
     doc.on('end', () => resolve(Buffer.concat(buffers)));
     doc.on('error', reject);
 
-    // Encabezado
     doc.fillColor('#1e3a8a').fontSize(20).text('AB GRADUACIONES', { align: 'left' });
     doc.fillColor('#3b82f6').fontSize(10).text('Comprobante Oficial de Pago Digital', { align: 'left' });
     doc.moveDown();
 
-    // Datos del recibo
     doc.fillColor('#0f172a').fontSize(11);
     doc.text(`Folio: ${folio}`);
     doc.text(`Fecha: ${fecha}`);
     doc.moveDown();
 
-    // Datos del alumno
     doc.rect(40, doc.y, 515, 75).fillAndStroke('#f0f9ff', '#bae6fd');
     doc.fillColor('#0369a1').fontSize(9).text('DATOS DEL ALUMNO Y PAQUETE', 50, doc.y + 10);
     doc.fillColor('#0f172a').fontSize(12).text(`Alumno: ${alumno}`, 50);
@@ -906,14 +888,12 @@ function generarReciboPDFBuffer({ folio, fecha, alumno, universidad, carrera, pa
       doc.moveDown();
     }
 
-    // Detalle económico
     doc.fillColor('#15803d').fontSize(12).text(`Monto Abonado: $${Number(montoAbonado).toLocaleString()} MXN`);
     doc.fillColor('#b45309').fontSize(12).text(`Saldo Pendiente Restante: $${Number(nuevoSaldo).toLocaleString()} MXN`);
     doc.moveDown();
 
     const esBasic = String(paquete || '').toLowerCase().includes('línea basic') || String(paquete || '').toLowerCase().includes('linea basic');
 
-    // Detalle de acabados, tallas y regalía
     if (!esBasic && (tipoPanoramica || tallaCamisa || tallaAnillo || eleccionEspecial)) {
       doc.fillColor('#1e3a8a').fontSize(11).text('ESPECIFICACIONES DE ENTREGA Y REGALÍA:');
       doc.fillColor('#334155').fontSize(10);
@@ -945,7 +925,6 @@ function generarReciboPDFBuffer({ folio, fecha, alumno, universidad, carrera, pa
   });
 }
 
-// Transporte de correo
 let transporter = null;
 if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
   transporter = nodemailer.createTransport({
@@ -994,7 +973,6 @@ async function enviarReciboPorCorreo(destinatarioEmail, datosPago) {
   }
 }
 
-// 6. Rutas de pagos (Públicas)
 const procesarCheckout = (req, res) => {
   if (pagoController && typeof pagoController.crearCheckoutSession === 'function') {
     return pagoController.crearCheckoutSession(req, res);
@@ -1005,7 +983,6 @@ const procesarCheckout = (req, res) => {
 app.post('/api/crear-checkout', procesarCheckout);
 app.post('/api/pagos/crear-checkout-session', procesarCheckout);
 
-// Verificación sesión Stripe
 app.get('/api/verificar-sesion-stripe/:sessionId', async (req, res) => {
   try {
     const { sessionId } = req.params;
@@ -1185,7 +1162,6 @@ app.post('/api/verificar-codigo-seguridad', (req, res) => {
   return res.status(400).json({ success: false, message: 'Código incorrecto o no encontrado' });
 });
 
-// Perfil que devuelve Harold para el admin master
 app.get('/api/mi-perfil', requireAuth, (req, res) => {
   const esMaster = (req.usuarioSesion?.usuario === (process.env.ADMIN_USER || 'admin'));
   res.json({
@@ -1290,12 +1266,44 @@ app.delete('/api/grupos/:id', requireAuth, async (req, res) => {
   }
 });
 
+// ==========================================
+// NUEVAS RUTAS DE GESTIÓN DE USUARIOS (CRUD COMPLETO)
+// ==========================================
+
 app.get('/api/usuarios', requireAuth, requireAdmin, async (req, res) => {
   try {
     const usuarios = await Usuario.find({}, '-password').sort({ createdAt: -1 }).lean();
     res.json({ ok: true, usuarios, rolActual: 'admin' });
   } catch (err) {
     res.status(500).json({ ok: false, error: 'Error al obtener usuarios' });
+  }
+});
+
+app.post('/api/usuarios', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { nombre, usuario, email, telefono, password, rol, activo } = req.body;
+    
+    if (!nombre || !usuario || !email || !password) {
+      return res.status(400).json({ ok: false, error: 'Faltan campos obligatorios (nombre, usuario, email, password).' });
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+
+    const nuevoUsuario = new Usuario({
+      nombre: nombre.trim(),
+      usuario: usuario.trim().toLowerCase(),
+      email: email.trim().toLowerCase(),
+      telefono: telefono ? telefono.trim() : '',
+      password: hashedPassword,
+      rol: rol || 'staff',
+      activo: activo !== false
+    });
+
+    await nuevoUsuario.save();
+    res.json({ ok: true, usuario: nuevoUsuario });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message || 'Error al registrar usuario' });
   }
 });
 
@@ -1341,9 +1349,6 @@ app.put('/api/usuarios/:id', requireAuth, requireAdmin, async (req, res) => {
     if (activo !== undefined) usuarioExistente.activo = Boolean(activo);
 
     if (password && String(password).trim().length > 0) {
-      if (!bcrypt) {
-        return res.status(500).json({ ok: false, error: 'Módulo bcryptjs no disponible para encriptar.' });
-      }
       const salt = await bcrypt.genSalt(10);
       usuarioExistente.password = await bcrypt.hash(String(password).trim(), salt);
     }
@@ -1367,6 +1372,21 @@ app.put('/api/usuarios/:id', requireAuth, requireAdmin, async (req, res) => {
     res.status(500).json({ ok: false, error: err.message || 'Error al actualizar usuario' });
   }
 });
+
+app.delete('/api/usuarios/:id', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ ok: false, error: 'ID no válido' });
+    }
+    await Usuario.findByIdAndDelete(id);
+    res.json({ ok: true, mensaje: 'Usuario eliminado correctamente' });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ==========================================
 
 app.get('/logo.png', (req, res) => {
   const posiblesRutasLogo = [
