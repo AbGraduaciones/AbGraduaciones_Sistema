@@ -138,6 +138,9 @@
         <button id="btnEditarTarifasBanner" onclick="editarGrupoActivo()" class="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white text-xs font-bold rounded-xl transition border border-white/20 hidden">
           ⚙️ Editar Tarifas / Nombre
         </button>
+        <button id="btnEliminarGrupoBanner" onclick="eliminarGrupoActivo()" class="px-3 py-1.5 bg-red-600/90 hover:bg-red-700 text-white text-xs font-bold rounded-xl transition border border-red-400/30 shadow hidden">
+          🗑️ Eliminar Grupo
+        </button>
         <button onclick="seleccionarGrupo(null)" class="px-3 py-1.5 bg-white text-slate-900 text-xs font-bold rounded-xl transition hover:bg-slate-100 shadow">
           Ver Todo
         </button>
@@ -321,15 +324,19 @@
           <div id="contenedorPreciosGrupo" class="space-y-3 max-h-[40vh] overflow-y-auto pr-1"></div>
         </div>
 
-        <div class="flex justify-end space-x-3 pt-4 border-t border-slate-100">
-          <button type="button" onclick="cerrarModalGrupo()" class="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl transition-all">Cancelar</button>
-          <button type="submit" id="btnGuardarGrupo" class="px-5 py-2.5 bg-blue-700 hover:bg-blue-800 text-white font-semibold rounded-xl shadow-md shadow-blue-600/20 transition-all">
-            <span>Guardar Grupo y Precios</span>
-          </button>
+        <div class="flex justify-between items-center pt-4 border-t border-slate-100">
+          <div>
+            <button type="button" id="btnEliminarGrupoModal" onclick="eliminarGrupoDesdeModal()" class="hidden px-4 py-2.5 bg-red-50 hover:bg-red-100 text-red-600 font-bold rounded-xl border border-red-200 text-xs transition-all">
+              🗑️ Eliminar este Grupo
+            </button>
+          </div>
+          <div class="flex space-x-3">
+            <button type="button" onclick="cerrarModalGrupo()" class="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl transition-all">Cancelar</button>
+            <button type="submit" id="btnGuardarGrupo" class="px-5 py-2.5 bg-blue-700 hover:bg-blue-800 text-white font-semibold rounded-xl shadow-md shadow-blue-600/20 transition-all">
+              <span>Guardar Grupo y Precios</span>
+            </button>
+          </div>
         </div>
-      </form>
-    </div>
-  </div>
 
   <!-- MODAL AGREGAR / EDITAR SALDO O ALUMNO -->
   <div id="modalFormulario" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center hidden z-50 overflow-y-auto p-4">
@@ -1147,7 +1154,8 @@
         'navLinkEgresos', 
         'navLinkUsuarios', 
         'btnNuevoGrupoSidebar', 
-        'btnEditarTarifasBanner'
+        'btnEditarTarifasBanner',
+        'btnEliminarGrupoBanner'
       ];
       linksSoloAdmin.forEach(idLink => {
         const el = document.getElementById(idLink);
@@ -1332,7 +1340,11 @@
       document.getElementById('grupoInputNombre').value = nombreVal;
       document.getElementById('grupoInputInstitucion').value = instVal;
       document.getElementById('grupoInputCarrera').value = carreraVal;
-
+const btnDelModal = document.getElementById('btnEliminarGrupoModal');
+      if (btnDelModal) {
+        if (idGrupo && rolUsuarioConectado === 'admin') btnDelModal.classList.remove('hidden');
+        else btnDelModal.classList.add('hidden');
+      }
       construirInputsPreciosGrupo(preciosVal);
       document.getElementById('modalGrupo').classList.remove('hidden');
     }
@@ -1340,6 +1352,73 @@
     function editarGrupoActivo() {
       if (grupoSeleccionadoId) {
         abrirModalGrupo(grupoSeleccionadoId);
+      }
+    }
+    function eliminarGrupoActivo() {
+      if (grupoSeleccionadoId) {
+        confirmarYEliminarGrupo(grupoSeleccionadoId);
+      }
+    }
+
+    function eliminarGrupoDesdeModal() {
+      const id = document.getElementById('editGrupoId').value;
+      if (id) {
+        confirmarYEliminarGrupo(id);
+      }
+    }
+
+    async function confirmarYEliminarGrupo(idGrupo) {
+      if (rolUsuarioConectado !== 'admin') {
+        alert('🔒 Acceso restringido: solo el Administrador puede eliminar grupos.');
+        return;
+      }
+
+      const g = grupos.find(gr => String(gr._id || gr.id) === String(idGrupo));
+      const nombreG = g ? g.nombre : 'este grupo';
+
+      const confirmar = confirm(
+        `⚠️ ¿ESTÁS SEGURO DE ELIMINAR EL GRUPO "${nombreG}"?\n\n` +
+        `• El grupo se borrará de la barra lateral.\n` +
+        `• Los alumnos y saldos que estaban dentro pasarán a "Sin Grupo (General)" para que no pierdas su historial.`
+      );
+      if (!confirmar) return;
+
+      try {
+        // Intentar borrar por endpoint directo si existe en server.js
+        await fetch(`/api/grupos/${encodeURIComponent(idGrupo)}`, {
+          method: 'DELETE'
+        }).catch(() => {});
+
+        // Quitar el grupo del arreglo local
+        grupos = grupos.filter(gr => String(gr._id || gr.id) !== String(idGrupo));
+
+        // Desvincular alumnos y saldos que pertenecían a ese grupo para que queden en General
+        alumnos.forEach(a => {
+          if (String(a.grupoId) === String(idGrupo)) {
+            a.grupoId = null;
+            a.grupoNombre = '';
+          }
+        });
+
+        saldos.forEach(s => {
+          if (String(s.grupoId) === String(idGrupo)) {
+            s.grupoId = null;
+            s.grupoNombre = '';
+          }
+        });
+
+        if (String(grupoSeleccionadoId) === String(idGrupo)) {
+          grupoSeleccionadoId = null;
+        }
+
+        cerrarModalGrupo();
+        await guardarEnLocalStorage();
+        renderizarGruposSidebar();
+        cargarContenido(vistaActual);
+        alert(`✅ El grupo "${nombreG}" fue eliminado correctamente.`);
+      } catch (err) {
+        console.error('Error al eliminar grupo:', err);
+        alert('Ocurrió un error al eliminar el grupo: ' + err.message);
       }
     }
 
