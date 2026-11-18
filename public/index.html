@@ -337,6 +337,9 @@
             </button>
           </div>
         </div>
+      </form>
+    </div>
+  </div>
 
   <!-- MODAL AGREGAR / EDITAR SALDO O ALUMNO -->
   <div id="modalFormulario" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center hidden z-50 overflow-y-auto p-4">
@@ -1101,7 +1104,6 @@
 
       return nombreDirecto || 'Alumno';
     }
-
     function asegurarIdsEnSaldos() {
       let cambio = false;
       saldos.forEach((s, idx) => {
@@ -1149,6 +1151,7 @@
         console.warn('No se pudo verificar el perfil en sesión:', e);
       }
 
+      // Restricciones visuales de botones y menú para el Staff
       const linksSoloAdmin = [
         'navLinkDashboard', 
         'navLinkEgresos', 
@@ -1340,7 +1343,8 @@
       document.getElementById('grupoInputNombre').value = nombreVal;
       document.getElementById('grupoInputInstitucion').value = instVal;
       document.getElementById('grupoInputCarrera').value = carreraVal;
-const btnDelModal = document.getElementById('btnEliminarGrupoModal');
+
+      const btnDelModal = document.getElementById('btnEliminarGrupoModal');
       if (btnDelModal) {
         if (idGrupo && rolUsuarioConectado === 'admin') btnDelModal.classList.remove('hidden');
         else btnDelModal.classList.add('hidden');
@@ -1354,6 +1358,7 @@ const btnDelModal = document.getElementById('btnEliminarGrupoModal');
         abrirModalGrupo(grupoSeleccionadoId);
       }
     }
+
     function eliminarGrupoActivo() {
       if (grupoSeleccionadoId) {
         confirmarYEliminarGrupo(grupoSeleccionadoId);
@@ -1384,15 +1389,12 @@ const btnDelModal = document.getElementById('btnEliminarGrupoModal');
       if (!confirmar) return;
 
       try {
-        // Intentar borrar por endpoint directo si existe en server.js
         await fetch(`/api/grupos/${encodeURIComponent(idGrupo)}`, {
           method: 'DELETE'
         }).catch(() => {});
 
-        // Quitar el grupo del arreglo local
         grupos = grupos.filter(gr => String(gr._id || gr.id) !== String(idGrupo));
 
-        // Desvincular alumnos y saldos que pertenecían a ese grupo para que queden en General
         alumnos.forEach(a => {
           if (String(a.grupoId) === String(idGrupo)) {
             a.grupoId = null;
@@ -2172,6 +2174,11 @@ const btnDelModal = document.getElementById('btnEliminarGrupoModal');
     }
 
     async function vaciarTodoHistorialPagos() {
+      if (rolUsuarioConectado !== 'admin') {
+        alert('🔒 Acceso restringido: solo el Administrador puede vaciar el historial de pagos.');
+        return;
+      }
+      
       const confirma = confirm("⚠️ ¿ESTÁS SEGURO?\n\nEsta acción borrará de forma PERMANENTE todos los pagos del historial y pondrá los abonos a cero en MongoDB Atlas.");
       if (!confirma) return;
 
@@ -2392,45 +2399,6 @@ const btnDelModal = document.getElementById('btnEliminarGrupoModal');
 
       btn.disabled = false;
       btn.innerText = 'Guardar Usuario';
-    }
-
-    async function eliminarUsuarioStaff(id, nombreRef) {
-      if (!id) return;
-      if (!confirm(`⚠️ ¿Estás seguro de que deseas eliminar permanentemente al usuario "${nombreRef}" de MongoDB Atlas?`)) {
-        return;
-      }
-
-      try {
-        const res = await fetch(`/api/usuarios/${encodeURIComponent(id)}`, {
-          method: 'DELETE'
-        });
-        const data = await res.json().catch(() => ({}));
-
-        if (!res.ok || data.ok === false) {
-          alert(data.error || 'No se pudo eliminar el usuario.');
-          return;
-        }
-
-        await cargarYRenderizarUsuarios();
-      } catch (err) {
-        console.error('Error al eliminar usuario:', err);
-        alert('Error de conexión al intentar eliminar el usuario.');
-      }
-    }
-
-    function abrirModal() {
-      indiceEdicion = null;
-      document.getElementById('editItemIdentificadorOriginal').value = '';
-      document.getElementById('modalTitulo').innerText = vistaActual === 'saldos' ? "Nuevo Saldo" : "Nuevo Alumno";
-      document.getElementById('alertaError').classList.add('hidden');
-      construirCamposFormulario();
-      document.getElementById('modalFormulario').classList.remove('hidden');
-    }
-
-    function cerrarModal() {
-      document.getElementById('modalFormulario').classList.add('hidden');
-      document.getElementById('editItemIdentificadorOriginal').value = '';
-      indiceEdicion = null;
     }
 
     async function eliminarUsuarioStaff(id, nombreRef) {
@@ -2958,6 +2926,11 @@ const btnDelModal = document.getElementById('btnEliminarGrupoModal');
     }
 
     async function eliminarRegistroPorId(identificador) {
+      if (rolUsuarioConectado !== 'admin') {
+        alert('🔒 Acceso restringido: solo el Administrador puede eliminar registros (alumnos o saldos).');
+        return;
+      }
+
       if (!confirm('¿Estás seguro de que deseas eliminar permanentemente este registro?')) {
         return;
       }
@@ -3298,6 +3271,11 @@ const btnDelModal = document.getElementById('btnEliminarGrupoModal');
     }
 
     async function borrarHistorialCompletoAlumno(nombreAlumno) {
+      if (rolUsuarioConectado !== 'admin') {
+        alert('🔒 Acceso restringido: solo el Administrador puede borrar el historial.');
+        return;
+      }
+
       if (!confirm(`⚠️ ¿Seguro que deseas eliminar TODO el historial de pagos de "${nombreAlumno}"?\n\nEsta acción borrará todos sus abonos en MongoDB Atlas y su saldo volverá a reflejarse como pendiente.`)) {
         return;
       }
@@ -3333,6 +3311,11 @@ const btnDelModal = document.getElementById('btnEliminarGrupoModal');
     }
 
     function abrirEdicionAbonoIndividual(abonoId) {
+      if (rolUsuarioConectado !== 'admin') {
+        alert('🔒 Acceso restringido: solo el Administrador puede editar abonos.');
+        return;
+      }
+
       const pagoObj = pagos.find(p => String(p.id || p._id) === String(abonoId));
       if (!pagoObj) return;
 
@@ -3368,6 +3351,11 @@ const btnDelModal = document.getElementById('btnEliminarGrupoModal');
     }
 
     async function eliminarAbonoIndividual(abonoId, nombreAlumno) {
+      if (rolUsuarioConectado !== 'admin') {
+        alert('🔒 Acceso restringido: solo el Administrador puede eliminar abonos.');
+        return;
+      }
+
       if (!confirm('¿Seguro que deseas eliminar permanentemente este abono? El saldo del alumno se recalculará automáticamente.')) {
         return;
       }
