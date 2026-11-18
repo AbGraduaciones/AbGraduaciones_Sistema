@@ -1172,6 +1172,49 @@ app.get('/api/mi-perfil', requireAuth, (req, res) => {
   });
 });
 
+app.put('/api/mi-perfil/password', requireAuth, async (req, res) => {
+  try {
+    const { passwordActual, passwordNueva } = req.body;
+
+    if (!req.usuarioSesion || !req.usuarioSesion.id) {
+      return res.status(400).json({
+        ok: false,
+        error: 'La contraseña del Administrador Maestro se gestiona directamente desde las variables de entorno del servidor.'
+      });
+    }
+
+    if (!passwordActual || !passwordNueva || String(passwordNueva).trim().length < 4) {
+      return res.status(400).json({
+        ok: false,
+        error: 'Debes ingresar tu contraseña actual y una nueva de al menos 4 caracteres.'
+      });
+    }
+
+    if (!bcrypt) {
+      return res.status(500).json({ ok: false, error: 'Módulo de encriptación no disponible.' });
+    }
+
+    const usuarioBD = await Usuario.findById(req.usuarioSesion.id);
+    if (!usuarioBD) {
+      return res.status(404).json({ ok: false, error: 'Usuario no encontrado en la base de datos.' });
+    }
+
+    const passwordValida = await bcrypt.compare(String(passwordActual), usuarioBD.password);
+    if (!passwordValida) {
+      return res.status(400).json({ ok: false, error: 'La contraseña actual es incorrecta.' });
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    usuarioBD.password = await bcrypt.hash(String(passwordNueva).trim(), salt);
+    await usuarioBD.save();
+
+    res.json({ ok: true, mensaje: 'Contraseña actualizada correctamente.' });
+  } catch (err) {
+    console.error('Error al cambiar contraseña propia:', err.message);
+    res.status(500).json({ ok: false, error: 'Error al actualizar la contraseña.' });
+  }
+});
+
 app.get('/api/grupos', requireAuth, async (req, res) => {
   try {
     if (mongoose.connection.readyState === 1) {
