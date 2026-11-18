@@ -153,7 +153,7 @@
         <h2 id="tituloSeccion" class="text-3xl font-extrabold text-slate-900 tracking-tight">Saldos y Productos</h2>
       </div>
       <div id="btnContenedor" style="display: block;">
-        <button id="btnAccion" onclick="abrirModal()" class="bg-blue-700 hover:bg-blue-800 text-white px-5 py-2.5 rounded-xl font-semibold shadow-lg shadow-blue-600/30 transition-all duration-200 flex items-center gap-2 hover:scale-[1.02]">
+        <button id="btnAccion" type="button" onclick="ejecutarAccionPrincipal()" class="bg-blue-700 hover:bg-blue-800 text-white px-5 py-2.5 rounded-xl font-semibold shadow-lg shadow-blue-600/30 transition-all duration-200 flex items-center gap-2 hover:scale-[1.02]">
           <span id="iconoBtn" class="text-xl leading-none">+</span> <span id="textoBtn">Nuevo Saldo</span>
         </button>
       </div>
@@ -1857,6 +1857,18 @@ const btnDelModal = document.getElementById('btnEliminarGrupoModal');
       });
     }
 
+    function ejecutarAccionPrincipal() {
+      if (vistaActual === 'saldos' || vistaActual === 'alumnos') {
+        abrirModal();
+      } else if (vistaActual === 'egresos') {
+        abrirModalEgreso();
+      } else if (vistaActual === 'usuarios') {
+        abrirModalNuevoUsuario();
+      } else if (vistaActual === 'pagos') {
+        vaciarTodoHistorialPagos();
+      }
+    }
+
     async function cargarContenido(vista) {
       const vistasRestringidasAdmin = ['dashboard', 'egresos', 'usuarios'];
       if (vistasRestringidasAdmin.includes(vista) && rolUsuarioConectado !== 'admin') {
@@ -1891,7 +1903,6 @@ const btnDelModal = document.getElementById('btnEliminarGrupoModal');
         titulo.innerText = "Saldos y Productos";
         textoBtn.innerText = "Nuevo Saldo";
         iconoBtn.innerText = "+";
-        btnAccion.onclick = abrirModal;
         btnAccion.className = "bg-blue-700 hover:bg-blue-800 text-white px-5 py-2.5 rounded-xl font-semibold shadow-lg shadow-blue-600/30 transition-all duration-200 flex items-center gap-2 hover:scale-[1.02]";
         btnContenedor.style.display = "block";
         filtroEscuela.classList.add('hidden');
@@ -1903,7 +1914,6 @@ const btnDelModal = document.getElementById('btnEliminarGrupoModal');
         titulo.innerText = "Alumnos";
         textoBtn.innerText = "Nuevo Alumno";
         iconoBtn.innerText = "+";
-        btnAccion.onclick = abrirModal;
         btnAccion.className = "bg-blue-700 hover:bg-blue-800 text-white px-5 py-2.5 rounded-xl font-semibold shadow-lg shadow-blue-600/30 transition-all duration-200 flex items-center gap-2 hover:scale-[1.02]";
         btnContenedor.style.display = "block";
         filtroEscuela.classList.remove('hidden');
@@ -1915,7 +1925,6 @@ const btnDelModal = document.getElementById('btnEliminarGrupoModal');
         titulo.innerText = "Control de Egresos y Gastos";
         textoBtn.innerText = "Nuevo Gasto";
         iconoBtn.innerText = "+";
-        btnAccion.onclick = abrirModalEgreso;
         btnAccion.className = "bg-red-700 hover:bg-red-800 text-white px-5 py-2.5 rounded-xl font-semibold shadow-lg shadow-red-600/30 transition-all duration-200 flex items-center gap-2 hover:scale-[1.02]";
         btnContenedor.style.display = "block";
         filtroEscuela.classList.add('hidden');
@@ -1927,7 +1936,6 @@ const btnDelModal = document.getElementById('btnEliminarGrupoModal');
         titulo.innerText = "Usuarios del Sistema (Staff / Admin)";
         textoBtn.innerText = "Nuevo Usuario";
         iconoBtn.innerText = "+";
-        btnAccion.onclick = abrirModalNuevoUsuario;
         btnAccion.className = "bg-blue-700 hover:bg-blue-800 text-white px-5 py-2.5 rounded-xl font-semibold shadow-lg shadow-blue-600/30 transition-all duration-200 flex items-center gap-2 hover:scale-[1.02]";
         btnContenedor.style.display = "block";
         filtroEscuela.classList.add('hidden');
@@ -2144,7 +2152,6 @@ const btnDelModal = document.getElementById('btnEliminarGrupoModal');
         titulo.innerText = "Historial de Pagos";
         textoBtn.innerText = "Vaciar Todo";
         iconoBtn.innerText = "🗑️";
-        btnAccion.onclick = vaciarTodoHistorialPagos;
         btnAccion.className = "bg-red-700 hover:bg-red-800 text-white px-4 py-2 rounded-xl font-semibold shadow-lg shadow-red-600/30 transition-all duration-200 flex items-center gap-2 hover:scale-[1.02] text-xs";
         btnContenedor.style.display = "block";
         filtroEscuela.classList.add('hidden');
@@ -2251,6 +2258,7 @@ const btnDelModal = document.getElementById('btnEliminarGrupoModal');
         tbody.innerHTML = `<tr><td colspan="7" class="p-4 text-center text-red-500">Error de conexión al cargar la lista de usuarios.</td></tr>`;
       }
     }
+
     function abrirModalNuevoUsuario() {
       document.getElementById('editUserId').value = '';
       document.getElementById('editUserNombre').value = '';
@@ -2276,8 +2284,10 @@ const btnDelModal = document.getElementById('btnEliminarGrupoModal');
       if (ayudaPass) ayudaPass.innerText = 'Obligatoria al registrar un nuevo colaborador.';
 
       const alerta = document.getElementById('alertaErrorUsuario');
-      alerta.classList.add('hidden');
-      alerta.innerText = '';
+      if (alerta) {
+        alerta.classList.add('hidden');
+        alerta.innerText = '';
+      }
 
       document.getElementById('modalEditarUsuario').classList.remove('hidden');
     }
@@ -2310,8 +2320,10 @@ const btnDelModal = document.getElementById('btnEliminarGrupoModal');
       if (ayudaPass) ayudaPass.innerText = 'Solo escribe aquí si deseas cambiar la clave actual del colaborador.';
 
       const alerta = document.getElementById('alertaErrorUsuario');
-      alerta.classList.add('hidden');
-      alerta.innerText = '';
+      if (alerta) {
+        alerta.classList.add('hidden');
+        alerta.innerText = '';
+      }
 
       document.getElementById('modalEditarUsuario').classList.remove('hidden');
     }
@@ -2380,6 +2392,45 @@ const btnDelModal = document.getElementById('btnEliminarGrupoModal');
 
       btn.disabled = false;
       btn.innerText = 'Guardar Usuario';
+    }
+
+    async function eliminarUsuarioStaff(id, nombreRef) {
+      if (!id) return;
+      if (!confirm(`⚠️ ¿Estás seguro de que deseas eliminar permanentemente al usuario "${nombreRef}" de MongoDB Atlas?`)) {
+        return;
+      }
+
+      try {
+        const res = await fetch(`/api/usuarios/${encodeURIComponent(id)}`, {
+          method: 'DELETE'
+        });
+        const data = await res.json().catch(() => ({}));
+
+        if (!res.ok || data.ok === false) {
+          alert(data.error || 'No se pudo eliminar el usuario.');
+          return;
+        }
+
+        await cargarYRenderizarUsuarios();
+      } catch (err) {
+        console.error('Error al eliminar usuario:', err);
+        alert('Error de conexión al intentar eliminar el usuario.');
+      }
+    }
+
+    function abrirModal() {
+      indiceEdicion = null;
+      document.getElementById('editItemIdentificadorOriginal').value = '';
+      document.getElementById('modalTitulo').innerText = vistaActual === 'saldos' ? "Nuevo Saldo" : "Nuevo Alumno";
+      document.getElementById('alertaError').classList.add('hidden');
+      construirCamposFormulario();
+      document.getElementById('modalFormulario').classList.remove('hidden');
+    }
+
+    function cerrarModal() {
+      document.getElementById('modalFormulario').classList.add('hidden');
+      document.getElementById('editItemIdentificadorOriginal').value = '';
+      indiceEdicion = null;
     }
 
     async function eliminarUsuarioStaff(id, nombreRef) {
