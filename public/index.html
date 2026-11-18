@@ -79,7 +79,7 @@
       <div class="pt-5 mt-5 border-t border-slate-800">
         <div class="flex items-center justify-between mb-2 px-2">
           <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Grupos Activos</p>
-          <button onclick="abrirModalGrupo()" class="text-[11px] font-bold bg-blue-600 hover:bg-blue-500 text-white px-2 py-0.5 rounded-md transition shadow">
+          <button id="btnNuevoGrupoSidebar" onclick="abrirModalGrupo()" class="text-[11px] font-bold bg-blue-600 hover:bg-blue-500 text-white px-2 py-0.5 rounded-md transition shadow hidden">
             + Nuevo
           </button>
         </div>
@@ -135,7 +135,7 @@
         <button onclick="exportarReporteGrupoPDF()" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition shadow">
           📥 Descargar Reporte PDF del Grupo
         </button>
-        <button onclick="editarGrupoActivo()" class="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white text-xs font-bold rounded-xl transition border border-white/20">
+        <button id="btnEditarTarifasBanner" onclick="editarGrupoActivo()" class="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white text-xs font-bold rounded-xl transition border border-white/20 hidden">
           ⚙️ Editar Tarifas / Nombre
         </button>
         <button onclick="seleccionarGrupo(null)" class="px-3 py-1.5 bg-white text-slate-900 text-xs font-bold rounded-xl transition hover:bg-slate-100 shadow">
@@ -1142,7 +1142,13 @@
         console.warn('No se pudo verificar el perfil en sesión:', e);
       }
 
-      const linksSoloAdmin = ['navLinkDashboard', 'navLinkEgresos', 'navLinkUsuarios'];
+      const linksSoloAdmin = [
+        'navLinkDashboard', 
+        'navLinkEgresos', 
+        'navLinkUsuarios', 
+        'btnNuevoGrupoSidebar', 
+        'btnEditarTarifasBanner'
+      ];
       linksSoloAdmin.forEach(idLink => {
         const el = document.getElementById(idLink);
         if (el) {
@@ -1293,6 +1299,10 @@
     }
 
     function abrirModalGrupo(idGrupo = null) {
+      if (rolUsuarioConectado !== 'admin') {
+        alert('🔒 Acceso restringido: solo el Administrador puede crear grupos o modificar tarifas.');
+        return;
+      }
       const alerta = document.getElementById('alertaErrorGrupo');
       alerta.classList.add('hidden');
       alerta.innerText = '';
@@ -1376,6 +1386,10 @@
 
     async function guardarGrupo(e) {
       e.preventDefault();
+      if (rolUsuarioConectado !== 'admin') {
+        alert('🔒 Acceso restringido: solo el Administrador puede guardar cambios en grupos y tarifas.');
+        return;
+      }
       const alerta = document.getElementById('alertaErrorGrupo');
       alerta.classList.add('hidden');
 
