@@ -112,6 +112,14 @@
 
       <button 
         type="button" 
+        onclick="abrirModalCambiarMiPassword()" 
+        class="w-full flex items-center justify-center gap-2 py-2 px-3 bg-slate-800 hover:bg-slate-700 text-blue-300 hover:text-white text-xs font-bold rounded-xl border border-slate-700 transition-colors shadow-sm cursor-pointer"
+      >
+        🔑 Cambiar mi Contraseña
+      </button>
+
+      <button 
+        type="button" 
         onclick="cerrarSesionAdmin()" 
         class="w-full flex items-center justify-center gap-2 py-2 px-3 bg-red-950/40 hover:bg-red-900/60 text-red-300 hover:text-red-100 text-xs font-bold rounded-xl border border-red-800/40 transition-colors shadow-sm cursor-pointer"
       >
@@ -559,6 +567,40 @@
     </div>
   </div>
 
+  <!-- MODAL CAMBIAR MI CONTRASEÑA (STAFF / ADMIN) -->
+  <div id="modalCambiarMiPassword" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center hidden z-50 overflow-y-auto p-4">
+    <div class="bg-white p-8 rounded-2xl w-full max-w-md border border-slate-100 shadow-2xl">
+      <div class="flex justify-between items-center mb-4">
+        <h3 class="text-xl font-bold text-slate-900">🔑 Cambiar mi Contraseña</h3>
+        <button onclick="cerrarModalCambiarMiPassword()" class="text-slate-400 hover:text-slate-600 font-bold text-lg">✕</button>
+      </div>
+
+      <div id="alertaErrorMiPassword" class="hidden mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-xl text-xs font-semibold"></div>
+
+      <form onsubmit="guardarMiNuevaPassword(event)" class="space-y-4">
+        <div>
+          <label class="block text-xs font-bold uppercase text-slate-500 mb-1">Contraseña Actual (*)</label>
+          <input type="password" id="miPassActual" required placeholder="Escribe tu contraseña actual" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-blue-600">
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold uppercase text-slate-500 mb-1">Nueva Contraseña (*)</label>
+          <input type="password" id="miPassNueva" required minlength="4" placeholder="Mínimo 4 caracteres" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-blue-600">
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold uppercase text-slate-500 mb-1">Confirmar Nueva Contraseña (*)</label>
+          <input type="password" id="miPassConfirmar" required minlength="4" placeholder="Repite la nueva contraseña" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-blue-600">
+        </div>
+
+        <div class="flex justify-end space-x-3 pt-3 border-t border-slate-100">
+          <button type="button" onclick="cerrarModalCambiarMiPassword()" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl text-xs">Cancelar</button>
+          <button type="submit" id="btnGuardarMiPass" class="px-5 py-2 bg-blue-700 hover:bg-blue-800 text-white font-bold rounded-xl text-xs shadow-md">Actualizar Contraseña</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <datalist id="listaAlumnosRegistrados"></datalist>
 
   <!-- CONTENEDOR OCULTO PARA IMPRESIÓN DE PDF -->
@@ -727,7 +769,6 @@
       </table>
     </div>
   </div>
-
   <script>
     const CARGO_EXTRA_AMBAS_REGALIAS_DEFAULT = 500;
 
@@ -4607,6 +4648,64 @@
       };
 
       return html2pdf().set(opciones).from(elemento).save();
+    }
+
+    function abrirModalCambiarMiPassword() {
+      document.getElementById('miPassActual').value = '';
+      document.getElementById('miPassNueva').value = '';
+      document.getElementById('miPassConfirmar').value = '';
+      const alerta = document.getElementById('alertaErrorMiPassword');
+      alerta.classList.add('hidden');
+      alerta.innerText = '';
+      document.getElementById('modalCambiarMiPassword').classList.remove('hidden');
+    }
+
+    function cerrarModalCambiarMiPassword() {
+      document.getElementById('modalCambiarMiPassword').classList.add('hidden');
+    }
+
+    async function guardarMiNuevaPassword(e) {
+      e.preventDefault();
+      const alerta = document.getElementById('alertaErrorMiPassword');
+      alerta.classList.add('hidden');
+
+      const passwordActual = document.getElementById('miPassActual').value;
+      const passwordNueva = document.getElementById('miPassNueva').value;
+      const passwordConfirmar = document.getElementById('miPassConfirmar').value;
+
+      if (passwordNueva !== passwordConfirmar) {
+        alerta.innerText = 'Las contraseñas nuevas no coinciden.';
+        alerta.classList.remove('hidden');
+        return;
+      }
+
+      const btn = document.getElementById('btnGuardarMiPass');
+      btn.disabled = true;
+      btn.innerText = 'Actualizando...';
+
+      try {
+        const res = await fetch('/api/mi-perfil/password', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ passwordActual, passwordNueva })
+        });
+        const data = await res.json();
+
+        if (!res.ok || !data.ok) {
+          alerta.innerText = data.error || 'No se pudo cambiar la contraseña.';
+          alerta.classList.remove('hidden');
+        } else {
+          cerrarModalCambiarMiPassword();
+          alert('✅ Contraseña actualizada correctamente. Inicia sesión nuevamente con tu nueva clave.');
+          cerrarSesionAdmin();
+        }
+      } catch (err) {
+        alerta.innerText = 'Error de conexión con el servidor.';
+        alerta.classList.remove('hidden');
+      } finally {
+        btn.disabled = false;
+        btn.innerText = 'Actualizar Contraseña';
+      }
     }
   </script>
 </body>
