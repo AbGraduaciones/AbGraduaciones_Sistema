@@ -794,7 +794,7 @@
         { modelo: "Rayas", precio: 11900 },
         { modelo: "Jirafa", precio: 11900 },
         { modelo: "Roma Puntos", precio: 11900 },
-        { modelo: "Cocodrilo", 11900 },
+        { modelo: "Cocodrilo", precio: 11900 },
         { modelo: "Azteca", precio: 11900 },
         { modelo: "Frida", precio: 11900 },
         { modelo: "Ramas", precio: 11900 }
@@ -1151,6 +1151,7 @@
         console.warn('No se pudo verificar el perfil en sesión:', e);
       }
 
+      // Restricciones visuales de botones y menú para el Staff
       const linksSoloAdmin = [
         'navLinkDashboard', 
         'navLinkEgresos', 
@@ -1348,7 +1349,6 @@
         if (idGrupo && rolUsuarioConectado === 'admin') btnDelModal.classList.remove('hidden');
         else btnDelModal.classList.add('hidden');
       }
-
       construirInputsPreciosGrupo(preciosVal);
       document.getElementById('modalGrupo').classList.remove('hidden');
     }
@@ -4598,25 +4598,11 @@
       await new Promise(r => setTimeout(r, 300));
 
       const elemento = document.getElementById('plantillaPdfReporteGrupo');
-      
-      const esMovil = window.innerWidth < 768;
-      const configHtml2Canvas = {
-        scale: 2,
-        useCORS: true,
-        logging: false,
-        scrollX: 0,
-        scrollY: 0
-      };
-
-      if (esMovil) {
-        configHtml2Canvas.windowWidth = 800;
-      }
-
       const opciones = {
         margin:       [6, 6, 6, 6],
         filename:     `Reporte_Grupo_${nombreGrupo.replace(/\s+/g, '_')}.pdf`,
         image:        { type: 'jpeg', quality: 0.98 },
-        html2canvas:  configHtml2Canvas,
+        html2canvas:  { scale: 2, useCORS: true },
         jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
       };
 
