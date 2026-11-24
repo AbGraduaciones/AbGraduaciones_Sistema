@@ -46,7 +46,7 @@ async function sembrar() {
         usuario: 'ABL',
         email: 'abstudiophoto@gmail.com',
         telefono: '+529512202999',
-        passwordPlano: 'ClaveSegura123',
+        passwordPlano: 'ClaveSegura123', // Contraseña elegida
         rol: 'admin',
         activo: true
       },
@@ -55,18 +55,8 @@ async function sembrar() {
         usuario: 'YaneliGG',
         email: 'yane@gmail.com',
         telefono: '+525500000002',
-        passwordPlano: 'ClaveSegura456',
+        passwordPlano: 'ClaveSegura456', // Contraseña elegida
         rol: 'admin',
-        activo: true
-      },
-      {
-        // 👤 Tercer colaborador agregado
-        nombre: 'Nombre del Tercer Colaborador',
-        usuario: 'Colaborador3',
-        email: 'tercero@gmail.com',
-        telefono: '+525500000003',
-        passwordPlano: 'ClaveSegura789', // Contraseña elegida
-        rol: 'staff', // Puedes cambiar a 'admin' si requiere permisos de administrador
         activo: true
       }
     ];
