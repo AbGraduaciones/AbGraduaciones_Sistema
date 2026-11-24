@@ -1046,10 +1046,13 @@ const crearPreferenciaMP = async (req, res) => {
     }
 
     const { cuentaId, alumnoId, clienteId, nombreAlumno, alumno, email, concepto, monto } = req.body;
-    const montoNum = parseFloat(monto) || 0;
-    if (montoNum <= 0) {
+    const montoNeto = parseFloat(monto) || 0;
+    if (montoNeto <= 0) {
       return res.status(400).json({ ok: false, error: 'El monto a pagar debe ser mayor a 0.' });
     }
+
+    // Suma comisión de Mercado Pago (3.49% + $4.00 MXN + 16% IVA) para recibir el monto neto íntegro
+    const montoConComision = Number(((montoNeto + 4.64) / 0.959516).toFixed(2));
 
     const nombreFinal = (nombreAlumno || alumno || 'Alumno').trim();
     const conceptoFinal = concepto || 'Abono de Graduación';
@@ -1060,9 +1063,9 @@ const crearPreferenciaMP = async (req, res) => {
       items: [
         {
           id: String(cuentaId || alumnoId || 'ABONO'),
-          title: `${conceptoFinal} - ${nombreFinal}`,
+          title: `${conceptoFinal} - ${nombreFinal} (Incluye comisión por pago en línea)`,
           quantity: 1,
-          unit_price: montoNum,
+          unit_price: montoConComision,
           currency_id: 'MXN'
         }
       ],
@@ -1071,7 +1074,7 @@ const crearPreferenciaMP = async (req, res) => {
         alumno_id: String(alumnoId || clienteId || ''),
         nombre_alumno: nombreFinal,
         concepto: conceptoFinal,
-        monto_neto: montoNum,
+        monto_neto: montoNeto,
         email: String(email || '')
       },
       back_urls: {
