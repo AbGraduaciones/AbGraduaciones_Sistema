@@ -2925,7 +2925,10 @@
             const conceptoP = esContadoEfectivo ? 'Pago Contado Efectivo' : `Pago ${idxP + 1}`;
             const idGeneradoP = `PAG-${idCuentaUso}-C${idxP + 1}`;
 
-            pagos = pagos.filter(p => p.id !== idGeneradoP && !(p.cuentaId === idCuentaUso && p.concepto === conceptoP));
+            const pagoPrevio = pagos.find(p => p.id === idGeneradoP || (p.cuentaId === String(idCuentaUso) && p.concepto === conceptoP));
+            const fechaConservar = (pagoPrevio && pagoPrevio.fecha) ? pagoPrevio.fecha : new Date().toISOString().split('T')[0];
+
+            pagos = pagos.filter(p => p.id !== idGeneradoP && !(p.cuentaId === String(idCuentaUso) && p.concepto === conceptoP));
 
             if (montoP > 0) {
               pagos.push({
@@ -2938,7 +2941,7 @@
                 concepto: conceptoP,
                 monto: montoP,
                 montoAbonado: montoP,
-                fecha: new Date().toISOString().split('T')[0],
+                fecha: fechaConservar,
                 metodo: esContadoEfectivo ? 'Efectivo (Contado)' : 'Efectivo / Admin',
                 estado: 'Completado',
                 grupoId: grupoIdAsignado

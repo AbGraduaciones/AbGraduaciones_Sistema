@@ -541,16 +541,20 @@ app.post('/api/datos', async (req, res) => {
                     ]
                   },
                   {
-                    id: identificadorPagoManual,
-                    cuenta: cuentaGuardada._id,
-                    cliente: cuentaGuardada.cliente || '1001',
-                    alumno: nombreAlumnoLimpio,
-                    concepto: conceptoCasilla,
-                    monto: montoCasilla,
-                    fecha: new Date(),
-                    metodoPago: s.esContadoEfectivo ? 'Efectivo (Contado)' : 'Efectivo / Transferencia (Admin)',
-                    grupoId: cuentaGuardada.grupoId || null,
-                    notas: `Abono registrado por Administrador | Alumno: ${nombreAlumnoLimpio}`
+                    $set: {
+                      id: identificadorPagoManual,
+                      cuenta: cuentaGuardada._id,
+                      cliente: cuentaGuardada.cliente || '1001',
+                      alumno: nombreAlumnoLimpio,
+                      concepto: conceptoCasilla,
+                      monto: montoCasilla,
+                      metodoPago: s.esContadoEfectivo ? 'Efectivo (Contado)' : 'Efectivo / Transferencia (Admin)',
+                      grupoId: cuentaGuardada.grupoId || null,
+                      notas: `Abono registrado por Administrador | Alumno: ${nombreAlumnoLimpio}`
+                    },
+                    $setOnInsert: {
+                      fecha: new Date()
+                    }
                   },
                   { upsert: true, new: true }
                 );
