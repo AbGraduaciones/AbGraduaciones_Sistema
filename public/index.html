@@ -788,6 +788,9 @@
     let listaUsuariosCargados = [];
     let listaEgresosCargados = [];
 
+    let dashFechaInicio = '';
+    let dashFechaFin = '';
+
     // --- GESTIÓN DE GRUPOS ---
     let grupos = JSON.parse(localStorage.getItem('app_grupos_10p')) || [];
     let grupoSeleccionadoId = null;
@@ -1145,6 +1148,7 @@
 
       return nombreDirecto || 'Alumno';
     }
+
     function asegurarIdsEnSaldos() {
       let cambio = false;
       saldos.forEach((s, idx) => {
@@ -1989,208 +1993,8 @@
         titulo.innerText = "Dashboard General, Grupos y Paquetes";
         contenedorFiltros.style.display = "none";
         dinamic.style.display = "block";
-
         await cargarEgresosServidor();
-        
-        const saldosUso = obtenerSaldosFiltrados();
-        const egresosUso = obtenerEgresosFiltrados();
-        const totalSaldos = saldosUso.length;
-        const totalMonto = saldosUso.reduce((acc, s) => acc + (s.monto || 0), 0);
-        const totalRecaudado = saldosUso.reduce((acc, s) => acc + calcularTotalPagado(s.pagos), 0);
-        const totalPendiente = totalMonto - totalRecaudado;
-        const totalEgresos = egresosUso.reduce((acc, e) => acc + (Number(e.monto) || 0), 0);
-        const utilidadNeta = totalRecaudado - totalEgresos;
-
-        const desgloseGrupos = {};
-
-        grupos.forEach(g => {
-          const gid = String(g._id || g.id);
-          desgloseGrupos[gid] = {
-            nombre: g.nombre,
-            institucion: g.institucion || '',
-            carrera: g.carrera || '',
-            cantidad: 0,
-            montoTotal: 0,
-            cobrado: 0
-          };
-        });
-
-        desgloseGrupos['sin_grupo'] = {
-          nombre: 'Sin Grupo / General',
-          institucion: '',
-          carrera: '',
-          cantidad: 0,
-          montoTotal: 0,
-          cobrado: 0
-        };
-
-        saldos.forEach(s => {
-          const gKey = s.grupoId ? String(s.grupoId) : 'sin_grupo';
-          if (!desgloseGrupos[gKey]) {
-            desgloseGrupos[gKey] = {
-              nombre: s.grupoNombre || 'General',
-              institucion: '',
-              carrera: '',
-              cantidad: 0,
-              montoTotal: 0,
-              cobrado: 0
-            };
-          }
-
-          desgloseGrupos[gKey].cantidad += 1;
-          desgloseGrupos[gKey].montoTotal += (Number(s.monto) || 0);
-          desgloseGrupos[gKey].cobrado += calcularTotalPagado(s.pagos);
-        });
-
-        let htmlTarjetasGrupos = '';
-        Object.keys(desgloseGrupos).forEach(gid => {
-          const gData = desgloseGrupos[gid];
-          if (gData.cantidad === 0 && gid === 'sin_grupo') return;
-
-          const gPendiente = gData.montoTotal - gData.cobrado;
-          const pctCobrado = gData.montoTotal > 0 ? Math.round((gData.cobrado / gData.montoTotal) * 100) : 0;
-
-          htmlTarjetasGrupos += `
-            <div class="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between hover:border-blue-400 transition-all">
-              <div>
-                <div class="flex justify-between items-start gap-2 mb-2">
-                  <div>
-                    <h4 class="font-extrabold text-slate-900 text-base leading-tight">${gData.nombre}</h4>
-                    ${gData.carrera || gData.institucion ? `<p class="text-[11px] font-semibold text-slate-500 mt-0.5">${gData.institucion ? gData.institucion + ' • ' : ''}${gData.carrera}</p>` : ''}
-                  </div>
-                  <span class="bg-indigo-100 text-indigo-800 text-xs font-bold px-2.5 py-1 rounded-full shrink-0">
-                    ${gData.cantidad} ${gData.cantidad === 1 ? 'alumno' : 'alumnos'}
-                  </span>
-                </div>
-
-                <div class="space-y-1.5 mt-4 text-xs">
-                  <div class="flex justify-between text-slate-600">
-                    <span>Monto Contratado:</span>
-                    <span class="font-bold text-slate-900">$${gData.montoTotal.toLocaleString()}</span>
-                  </div>
-                  <div class="flex justify-between text-emerald-700 font-semibold">
-                    <span>Recaudado:</span>
-                    <span>$${gData.cobrado.toLocaleString()}</span>
-                  </div>
-                  <div class="flex justify-between text-amber-700 font-semibold">
-                    <span>Saldo Pendiente:</span>
-                    <span>$${gPendiente.toLocaleString()}</span>
-                  </div>
-                </div>
-              </div>
-
-              <div class="mt-4 pt-3 border-t border-slate-100">
-                <div class="flex justify-between text-[11px] font-bold text-slate-500 mb-1">
-                  <span>Avance de Cobro</span>
-                  <span class="text-blue-700">${pctCobrado}%</span>
-                </div>
-                <div class="w-full bg-slate-100 rounded-full h-2">
-                  <div class="bg-indigo-600 h-2 rounded-full transition-all duration-300" style="width: ${pctCobrado}%"></div>
-                </div>
-              </div>
-            </div>
-          `;
-        });
-
-        const desglosePaquetes = {};
-        saldosUso.forEach(s => {
-          const paqCompleto = s.paquete || 'Sin Paquete';
-          const linea = paqCompleto.split(' - ')[0] || 'Sin Paquete';
-          if (!desglosePaquetes[linea]) {
-            desglosePaquetes[linea] = { cantidad: 0, montoTotal: 0, cobrado: 0 };
-          }
-          desglosePaquetes[linea].cantidad += 1;
-          desglosePaquetes[linea].montoTotal += (s.monto || 0);
-          desglosePaquetes[linea].cobrado += calcularTotalPagado(s.pagos);
-        });
-
-        let htmlTarjetasPaquetes = '';
-        Object.keys(desglosePaquetes).forEach(lineaNombre => {
-          const pData = desglosePaquetes[lineaNombre];
-          const pPendiente = pData.montoTotal - pData.cobrado;
-          const porcentajeCobrado = pData.montoTotal > 0 ? Math.round((pData.cobrado / pData.montoTotal) * 100) : 0;
-
-          htmlTarjetasPaquetes += `
-            <div class="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between">
-              <div>
-                <div class="flex justify-between items-start mb-2">
-                  <h4 class="font-bold text-slate-800 text-sm">${lineaNombre}</h4>
-                  <span class="bg-blue-100 text-blue-800 text-xs font-bold px-2 py-0.5 rounded-full">${pData.cantidad}</span>
-                </div>
-                <div class="space-y-1 mt-3 text-xs">
-                  <div class="flex justify-between text-slate-600">
-                    <span>Monto Total:</span>
-                    <span class="font-bold text-slate-800">$${pData.montoTotal.toLocaleString()}</span>
-                  </div>
-                  <div class="flex justify-between text-emerald-600 font-semibold">
-                    <span>Recaudado:</span>
-                    <span>$${pData.cobrado.toLocaleString()}</span>
-                  </div>
-                  <div class="flex justify-between text-amber-600 font-semibold">
-                    <span>Pendiente:</span>
-                    <span>$${pPendiente.toLocaleString()}</span>
-                  </div>
-                </div>
-              </div>
-
-              <div class="mt-4 pt-3 border-t border-slate-100">
-                <div class="flex justify-between text-xs font-bold text-slate-500 mb-1">
-                  <span>Avance</span>
-                  <span>${porcentajeCobrado}%</span>
-                </div>
-                <div class="w-full bg-slate-100 rounded-full h-2">
-                  <div class="bg-blue-600 h-2 rounded-full" style="width: ${porcentajeCobrado}%"></div>
-                </div>
-              </div>
-            </div>
-          `;
-        });
-
-        dinamic.innerHTML = `
-          <div>
-            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">Métricas Globales y Balance</h3>
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              <div class="bg-slate-900 text-white p-6 rounded-2xl shadow-md">
-                <p class="text-slate-400 text-xs font-bold uppercase tracking-wider">Total Cuentas</p>
-                <h3 class="text-4xl font-extrabold mt-3">${totalSaldos}</h3>
-              </div>
-              <div class="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm">
-                <p class="text-slate-500 text-xs font-bold uppercase tracking-wider">Monto Total Contratado</p>
-                <h3 class="text-4xl font-extrabold mt-3 text-blue-700">$${totalMonto.toLocaleString()}</h3>
-              </div>
-              <div class="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm">
-                <p class="text-slate-500 text-xs font-bold uppercase tracking-wider">Total Cobrado (Ingresos)</p>
-                <h3 class="text-4xl font-extrabold mt-3 text-emerald-600">$${totalRecaudado.toLocaleString()}</h3>
-              </div>
-              <div class="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm">
-                <p class="text-slate-500 text-xs font-bold uppercase tracking-wider">Saldo Pendiente Total</p>
-                <h3 class="text-4xl font-extrabold mt-3 text-amber-500">$${totalPendiente.toLocaleString()}</h3>
-              </div>
-              <div class="bg-white p-6 rounded-2xl border border-red-200 shadow-sm">
-                <p class="text-red-500 text-xs font-bold uppercase tracking-wider">Total Egresos / Gastos</p>
-                <h3 class="text-4xl font-extrabold mt-3 text-red-600">-$${totalEgresos.toLocaleString()}</h3>
-              </div>
-              <div class="bg-emerald-950 text-white p-6 rounded-2xl shadow-md">
-                <p class="text-emerald-300 text-xs font-bold uppercase tracking-wider">Utilidad Neta (Cobrado - Gastos)</p>
-                <h3 class="text-4xl font-extrabold mt-3 ${utilidadNeta >= 0 ? 'text-emerald-400' : 'text-red-400'}">$${utilidadNeta.toLocaleString()}</h3>
-              </div>
-            </div>
-          </div>
-
-          <div class="pt-6">
-            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">📁 Totales por Grupo</h3>
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              ${htmlTarjetasGrupos || '<p class="text-slate-400 italic">No hay grupos activos con datos registrados.</p>'}
-            </div>
-          </div>
-
-          <div class="pt-6">
-            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">🏷️ Desglose por Paquetes</h3>
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              ${htmlTarjetasPaquetes || '<p class="text-slate-400 italic">No hay paquetes registrados aún.</p>'}
-            </div>
-          </div>
-        `;
+        renderizarDashboardConFechas();
       } else if (vista === 'pagos') {
         titulo.innerText = "Historial de Pagos";
         textoBtn.innerText = "Vaciar Todo";
@@ -2212,6 +2016,344 @@
         dinamic.style.display = "block";
         renderizarPortalAlumno();
       }
+    }
+
+    function aplicarFiltroRapidoDashboard(tipo) {
+      const hoy = new Date();
+      const fmt = (d) => d.toISOString().split('T')[0];
+
+      if (tipo === 'hoy') {
+        dashFechaInicio = fmt(hoy);
+        dashFechaFin = fmt(hoy);
+      } else if (tipo === 'semana') {
+        const hace7 = new Date();
+        hace7.setDate(hoy.getDate() - 6);
+        dashFechaInicio = fmt(hace7);
+        dashFechaFin = fmt(hoy);
+      } else if (tipo === 'mes') {
+        const inicioMes = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+        dashFechaInicio = fmt(inicioMes);
+        dashFechaFin = fmt(hoy);
+      } else {
+        dashFechaInicio = '';
+        dashFechaFin = '';
+      }
+      renderizarDashboardConFechas();
+    }
+
+    function aplicarRangoFechasDashboard() {
+      const elIni = document.getElementById('dashInputInicio');
+      const elFin = document.getElementById('dashInputFin');
+      dashFechaInicio = elIni ? elIni.value : '';
+      dashFechaFin = elFin ? elFin.value : '';
+      renderizarDashboardConFechas();
+    }
+
+    function renderizarDashboardConFechas() {
+      const dinamic = document.getElementById('contenidoDinamico');
+      const saldosUso = obtenerSaldosFiltrados();
+      const pagosUso = obtenerPagosFiltrados();
+      const egresosUso = obtenerEgresosFiltrados();
+
+      const dentroDeRango = (fechaStr) => {
+        if (!fechaStr) return !dashFechaInicio && !dashFechaFin;
+        const f = String(fechaStr).split('T')[0];
+        if (dashFechaInicio && f < dashFechaInicio) return false;
+        if (dashFechaFin && f > dashFechaFin) return false;
+        return true;
+      };
+
+      const pagosPeriodo = pagosUso.filter(p => dentroDeRango(p.fecha));
+      const egresosPeriodo = egresosUso.filter(e => dentroDeRango(e.fecha));
+
+      const ingresosPeriodo = pagosPeriodo.reduce((acc, p) => acc + (Number(p.monto || p.montoAbonado) || 0), 0);
+      const gastosPeriodo = egresosPeriodo.reduce((acc, e) => acc + (Number(e.monto) || 0), 0);
+      const utilidadPeriodo = ingresosPeriodo - gastosPeriodo;
+
+      const mapaFechas = {};
+      pagosPeriodo.forEach(p => {
+        const f = (p.fecha || 'Sin fecha').split('T')[0];
+        if (!mapaFechas[f]) mapaFechas[f] = { ingresos: 0, cantPagos: 0, egresos: 0, cantEgresos: 0 };
+        mapaFechas[f].ingresos += Number(p.monto || p.montoAbonado) || 0;
+        mapaFechas[f].cantPagos += 1;
+      });
+      egresosPeriodo.forEach(e => {
+        const f = (e.fecha || 'Sin fecha').split('T')[0];
+        if (!mapaFechas[f]) mapaFechas[f] = { ingresos: 0, cantPagos: 0, egresos: 0, cantEgresos: 0 };
+        mapaFechas[f].egresos += Number(e.monto) || 0;
+        mapaFechas[f].cantEgresos += 1;
+      });
+
+      const fechasOrdenadas = Object.keys(mapaFechas).sort((a, b) => b.localeCompare(a));
+      let filasSubtotalesFecha = '';
+      if (fechasOrdenadas.length === 0) {
+        filasSubtotalesFecha = `<tr><td colspan="5" class="p-4 text-center text-slate-400 italic">No hay movimientos registrados en este rango de fechas.</td></tr>`;
+      } else {
+        fechasOrdenadas.forEach(f => {
+          const d = mapaFechas[f];
+          const neto = d.ingresos - d.egresos;
+          filasSubtotalesFecha += `
+            <tr class="hover:bg-slate-50">
+              <td class="p-3 font-mono font-bold text-slate-800">${f}</td>
+              <td class="p-3 text-center text-xs text-slate-500">${d.cantPagos} abonos / ${d.cantEgresos} gastos</td>
+              <td class="p-3 text-right font-bold text-emerald-600">+$${d.ingresos.toLocaleString()}</td>
+              <td class="p-3 text-right font-bold text-red-600">-$${d.egresos.toLocaleString()}</td>
+              <td class="p-3 text-right font-extrabold ${neto >= 0 ? 'text-blue-700' : 'text-red-700'}">$${neto.toLocaleString()}</td>
+            </tr>
+          `;
+        });
+      }
+
+      const totalSaldos = saldosUso.length;
+      const totalMonto = saldosUso.reduce((acc, s) => acc + (s.monto || 0), 0);
+      const totalRecaudado = saldosUso.reduce((acc, s) => acc + calcularTotalPagado(s.pagos), 0);
+      const totalPendiente = totalMonto - totalRecaudado;
+      const totalEgresos = egresosUso.reduce((acc, e) => acc + (Number(e.monto) || 0), 0);
+      const utilidadNeta = totalRecaudado - totalEgresos;
+
+      const desgloseGrupos = {};
+      grupos.forEach(g => {
+        const gid = String(g._id || g.id);
+        desgloseGrupos[gid] = {
+          nombre: g.nombre,
+          institucion: g.institucion || '',
+          carrera: g.carrera || '',
+          cantidad: 0,
+          montoTotal: 0,
+          cobrado: 0
+        };
+      });
+
+      desgloseGrupos['sin_grupo'] = {
+        nombre: 'Sin Grupo / General',
+        institucion: '',
+        carrera: '',
+        cantidad: 0,
+        montoTotal: 0,
+        cobrado: 0
+      };
+
+      saldos.forEach(s => {
+        const gKey = s.grupoId ? String(s.grupoId) : 'sin_grupo';
+        if (!desgloseGrupos[gKey]) {
+          desgloseGrupos[gKey] = {
+            nombre: s.grupoNombre || 'General',
+            institucion: '',
+            carrera: '',
+            cantidad: 0,
+            montoTotal: 0,
+            cobrado: 0
+          };
+        }
+        desgloseGrupos[gKey].cantidad += 1;
+        desgloseGrupos[gKey].montoTotal += (Number(s.monto) || 0);
+        desgloseGrupos[gKey].cobrado += calcularTotalPagado(s.pagos);
+      });
+
+      let htmlTarjetasGrupos = '';
+      Object.keys(desgloseGrupos).forEach(gid => {
+        const gData = desgloseGrupos[gid];
+        if (gData.cantidad === 0 && gid === 'sin_grupo') return;
+
+        const gPendiente = gData.montoTotal - gData.cobrado;
+        const pctCobrado = gData.montoTotal > 0 ? Math.round((gData.cobrado / gData.montoTotal) * 100) : 0;
+
+        htmlTarjetasGrupos += `
+          <div class="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between hover:border-blue-400 transition-all">
+            <div>
+              <div class="flex justify-between items-start gap-2 mb-2">
+                <div>
+                  <h4 class="font-extrabold text-slate-900 text-base leading-tight">${gData.nombre}</h4>
+                  ${gData.carrera || gData.institucion ? `<p class="text-[11px] font-semibold text-slate-500 mt-0.5">${gData.institucion ? gData.institucion + ' • ' : ''}${gData.carrera}</p>` : ''}
+                </div>
+                <span class="bg-indigo-100 text-indigo-800 text-xs font-bold px-2.5 py-1 rounded-full shrink-0">
+                  ${gData.cantidad} ${gData.cantidad === 1 ? 'alumno' : 'alumnos'}
+                </span>
+              </div>
+
+              <div class="space-y-1.5 mt-4 text-xs">
+                <div class="flex justify-between text-slate-600">
+                  <span>Monto Contratado:</span>
+                  <span class="font-bold text-slate-900">$${gData.montoTotal.toLocaleString()}</span>
+                </div>
+                <div class="flex justify-between text-emerald-700 font-semibold">
+                  <span>Recaudado:</span>
+                  <span>$${gData.cobrado.toLocaleString()}</span>
+                </div>
+                <div class="flex justify-between text-amber-700 font-semibold">
+                  <span>Saldo Pendiente:</span>
+                  <span>$${gPendiente.toLocaleString()}</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="mt-4 pt-3 border-t border-slate-100">
+              <div class="flex justify-between text-[11px] font-bold text-slate-500 mb-1">
+                <span>Avance de Cobro</span>
+                <span class="text-blue-700">${pctCobrado}%</span>
+              </div>
+              <div class="w-full bg-slate-100 rounded-full h-2">
+                <div class="bg-indigo-600 h-2 rounded-full transition-all duration-300" style="width: ${pctCobrado}%"></div>
+              </div>
+            </div>
+          </div>
+        `;
+      });
+
+      const desglosePaquetes = {};
+      saldosUso.forEach(s => {
+        const paqCompleto = s.paquete || 'Sin Paquete';
+        const linea = paqCompleto.split(' - ')[0] || 'Sin Paquete';
+        if (!desglosePaquetes[linea]) {
+          desglosePaquetes[linea] = { cantidad: 0, montoTotal: 0, cobrado: 0 };
+        }
+        desglosePaquetes[linea].cantidad += 1;
+        desglosePaquetes[linea].montoTotal += (s.monto || 0);
+        desglosePaquetes[linea].cobrado += calcularTotalPagado(s.pagos);
+      });
+
+      let htmlTarjetasPaquetes = '';
+      Object.keys(desglosePaquetes).forEach(lineaNombre => {
+        const pData = desglosePaquetes[lineaNombre];
+        const pPendiente = pData.montoTotal - pData.cobrado;
+        const porcentajeCobrado = pData.montoTotal > 0 ? Math.round((pData.cobrado / pData.montoTotal) * 100) : 0;
+
+        htmlTarjetasPaquetes += `
+          <div class="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between">
+            <div>
+              <div class="flex justify-between items-start mb-2">
+                <h4 class="font-bold text-slate-800 text-sm">${lineaNombre}</h4>
+                <span class="bg-blue-100 text-blue-800 text-xs font-bold px-2 py-0.5 rounded-full">${pData.cantidad}</span>
+              </div>
+              <div class="space-y-1 mt-3 text-xs">
+                <div class="flex justify-between text-slate-600">
+                  <span>Monto Total:</span>
+                  <span class="font-bold text-slate-800">$${pData.montoTotal.toLocaleString()}</span>
+                </div>
+                <div class="flex justify-between text-emerald-600 font-semibold">
+                  <span>Recaudado:</span>
+                  <span>$${pData.cobrado.toLocaleString()}</span>
+                </div>
+                <div class="flex justify-between text-amber-600 font-semibold">
+                  <span>Pendiente:</span>
+                  <span>$${pPendiente.toLocaleString()}</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="mt-4 pt-3 border-t border-slate-100">
+              <div class="flex justify-between text-xs font-bold text-slate-500 mb-1">
+                <span>Avance</span>
+                <span>${porcentajeCobrado}%</span>
+              </div>
+              <div class="w-full bg-slate-100 rounded-full h-2">
+                <div class="bg-blue-600 h-2 rounded-full" style="width: ${porcentajeCobrado}%"></div>
+              </div>
+            </div>
+          </div>
+        `;
+      });
+
+      dinamic.innerHTML = `
+        <div class="bg-white p-6 rounded-2xl border border-blue-200 shadow-sm">
+          <div class="flex flex-wrap justify-between items-center gap-4 mb-4">
+            <div>
+              <h3 class="text-sm font-extrabold uppercase tracking-wider text-blue-800">📅 Corte y Subtotales por Fecha</h3>
+              <p class="text-xs text-slate-500">Filtra tus ingresos y egresos por día, semana, mes o rango personalizado.</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+              <button onclick="aplicarFiltroRapidoDashboard('hoy')" class="px-3 py-1.5 bg-slate-100 hover:bg-blue-100 text-slate-700 hover:text-blue-800 text-xs font-bold rounded-lg transition">Hoy</button>
+              <button onclick="aplicarFiltroRapidoDashboard('semana')" class="px-3 py-1.5 bg-slate-100 hover:bg-blue-100 text-slate-700 hover:text-blue-800 text-xs font-bold rounded-lg transition">Últimos 7 días</button>
+              <button onclick="aplicarFiltroRapidoDashboard('mes')" class="px-3 py-1.5 bg-slate-100 hover:bg-blue-100 text-slate-700 hover:text-blue-800 text-xs font-bold rounded-lg transition">Este Mes</button>
+              <button onclick="aplicarFiltroRapidoDashboard('todo')" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold rounded-lg transition">Todo</button>
+            </div>
+          </div>
+
+          <div class="flex flex-wrap items-end gap-3 mb-5 pb-4 border-b border-slate-100">
+            <div>
+              <label class="block text-[11px] font-bold uppercase text-slate-500 mb-1">Desde</label>
+              <input type="date" id="dashInputInicio" value="${dashFechaInicio}" onchange="aplicarRangoFechasDashboard()" class="p-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold outline-none focus:border-blue-600">
+            </div>
+            <div>
+              <label class="block text-[11px] font-bold uppercase text-slate-500 mb-1">Hasta</label>
+              <input type="date" id="dashInputFin" value="${dashFechaFin}" onchange="aplicarRangoFechasDashboard()" class="p-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold outline-none focus:border-blue-600">
+            </div>
+            <div class="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-3 min-w-[260px]">
+              <div class="p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
+                <p class="text-[10px] font-bold uppercase text-emerald-700">Ingresos del Periodo</p>
+                <p class="text-xl font-extrabold text-emerald-800">$${ingresosPeriodo.toLocaleString()}</p>
+              </div>
+              <div class="p-3 bg-red-50 border border-red-200 rounded-xl">
+                <p class="text-[10px] font-bold uppercase text-red-700">Gastos del Periodo</p>
+                <p class="text-xl font-extrabold text-red-700">-$${gastosPeriodo.toLocaleString()}</p>
+              </div>
+              <div class="p-3 bg-blue-50 border border-blue-200 rounded-xl">
+                <p class="text-[10px] font-bold uppercase text-blue-700">Neto del Periodo</p>
+                <p class="text-xl font-extrabold ${utilidadPeriodo >= 0 ? 'text-blue-800' : 'text-red-700'}">$${utilidadPeriodo.toLocaleString()}</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="overflow-x-auto max-h-72 overflow-y-auto border border-slate-200 rounded-xl">
+            <table class="w-full text-left text-xs border-collapse">
+              <thead class="bg-slate-100 text-slate-600 font-bold uppercase sticky top-0">
+                <tr>
+                  <th class="p-3">Fecha</th>
+                  <th class="p-3 text-center">Movimientos</th>
+                  <th class="p-3 text-right">Ingresos</th>
+                  <th class="p-3 text-right">Egresos</th>
+                  <th class="p-3 text-right">Subtotal Neto</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-100">${filasSubtotalesFecha}</tbody>
+            </table>
+          </div>
+        </div>
+
+        <div>
+          <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">Métricas Globales y Balance</h3>
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div class="bg-slate-900 text-white p-6 rounded-2xl shadow-md">
+              <p class="text-slate-400 text-xs font-bold uppercase tracking-wider">Total Cuentas</p>
+              <h3 class="text-4xl font-extrabold mt-3">${totalSaldos}</h3>
+            </div>
+            <div class="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm">
+              <p class="text-slate-500 text-xs font-bold uppercase tracking-wider">Monto Total Contratado</p>
+              <h3 class="text-4xl font-extrabold mt-3 text-blue-700">$${totalMonto.toLocaleString()}</h3>
+            </div>
+            <div class="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm">
+              <p class="text-slate-500 text-xs font-bold uppercase tracking-wider">Total Cobrado (Ingresos)</p>
+              <h3 class="text-4xl font-extrabold mt-3 text-emerald-600">$${totalRecaudado.toLocaleString()}</h3>
+            </div>
+            <div class="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm">
+              <p class="text-slate-500 text-xs font-bold uppercase tracking-wider">Saldo Pendiente Total</p>
+              <h3 class="text-4xl font-extrabold mt-3 text-amber-500">$${totalPendiente.toLocaleString()}</h3>
+            </div>
+            <div class="bg-white p-6 rounded-2xl border border-red-200 shadow-sm">
+              <p class="text-red-500 text-xs font-bold uppercase tracking-wider">Total Egresos / Gastos</p>
+              <h3 class="text-4xl font-extrabold mt-3 text-red-600">-$${totalEgresos.toLocaleString()}</h3>
+            </div>
+            <div class="bg-emerald-950 text-white p-6 rounded-2xl shadow-md">
+              <p class="text-emerald-300 text-xs font-bold uppercase tracking-wider">Utilidad Neta (Cobrado - Gastos)</p>
+              <h3 class="text-4xl font-extrabold mt-3 ${utilidadNeta >= 0 ? 'text-emerald-400' : 'text-red-400'}">$${utilidadNeta.toLocaleString()}</h3>
+            </div>
+          </div>
+        </div>
+
+        <div class="pt-6">
+          <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">📁 Totales por Grupo</h3>
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            ${htmlTarjetasGrupos || '<p class="text-slate-400 italic">No hay grupos activos con datos registrados.</p>'}
+          </div>
+        </div>
+
+        <div class="pt-6">
+          <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">🏷️ Desglose por Paquetes</h3>
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            ${htmlTarjetasPaquetes || '<p class="text-slate-400 italic">No hay paquetes registrados aún.</p>'}
+          </div>
+        </div>
+      `;
     }
 
     async function vaciarTodoHistorialPagos() {
