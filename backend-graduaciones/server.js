@@ -6,6 +6,7 @@ const fs = require('fs');
 const mongoose = require('mongoose');
 const nodemailer = require('nodemailer');
 const PDFDocument = require('pdfkit');
+const { MercadoPagoConfig, Preference, Payment } = require('mercadopago');
 
 let bcrypt;
 try {
@@ -16,6 +17,10 @@ try {
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+const mpClient = process.env.MERCADOPAGO_ACCESS_TOKEN
+  ? new MercadoPagoConfig({ accessToken: process.env.MERCADOPAGO_ACCESS_TOKEN })
+  : null;
 
 const codigosOtpTemporales = new Map();
 
@@ -211,21 +216,6 @@ async function sanearPagosAnonimosEnBD() {
         }
       }
 
-      if (!nombreReal && stripe && p.id && String(p.id).startsWith('cs_')) {
-        try {
-          const ses = await stripe.checkout.sessions.retrieve(p.id);
-          if (ses) {
-            const meta = ses.metadata || {};
-            const nomMeta = (meta.nombreAlumno || meta.alumno || '').trim();
-            if (nomMeta && nomMeta.toLowerCase() !== 'alumno') {
-              nombreReal = nomMeta;
-            } else if (ses.customer_details && ses.customer_details.name && ses.customer_details.name.toLowerCase() !== 'alumno') {
-              nombreReal = ses.customer_details.name.trim();
-            }
-          }
-        } catch (eStripe) {}
-      }
-
       if (!nombreReal && p.cuenta) {
         const cta = await Cuenta.findOne({
           $or: [
@@ -355,7 +345,7 @@ async function sincronizarMemoriaDesdeBD() {
         monto: Number(p.monto) || 0,
         montoAbonado: Number(p.monto) || 0,
         fecha: p.fecha ? new Date(p.fecha).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
-        metodo: p.metodoPago === 'stripe' ? 'Tarjeta (Stripe)' : (p.metodoPago || p.metodo || 'Efectivo'),
+        metodo: p.metodoPago || p.metodo || 'Efectivo',
         estado: 'Completado',
         grupoId: p.grupoId ? String(p.grupoId) : null,
         notas: p.notas || ''
@@ -387,40 +377,6 @@ if (mongoUri) {
     })
     .catch((err) => console.error('❌ Error de conexión a MongoDB:', err.message));
 }
-
-let pagoController = null;
-const rutasPosibles = [
-  './controllers/pagoController',
-  './controllers/PagoController',
-  '../controllers/pagoController',
-  '../controllers/PagoController'
-];
-
-for (const ruta of rutasPosibles) {
-  try {
-    pagoController = require(ruta);
-    break;
-  } catch (err) {
-    if (err.code !== 'MODULE_NOT_FOUND') {
-      console.error(`⚠️ Error al cargar controlador desde ${ruta}:`, err.message);
-    }
-  }
-}
-
-const stripe = process.env.STRIPE_SECRET_KEY ? require('stripe')(process.env.STRIPE_SECRET_KEY) : null;
-
-app.post('/webhook', express.raw({ type: '*/*' }), async (req, res) => {
-  if (pagoController && typeof pagoController.handleStripeWebhook === 'function') {
-    try {
-      const resultado = await pagoController.handleStripeWebhook(req, res);
-      await sincronizarMemoriaDesdeBD();
-      return resultado;
-    } catch (err) {
-      console.error('Error delegando webhook:', err.message);
-    }
-  }
-  return res.status(200).json({ received: true });
-});
 
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
@@ -977,128 +933,218 @@ async function enviarReciboPorCorreo(destinatarioEmail, datosPago) {
   }
 }
 
-const procesarCheckout = (req, res) => {
-  if (pagoController && typeof pagoController.crearCheckoutSession === 'function') {
-    return pagoController.crearCheckoutSession(req, res);
+// ==========================================
+// INTEGRACIÓN MERCADO PAGO (CHECKOUT PRO)
+// ==========================================
+
+async function aplicarPagoMercadoPago(paymentInfo) {
+  if (!paymentInfo || paymentInfo.status !== 'approved') return { aplicado: false };
+  if (mongoose.connection.readyState !== 1) return { aplicado: false };
+
+  const folioMP = `MP-${paymentInfo.id}`;
+  const yaExiste = await Pago.findOne({ id: folioMP }).lean();
+  if (yaExiste) {
+    return { aplicado: true, duplicado: true };
   }
-  return res.status(500).json({ status: 'error', message: 'Controlador de pagos no disponible' });
+
+  const meta = paymentInfo.metadata || {};
+  const cuentaId = meta.cuenta_id || '';
+  const alumnoId = meta.alumno_id || '';
+  let nombreAlumno = (meta.nombre_alumno || '').trim();
+  const concepto = meta.concepto || 'Abono en Línea (Mercado Pago)';
+  const monto = Number(meta.monto_neto || paymentInfo.transaction_amount) || 0;
+  const emailMeta = meta.email || (paymentInfo.payer && paymentInfo.payer.email) || '';
+
+  let cuentaObj = null;
+  if (cuentaId) {
+    const filtro = [{ id: String(cuentaId) }];
+    if (mongoose.Types.ObjectId.isValid(cuentaId)) {
+      filtro.push({ _id: new mongoose.Types.ObjectId(cuentaId) });
+    }
+    cuentaObj = await Cuenta.findOne({ $or: filtro });
+  }
+  if (!cuentaObj && nombreAlumno) {
+    cuentaObj = await Cuenta.findOne({ alumno: new RegExp(`^${nombreAlumno}$`, 'i') });
+  }
+
+  if (cuentaObj) {
+    if (!nombreAlumno || nombreAlumno.toLowerCase() === 'alumno') {
+      nombreAlumno = (cuentaObj.alumno || 'Alumno').trim();
+    }
+    const pagosArr = Array.isArray(cuentaObj.pagos) && cuentaObj.pagos.length === 10
+      ? [...cuentaObj.pagos]
+      : [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+
+    const matchNum = String(concepto).match(/Pago\s*(\d+)/i);
+    let idxCasilla = -1;
+    if (matchNum && matchNum[1]) {
+      const n = parseInt(matchNum[1], 10) - 1;
+      if (n >= 0 && n < 10 && Number(pagosArr[n]) === 0) idxCasilla = n;
+    }
+    if (idxCasilla === -1) {
+      idxCasilla = pagosArr.findIndex(v => Number(v) === 0);
+    }
+    if (idxCasilla !== -1) {
+      pagosArr[idxCasilla] = monto;
+    } else {
+      pagosArr[9] = (Number(pagosArr[9]) || 0) + monto;
+    }
+
+    const totalPagado = pagosArr.reduce((acc, v) => acc + (Number(v) || 0), 0);
+    const saldoFinal = Math.max(0, (Number(cuentaObj.monto) || 0) - totalPagado);
+
+    cuentaObj.pagos = pagosArr;
+    cuentaObj.saldo = saldoFinal;
+    cuentaObj.pagada = saldoFinal <= 0;
+    await cuentaObj.save();
+  }
+
+  await Pago.create({
+    id: folioMP,
+    cuenta: cuentaObj ? cuentaObj._id : cuentaId,
+    cliente: cuentaObj ? cuentaObj.cliente : alumnoId,
+    alumno: nombreAlumno || 'Alumno',
+    concepto,
+    monto,
+    fecha: new Date(),
+    metodoPago: 'Mercado Pago',
+    grupoId: cuentaObj ? cuentaObj.grupoId : null,
+    notas: `Pago aprobado en Mercado Pago (#${paymentInfo.id}) | Alumno: ${nombreAlumno || 'Alumno'}`
+  });
+
+  if (emailMeta) {
+    const cliDatos = await Cliente.findOne({
+      nombre: new RegExp(`^${nombreAlumno}$`, 'i')
+    }).lean();
+
+    await enviarReciboPorCorreo(emailMeta, {
+      folio: folioMP,
+      fecha: new Date().toISOString().split('T')[0],
+      alumno: nombreAlumno || 'Alumno',
+      universidad: cliDatos?.universidad || 'Universidad',
+      carrera: cliDatos?.escuela || cliDatos?.facultad || 'Carrera',
+      paquete: cuentaObj?.paquete || 'Graduación',
+      observaciones: cuentaObj?.observaciones || '',
+      montoAbonado: monto,
+      nuevoSaldo: cuentaObj?.saldo ?? 0,
+      tipoPanoramica: cuentaObj?.tipoPanoramica || '',
+      tallaCamisa: cuentaObj?.tallaCamisa || '',
+      tallaAnillo: cuentaObj?.tallaAnillo || '',
+      eleccionEspecial: cuentaObj?.eleccionEspecial || '',
+      cargoExtraRegalia: Number(cuentaObj?.cargoExtraRegalia) || 0
+    });
+  }
+
+  await sincronizarMemoriaDesdeBD();
+  return { aplicado: true };
+}
+
+const crearPreferenciaMP = async (req, res) => {
+  try {
+    if (!mpClient) {
+      return res.status(500).json({ ok: false, error: 'Mercado Pago no está configurado (falta MERCADOPAGO_ACCESS_TOKEN).' });
+    }
+
+    const { cuentaId, alumnoId, clienteId, nombreAlumno, alumno, email, concepto, monto } = req.body;
+    const montoNum = parseFloat(monto) || 0;
+    if (montoNum <= 0) {
+      return res.status(400).json({ ok: false, error: 'El monto a pagar debe ser mayor a 0.' });
+    }
+
+    const nombreFinal = (nombreAlumno || alumno || 'Alumno').trim();
+    const conceptoFinal = concepto || 'Abono de Graduación';
+    const baseUrl = (process.env.BASE_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+
+    const preference = new Preference(mpClient);
+    const body = {
+      items: [
+        {
+          id: String(cuentaId || alumnoId || 'ABONO'),
+          title: `${conceptoFinal} - ${nombreFinal}`,
+          quantity: 1,
+          unit_price: montoNum,
+          currency_id: 'MXN'
+        }
+      ],
+      metadata: {
+        cuenta_id: String(cuentaId || ''),
+        alumno_id: String(alumnoId || clienteId || ''),
+        nombre_alumno: nombreFinal,
+        concepto: conceptoFinal,
+        monto_neto: montoNum,
+        email: String(email || '')
+      },
+      back_urls: {
+        success: `${baseUrl}/pago?pago=exito`,
+        failure: `${baseUrl}/pago?pago=cancelado`,
+        pending: `${baseUrl}/pago?pago=pendiente`
+      },
+      auto_return: 'approved',
+      notification_url: `${baseUrl}/api/webhook-mercadopago`
+    };
+
+    if (email && email.includes('@')) {
+      body.payer = { email: email.trim() };
+    }
+
+    const result = await preference.create({ body });
+    const urlPago = result.init_point || result.sandbox_init_point;
+
+    if (!urlPago) {
+      return res.status(500).json({ ok: false, error: 'Mercado Pago no devolvió un enlace de pago.' });
+    }
+
+    res.json({ ok: true, url: urlPago, id: result.id });
+  } catch (error) {
+    console.error('❌ Error creando preferencia de Mercado Pago:', error.message);
+    res.status(500).json({ ok: false, error: error.message || 'Error al conectar con Mercado Pago' });
+  }
 };
 
-app.post('/api/crear-checkout', procesarCheckout);
-app.post('/api/pagos/crear-checkout-session', procesarCheckout);
+app.post('/api/crear-checkout-mp', crearPreferenciaMP);
+app.post('/api/pagos/crear-checkout-session', crearPreferenciaMP);
+app.post('/api/crear-checkout', crearPreferenciaMP);
 
-app.get('/api/verificar-sesion-stripe/:sessionId', async (req, res) => {
+app.post('/api/webhook-mercadopago', async (req, res) => {
   try {
-    const { sessionId } = req.params;
-    if (!sessionId || !sessionId.startsWith('cs_')) {
-      return res.status(400).json({ ok: false, error: 'Session ID no válido' });
-    }
+    const tipo = req.body?.type || req.query?.topic || req.query?.type;
+    const paymentId = req.body?.data?.id || req.query?.['data.id'] || req.query?.id;
 
-    if (!stripe) {
-      return res.status(500).json({ ok: false, error: 'Stripe no está configurado' });
-    }
-
-    const session = await stripe.checkout.sessions.retrieve(sessionId);
-    if (!session || session.payment_status !== 'paid') {
-      return res.status(400).json({ ok: false, error: 'El pago aún no figura como liquidado en Stripe' });
-    }
-
-    const metadata = session.metadata || {};
-    let nombreAlumno = (metadata.nombreAlumno || metadata.alumno || '').trim();
-    const cuentaId = metadata.cuentaId || metadata.cuenta_id || '';
-    const alumnoId = metadata.alumnoId || metadata.clienteId || '';
-    const concepto = metadata.concepto || 'Abono en Línea (Stripe)';
-    const monto = metadata.montoNetoAbono 
-      ? parseFloat(metadata.montoNetoAbono) 
-      : (session.amount_total ? session.amount_total / 100 : 0);
-
-    if (!nombreAlumno || nombreAlumno.toLowerCase() === 'alumno') {
-      if (session.customer_details && session.customer_details.name && session.customer_details.name.toLowerCase() !== 'alumno') {
-        nombreAlumno = session.customer_details.name.trim();
+    if (mpClient && (tipo === 'payment' || req.body?.action?.startsWith('payment')) && paymentId) {
+      const payment = new Payment(mpClient);
+      const paymentInfo = await payment.get({ id: paymentId });
+      if (paymentInfo && paymentInfo.status === 'approved') {
+        await aplicarPagoMercadoPago(paymentInfo);
       }
     }
-
-    if (!nombreAlumno || nombreAlumno.toLowerCase() === 'alumno') {
-      if (mongoose.connection.readyState === 1) {
-        if (cuentaId) {
-          const cta = await Cuenta.findOne({
-            $or: [
-              ...(mongoose.Types.ObjectId.isValid(cuentaId) ? [{ _id: new mongoose.Types.ObjectId(cuentaId) }] : []),
-              { id: String(cuentaId) }
-            ]
-          }).lean();
-          if (cta && cta.alumno && cta.alumno.toLowerCase() !== 'alumno') {
-            nombreAlumno = cta.alumno.trim();
-          }
-        }
-        if ((!nombreAlumno || nombreAlumno.toLowerCase() === 'alumno') && alumnoId) {
-          const cli = await Cliente.findOne({
-            $or: [
-              ...(mongoose.Types.ObjectId.isValid(alumnoId) ? [{ _id: new mongoose.Types.ObjectId(alumnoId) }] : []),
-              { id: String(alumnoId) }
-            ]
-          }).lean();
-          if (cli && cli.nombre && cli.nombre.toLowerCase() !== 'alumno') {
-            nombreAlumno = cli.nombre.trim();
-          }
-        }
-      }
-    }
-
-    if (pagoController && typeof pagoController.aplicarAbonoACuenta === 'function') {
-      await pagoController.aplicarAbonoACuenta({
-        cuentaId,
-        alumnoId,
-        nombreAlumno: nombreAlumno || 'Alumno',
-        monto,
-        concepto,
-        sessionId: session.id,
-        customerEmail: session.customer_email || metadata.email || ''
-      });
-    }
-
-    const emailDestino = session.customer_details?.email || session.customer_email || metadata.email;
-
-    if (emailDestino) {
-      const ctaActualizada = await Cuenta.findOne({
-        $or: [
-          { id: cuentaId },
-          { alumno: new RegExp(`^${nombreAlumno}$`, 'i') }
-        ]
-      }).lean();
-
-      const cliDatos = await Cliente.findOne({
-        nombre: new RegExp(`^${nombreAlumno}$`, 'i')
-      }).lean();
-
-      await enviarReciboPorCorreo(emailDestino, {
-        folio: session.id.slice(-8).toUpperCase(),
-        fecha: new Date().toISOString().split('T')[0],
-        alumno: nombreAlumno,
-        universidad: cliDatos?.universidad || 'Universidad',
-        carrera: cliDatos?.escuela || cliDatos?.facultad || 'Carrera',
-        paquete: ctaActualizada?.paquete || 'Graduación',
-        observaciones: ctaActualizada?.observaciones || '',
-        montoAbonado: monto,
-        nuevoSaldo: ctaActualizada?.saldo ?? 0,
-        tipoPanoramica: ctaActualizada?.tipoPanoramica || '',
-        tallaCamisa: ctaActualizada?.tallaCamisa || '',
-        tallaAnillo: ctaActualizada?.tallaAnillo || '',
-        eleccionEspecial: ctaActualizada?.eleccionEspecial || '',
-        cargoExtraRegalia: Number(ctaActualizada?.cargoExtraRegalia) || 0
-      });
-    }
-
-    if (mongoose.connection.readyState === 1) {
-      await sincronizarMemoriaDesdeBD();
-    }
-
-    res.json({ ok: true, mensaje: 'Pago verificado y saldo aplicado' });
-  } catch (error) {
-    console.error('Error al verificar sesión directa:', error.message);
-    res.status(500).json({ ok: false, error: error.message });
+    res.status(200).json({ received: true });
+  } catch (err) {
+    console.error('❌ Error en webhook de Mercado Pago:', err.message);
+    res.status(200).json({ received: true });
   }
 });
+
+app.get('/api/verificar-pago-mp/:paymentId', async (req, res) => {
+  try {
+    const { paymentId } = req.params;
+    if (!mpClient) {
+      return res.status(500).json({ ok: false, error: 'Mercado Pago no está configurado' });
+    }
+    const payment = new Payment(mpClient);
+    const paymentInfo = await payment.get({ id: paymentId });
+
+    if (paymentInfo && paymentInfo.status === 'approved') {
+      await aplicarPagoMercadoPago(paymentInfo);
+      return res.json({ ok: true, mensaje: 'Pago de Mercado Pago verificado y aplicado' });
+    }
+    res.status(400).json({ ok: false, error: 'El pago aún no figura como aprobado' });
+  } catch (err) {
+    console.error('Error verificando pago MP:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ==========================================
 
 app.post('/api/enviar-codigo-seguridad', async (req, res) => {
   try {
@@ -1314,7 +1360,7 @@ app.delete('/api/grupos/:id', requireAuth, async (req, res) => {
 });
 
 // ==========================================
-// NUEVAS RUTAS DE GESTIÓN DE USUARIOS (CRUD COMPLETO)
+// RUTAS DE GESTIÓN DE USUARIOS (CRUD COMPLETO)
 // ==========================================
 
 app.get('/api/usuarios', requireAuth, requireAdmin, async (req, res) => {
@@ -1433,8 +1479,6 @@ app.delete('/api/usuarios/:id', requireAuth, requireAdmin, async (req, res) => {
   }
 });
 
-// ==========================================
-
 app.get('/api/restaurar-fechas-pagos', requireAuth, requireAdmin, async (req, res) => {
   try {
     if (mongoose.connection.readyState !== 1) {
@@ -1535,4 +1579,4 @@ const servidor = app.listen(PORT, () => {
   console.log(`🚀 Servidor ejecutándose en el puerto ${PORT}`);
 });
 
-module.exports = { app, servidor }; 
+module.exports = { app, servidor };

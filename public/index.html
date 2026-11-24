@@ -439,7 +439,7 @@
     </div>
   </div>
 
-  <!-- MODAL PASARELA DE PAGO ALUMNO -->
+  <!-- MODAL PASARELA DE PAGO ALUMNO (MERCADO PAGO) -->
   <div id="modalPasarelaPago" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center hidden z-50 overflow-y-auto p-4">
     <div class="bg-white p-8 rounded-2xl w-full max-w-md border border-slate-100 shadow-2xl">
       <div class="flex justify-between items-center mb-6">
@@ -460,8 +460,8 @@
         </div>
 
         <div class="pt-2">
-          <button id="btnProcesarStripe" onclick="procesarPagoAlumnoSimulado()" class="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-lg shadow-emerald-600/30 transition-all flex justify-center items-center gap-2">
-            🔒 Pagar Ahora con Seguridad (Stripe)
+          <button id="btnProcesarPagoMP" onclick="procesarPagoAlumnoSimulado()" class="w-full py-3.5 bg-sky-600 hover:bg-sky-700 text-white font-bold rounded-xl shadow-lg shadow-sky-600/30 transition-all flex justify-center items-center gap-2">
+            🔒 Pagar Ahora con Mercado Pago
           </button>
         </div>
       </div>
@@ -1196,7 +1196,6 @@
         console.warn('No se pudo verificar el perfil en sesión:', e);
       }
 
-      // Restricciones visuales de botones y menú para el Staff
       const linksSoloAdmin = [
         'navLinkDashboard', 
         'navLinkEgresos', 
@@ -1221,20 +1220,24 @@
       cargarLogoGuardado();
 
       const urlParams = new URLSearchParams(window.location.search);
-      const sessionId = urlParams.get('session_id');
+      const paymentId = urlParams.get('payment_id') || urlParams.get('collection_id');
       const estadoPago = urlParams.get('pago');
 
-      if (estadoPago === 'exito' || sessionId) {
-        if (sessionId) {
+      if (estadoPago === 'exito' || paymentId) {
+        if (paymentId) {
           try {
-            await fetch(`/api/verificar-sesion-stripe/${sessionId}`, { cache: 'no-store' });
+            await fetch(`/api/verificar-pago-mp/${encodeURIComponent(paymentId)}`, { cache: 'no-store' });
           } catch (e) {
-            console.warn('Verificación directa completada');
+            console.warn('Verificación directa de Mercado Pago completada');
           }
         }
         localStorage.removeItem('app_saldos_10p');
         localStorage.removeItem('app_pagos_historial');
         await sincronizarDesdeServidor();
+        alert('✅ ¡Pago recibido con éxito! Tu saldo se ha actualizado.');
+        window.history.replaceState({}, document.title, window.location.pathname);
+      } else if (estadoPago === 'pendiente') {
+        alert('⏳ Tu pago está pendiente de acreditación (por ejemplo, pago en efectivo o transferencia). Se reflejará automáticamente en tu saldo en cuanto Mercado Pago lo apruebe.');
         window.history.replaceState({}, document.title, window.location.pathname);
       } else if (estadoPago === 'cancelado') {
         alert('❌ El proceso de pago fue cancelado o interrumpido.');
@@ -4626,21 +4629,21 @@
         return;
       }
 
-      let nombreParaStripe = (alumnoSesionActual.nombre || alumnoSesionActual.alumno || '').trim();
+      let nombreParaMP = (alumnoSesionActual.nombre || alumnoSesionActual.alumno || '').trim();
       
       const saldoObj = saldos.find(s => 
         (s.cliente && String(s.cliente) === String(alumnoSesionActual.id || '')) ||
-        (s.alumno && nombreParaStripe && s.alumno.toLowerCase() === nombreParaStripe.toLowerCase())
+        (s.alumno && nombreParaMP && s.alumno.toLowerCase() === nombreParaMP.toLowerCase())
       );
 
-      if ((!nombreParaStripe || nombreParaStripe.toLowerCase() === 'alumno') && saldoObj && saldoObj.alumno) {
-        nombreParaStripe = saldoObj.alumno.trim();
+      if ((!nombreParaMP || nombreParaMP.toLowerCase() === 'alumno') && saldoObj && saldoObj.alumno) {
+        nombreParaMP = saldoObj.alumno.trim();
       }
 
-      if ((!nombreParaStripe || nombreParaStripe.toLowerCase() === 'alumno') && alumnoSesionActual.id) {
+      if ((!nombreParaMP || nombreParaMP.toLowerCase() === 'alumno') && alumnoSesionActual.id) {
         const aluRef = alumnos.find(a => String(a.id || a._id) === String(alumnoSesionActual.id));
         if (aluRef && aluRef.nombre) {
-          nombreParaStripe = aluRef.nombre.trim();
+          nombreParaMP = aluRef.nombre.trim();
         }
       }
 
@@ -4659,18 +4662,18 @@
         ctaId = 'CTA-' + (alumnoSesionActual.id || Date.now());
       }
 
-      const btnPagar = document.getElementById('btnProcesarStripe');
+      const btnPagar = document.getElementById('btnProcesarPagoMP');
       if (btnPagar) {
         btnPagar.disabled = true;
-        btnPagar.innerText = '⌛ Conectando con Stripe...';
+        btnPagar.innerText = '⌛ Conectando con Mercado Pago...';
       }
 
       const payloadCheckout = {
         cuentaId: String(ctaId),
         clienteId: String(alumnoSesionActual.id || ''),
         alumnoId: String(alumnoSesionActual.id || ''),
-        nombreAlumno: nombreParaStripe,
-        alumno: nombreParaStripe,
+        nombreAlumno: nombreParaMP,
+        alumno: nombreParaMP,
         email: alumnoSesionActual.email || '',
         concepto: typeof pagoPendientePasarela.conceptoTag === 'number' 
           ? `Pago ${pagoPendientePasarela.conceptoTag}` 
@@ -4679,7 +4682,7 @@
       };
  
       try {
-        let respuesta = await fetch('/api/pagos/crear-checkout-session', {
+        let respuesta = await fetch('/api/crear-checkout-mp', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payloadCheckout)
@@ -4695,7 +4698,6 @@
 
         const tipoContenido = respuesta.headers.get('content-type') || '';
         if (!tipoContenido.includes('application/json')) {
-          const textoRespuesta = await respuesta.text();
           throw new Error(`El servidor devolvió una respuesta no válida (${respuesta.status}).`);
         }
 
@@ -4706,10 +4708,10 @@
           window.location.href = data.url;
         } else {
           console.error('Error del servidor:', data);
-          alert(`Error al generar la pasarela de pago: ${data.message || data.error || 'Respuesta inesperada del servidor'}`);
+          alert(`Error al generar el enlace de Mercado Pago: ${data.message || data.error || 'Respuesta inesperada del servidor'}`);
           if (btnPagar) {
             btnPagar.disabled = false;
-            btnPagar.innerText = '🔒 Pagar Ahora con Seguridad (Stripe)';
+            btnPagar.innerText = '🔒 Pagar Ahora con Mercado Pago';
           }
         }
       } catch (error) {
@@ -4717,7 +4719,7 @@
         alert(`No se pudo procesar el pago: ${error.message || 'Error de conexión'}`);
         if (btnPagar) {
           btnPagar.disabled = false;
-          btnPagar.innerText = '🔒 Pagar Ahora con Seguridad (Stripe)';
+          btnPagar.innerText = '🔒 Pagar Ahora con Mercado Pago';
         }
       }
     }
