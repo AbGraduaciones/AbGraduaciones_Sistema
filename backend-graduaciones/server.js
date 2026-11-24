@@ -1435,6 +1435,32 @@ app.delete('/api/usuarios/:id', requireAuth, requireAdmin, async (req, res) => {
 
 // ==========================================
 
+app.get('/api/restaurar-fechas-pagos', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(500).json({ ok: false, error: 'Sin conexión a MongoDB Atlas' });
+    }
+    const todosLosPagos = await Pago.find({});
+    let actualizados = 0;
+
+    for (const p of todosLosPagos) {
+      if (p.createdAt) {
+        p.fecha = p.createdAt;
+        await p.save();
+        actualizados++;
+      }
+    }
+
+    await sincronizarMemoriaDesdeBD();
+    res.json({
+      ok: true,
+      mensaje: `✅ Se restauraron las fechas originales de ${actualizados} pagos. Ya puedes volver al Dashboard y recargar.`
+    });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 app.get('/logo.png', (req, res) => {
   const posiblesRutasLogo = [
     path.join(process.cwd(), 'public', 'logo.png'),
@@ -1509,4 +1535,4 @@ const servidor = app.listen(PORT, () => {
   console.log(`🚀 Servidor ejecutándose en el puerto ${PORT}`);
 });
 
-module.exports = { app, servidor };
+module.exports = { app, servidor }; 
