@@ -3324,6 +3324,15 @@
                 const idCuentaNueva = 'CTA-' + Date.now();
                 const pagosIniciales = [primerAbono, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
+                const esBasicNuevo = esPaqueteBasic(linea);
+                const eleccionNueva = esBasicNuevo ? "" : (document.getElementById('selectEleccionAlumnoModal')?.value || "");
+                const cargoExtraNuevo = (!esBasicNuevo && eleccionNueva === 'Ambos (Anillo + Personalizador)')
+                  ? (parseFloat(document.getElementById('inputCargoExtraAlumnoModal')?.value) || 0)
+                  : 0;
+                const tipoPanoramicaNueva = document.getElementById('selectTipoPanoramicaAlumnoModal')?.value || "";
+                const tallaCamisaNueva = esBasicNuevo ? "" : (document.getElementById('selectTallaCamisaAlumnoModal')?.value || "");
+                const tallaAnilloNueva = esBasicNuevo ? "" : (document.getElementById('selectTallaAnilloAlumnoModal')?.value || "");
+
                 saldos.push({
                   id: idCuentaNueva,
                   cliente: String(idManual),
@@ -3333,11 +3342,11 @@
                   monto: montoSaldo,
                   pagos: pagosIniciales,
                   entregas: {},
-                  eleccionEspecial: "",
-                  cargoExtraRegalia: 0,
-                  tipoPanoramica: "",
-                  tallaCamisa: "",
-                  tallaAnillo: "",
+                  eleccionEspecial: eleccionNueva,
+                  cargoExtraRegalia: cargoExtraNuevo,
+                  tipoPanoramica: tipoPanoramicaNueva,
+                  tallaCamisa: tallaCamisaNueva,
+                  tallaAnillo: tallaAnilloNueva,
                   esContadoEfectivo: esContado,
                   grupoId: grupoIdAsignado,
                   grupoNombre: gObj ? gObj.nombre : ''
