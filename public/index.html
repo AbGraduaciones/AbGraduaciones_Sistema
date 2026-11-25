@@ -2073,7 +2073,37 @@
       const ingresosPeriodo = pagosPeriodo.reduce((acc, p) => acc + (Number(p.monto || p.montoAbonado) || 0), 0);
       const gastosPeriodo = egresosPeriodo.reduce((acc, e) => acc + (Number(e.monto) || 0), 0);
       const utilidadPeriodo = ingresosPeriodo - gastosPeriodo;
+      const esPagoEnLinea = (p) => {
+        const m = String(p.metodo || p.metodoPago || '').toLowerCase();
+        const id = String(p.id || p.folio || '').toUpperCase();
+        return m.includes('mercado pago') || m.includes('stripe') || m.includes('línea') || m.includes('linea') || id.startsWith('MP-');
+      };
 
+      let ingresosEfectivoPeriodo = 0, cantEfectivoPeriodo = 0;
+      let ingresosEnLineaPeriodo = 0, cantEnLineaPeriodo = 0;
+      pagosPeriodo.forEach(p => {
+        const monto = Number(p.monto || p.montoAbonado) || 0;
+        if (esPagoEnLinea(p)) {
+          ingresosEnLineaPeriodo += monto;
+          cantEnLineaPeriodo++;
+        } else {
+          ingresosEfectivoPeriodo += monto;
+          cantEfectivoPeriodo++;
+        }
+      });
+
+      let totalEfectivoGlobal = 0, cantEfectivoGlobal = 0;
+      let totalEnLineaGlobal = 0, cantEnLineaGlobal = 0;
+      pagosUso.forEach(p => {
+        const monto = Number(p.monto || p.montoAbonado) || 0;
+        if (esPagoEnLinea(p)) {
+          totalEnLineaGlobal += monto;
+          cantEnLineaGlobal++;
+        } else {
+          totalEfectivoGlobal += monto;
+          cantEfectivoGlobal++;
+        }
+      });
       const mapaFechas = {};
       pagosPeriodo.forEach(p => {
         const f = (p.fecha || 'Sin fecha').split('T')[0];
@@ -2298,6 +2328,23 @@
             </div>
           </div>
 
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
+            <div class="p-3.5 bg-amber-50/70 border border-amber-200 rounded-xl flex justify-between items-center">
+              <div>
+                <p class="text-[10px] font-bold uppercase text-amber-800">💵 Efectivo (Portal Admin)</p>
+                <p class="text-xl font-extrabold text-amber-900">$${ingresosEfectivoPeriodo.toLocaleString()}</p>
+              </div>
+              <span class="text-xs font-bold bg-amber-100 text-amber-800 px-2.5 py-1 rounded-full">${cantEfectivoPeriodo} abonos</span>
+            </div>
+            <div class="p-3.5 bg-sky-50/80 border border-sky-200 rounded-xl flex justify-between items-center">
+              <div>
+                <p class="text-[10px] font-bold uppercase text-sky-800">💳 Tarjeta / Transferencia (Portal Alumno)</p>
+                <p class="text-xl font-extrabold text-sky-900">$${ingresosEnLineaPeriodo.toLocaleString()}</p>
+              </div>
+              <span class="text-xs font-bold bg-sky-100 text-sky-800 px-2.5 py-1 rounded-full">${cantEnLineaPeriodo} abonos</span>
+            </div>
+          </div>
+
           <div class="overflow-x-auto max-h-72 overflow-y-auto border border-slate-200 rounded-xl">
             <table class="w-full text-left text-xs border-collapse">
               <thead class="bg-slate-100 text-slate-600 font-bold uppercase sticky top-0">
@@ -2340,6 +2387,16 @@
             <div class="bg-emerald-950 text-white p-6 rounded-2xl shadow-md">
               <p class="text-emerald-300 text-xs font-bold uppercase tracking-wider">Utilidad Neta (Cobrado - Gastos)</p>
               <h3 class="text-4xl font-extrabold mt-3 ${utilidadNeta >= 0 ? 'text-emerald-400' : 'text-red-400'}">$${utilidadNeta.toLocaleString()}</h3>
+            </div>
+            <div class="bg-white p-6 rounded-2xl border border-amber-200 shadow-sm">
+              <p class="text-amber-700 text-xs font-bold uppercase tracking-wider">💵 Total Efectivo (Admin)</p>
+              <h3 class="text-3xl font-extrabold mt-3 text-amber-700">$${totalEfectivoGlobal.toLocaleString()}</h3>
+              <p class="text-xs text-slate-500 mt-1">${cantEfectivoGlobal} abonos registrados</p>
+            </div>
+            <div class="bg-white p-6 rounded-2xl border border-sky-200 shadow-sm">
+              <p class="text-sky-700 text-xs font-bold uppercase tracking-wider">💳 Total Portal Alumno (MP)</p>
+              <h3 class="text-3xl font-extrabold mt-3 text-sky-700">$${totalEnLineaGlobal.toLocaleString()}</h3>
+              <p class="text-xs text-slate-500 mt-1">${cantEnLineaGlobal} pagos en línea</p>
             </div>
           </div>
         </div>
