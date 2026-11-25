@@ -2714,6 +2714,17 @@
       const inputMonto = document.getElementById('inputMontoAlumnoModal');
       const catalogoActivo = obtenerCatalogoPreciosActivo();
 
+      const esBasic = esPaqueteBasic(lineaSel);
+      const wrapEleccion = document.getElementById('wrapperEleccionAlumnoModal');
+      const wrapCamisa = document.getElementById('wrapperTallaCamisaAlumnoModal');
+      const wrapAnillo = document.getElementById('wrapperTallaAnilloAlumnoModal');
+      const contCargo = document.getElementById('contenedorCargoExtraAlumnoModal');
+
+      if (wrapEleccion) wrapEleccion.style.display = esBasic ? 'none' : 'block';
+      if (wrapCamisa) wrapCamisa.style.display = esBasic ? 'none' : 'block';
+      if (wrapAnillo) wrapAnillo.style.display = esBasic ? 'none' : 'block';
+      if (esBasic && contCargo) contCargo.classList.add('hidden');
+
       selectModelo.innerHTML = '<option value="">Seleccionar Modelo...</option>';
       if (inputMonto) inputMonto.value = '';
 
@@ -2729,6 +2740,30 @@
       } else {
         selectModelo.disabled = true;
       }
+      actualizarPrecioAlumnoModal();
+    }
+
+    function cambiarEleccionAlumnoModal() {
+      const eleccion = document.getElementById('selectEleccionAlumnoModal')?.value || '';
+      const contCargo = document.getElementById('contenedorCargoExtraAlumnoModal');
+      const wrapAnillo = document.getElementById('wrapperTallaAnilloAlumnoModal');
+
+      if (contCargo) {
+        if (eleccion === 'Ambos (Anillo + Personalizador)') {
+          contCargo.classList.remove('hidden');
+        } else {
+          contCargo.classList.add('hidden');
+        }
+      }
+
+      if (wrapAnillo) {
+        if (eleccion === 'Sin regalía' || eleccion === 'Personalizador') {
+          wrapAnillo.classList.add('opacity-40');
+        } else {
+          wrapAnillo.classList.remove('opacity-40');
+        }
+      }
+
       actualizarPrecioAlumnoModal();
     }
 
@@ -2749,12 +2784,22 @@
 
       const precioBase = parseFloat(option.dataset.precio) || 0;
       const esContado = checkContado && checkContado.checked;
-      const precioFinal = esContado ? Math.round(precioBase * 0.95) : precioBase;
+      const lineaSel = document.getElementById('inputLineaAlumnoModal')?.value || '';
+      const eleccion = esPaqueteBasic(lineaSel) ? '' : (document.getElementById('selectEleccionAlumnoModal')?.value || '');
+      const cargoExtra = (eleccion === 'Ambos (Anillo + Personalizador)')
+        ? (parseFloat(document.getElementById('inputCargoExtraAlumnoModal')?.value) || 0)
+        : 0;
+
+      const precioFinal = (esContado ? Math.round(precioBase * 0.95) : precioBase) + cargoExtra;
 
       if (labelDescuento) {
-        labelDescuento.innerText = esContado
-          ? `(Lista: $${precioBase.toLocaleString()} - 5% Contado = $${precioFinal.toLocaleString()})`
-          : '';
+        if (esContado) {
+          labelDescuento.innerText = `(Lista: $${precioBase.toLocaleString()} - 5% Contado${cargoExtra > 0 ? ' + $' + cargoExtra.toLocaleString() + ' 2da regalía' : ''} = $${precioFinal.toLocaleString()})`;
+        } else if (cargoExtra > 0) {
+          labelDescuento.innerText = `(Incluye +$${cargoExtra.toLocaleString()} por 2da regalía)`;
+        } else {
+          labelDescuento.innerText = '';
+        }
       }
 
       if (inputMonto) inputMonto.value = precioFinal;
@@ -2938,6 +2983,72 @@
               </div>
             </div>
           </div>
+          <div class="pt-3 border-t border-blue-200/70 space-y-3">
+                <p class="text-[11px] font-extrabold uppercase tracking-wider text-blue-900">📦 Especificaciones de Entrega y Regalía (Opcional)</p>
+
+                <div id="wrapperEleccionAlumnoModal">
+                  <label class="block text-[11px] font-bold uppercase text-slate-500 mb-1">✨ Regalía Especial</label>
+                  <select id="selectEleccionAlumnoModal" onchange="cambiarEleccionAlumnoModal()" class="w-full p-2.5 bg-white border border-slate-200 rounded-xl text-xs font-semibold outline-none focus:border-blue-600">
+                    <option value="">Pendiente de elección</option>
+                    <option value="Anillo de Plata 925">💍 Anillo de Plata 925</option>
+                    <option value="Personalizador">✒️ Personalizador</option>
+                    <option value="Ambos (Anillo + Personalizador)">✨ Ambos (Anillo + Personalizador - Cargo extra)</option>
+                    <option value="Sin regalía">🚫 No quiere ninguna regalía</option>
+                  </select>
+                </div>
+
+                <div id="contenedorCargoExtraAlumnoModal" class="hidden p-2.5 bg-indigo-100/80 border border-indigo-300 rounded-xl flex items-center justify-between gap-2">
+                  <label class="text-[11px] font-extrabold uppercase text-indigo-950">💵 Cargo 2da Regalía ($)</label>
+                  <input type="number" id="inputCargoExtraAlumnoModal" min="0" step="10" value="${CARGO_EXTRA_AMBAS_REGALIAS_DEFAULT}" oninput="actualizarPrecioAlumnoModal()" class="w-24 p-1.5 bg-white border border-indigo-400 rounded-lg text-right font-extrabold text-indigo-900 text-xs outline-none">
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <div>
+                    <label class="block text-[11px] font-bold uppercase text-slate-500 mb-1">🖼️ Panorámica</label>
+                    <select id="selectTipoPanoramicaAlumnoModal" class="w-full p-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold outline-none focus:border-blue-600">
+                      <option value="">Sin especificar</option>
+                      <option value="Con Placa">🏅 Con Placa</option>
+                      <option value="Con Escultura">🗿 Con Escultura</option>
+                    </select>
+                  </div>
+                  <div id="wrapperTallaCamisaAlumnoModal">
+                    <label class="block text-[11px] font-bold uppercase text-slate-500 mb-1">👕 Talla Camisa</label>
+                    <select id="selectTallaCamisaAlumnoModal" class="w-full p-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold outline-none focus:border-blue-600">
+                      <option value="">Sin especificar</option>
+                      <option value="XS">XS</option>
+                      <option value="S">S</option>
+                      <option value="M">M</option>
+                      <option value="L">L</option>
+                      <option value="XL">XL</option>
+                      <option value="XXL">XXL</option>
+                    </select>
+                  </div>
+                  <div id="wrapperTallaAnilloAlumnoModal">
+                    <label class="block text-[11px] font-bold uppercase text-slate-500 mb-1">💍 Talla Anillo</label>
+                    <select id="selectTallaAnilloAlumnoModal" class="w-full p-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold outline-none focus:border-blue-600">
+                      <option value="">Sin especificar</option>
+                      <option value="4">No. 4</option>
+                      <option value="4.5">No. 4.5</option>
+                      <option value="5">No. 5</option>
+                      <option value="5.5">No. 5.5</option>
+                      <option value="6">No. 6</option>
+                      <option value="6.5">No. 6.5</option>
+                      <option value="7">No. 7</option>
+                      <option value="7.5">No. 7.5</option>
+                      <option value="8">No. 8</option>
+                      <option value="8.5">No. 8.5</option>
+                      <option value="9">No. 9</option>
+                      <option value="9.5">No. 9.5</option>
+                      <option value="10">No. 10</option>
+                      <option value="10.5">No. 10.5</option>
+                      <option value="11">No. 11</option>
+                      <option value="11.5">No. 11.5</option>
+                      <option value="12">No. 12</option>
+                      <option value="13">No. 13</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
         ` : '';
 
         contenedor.innerHTML = `
@@ -3097,11 +3208,13 @@
               monto, 
               pagos: pagosCapturados, 
               entregas: {}, 
-              eleccionEspecial: "", 
-              cargoExtraRegalia: 0,
-              tipoPanoramica: "",
-              tallaCamisa: "",
-              tallaAnillo: "",
+              eleccionEspecial: esPaqueteBasic(linea) ? "" : (document.getElementById('selectEleccionAlumnoModal')?.value || ""),
+                  cargoExtraRegalia: (!esPaqueteBasic(linea) && document.getElementById('selectEleccionAlumnoModal')?.value === 'Ambos (Anillo + Personalizador)')
+                    ? (parseFloat(document.getElementById('inputCargoExtraAlumnoModal')?.value) || 0)
+                    : 0,
+                  tipoPanoramica: document.getElementById('selectTipoPanoramicaAlumnoModal')?.value || "",
+                  tallaCamisa: esPaqueteBasic(linea) ? "" : (document.getElementById('selectTallaCamisaAlumnoModal')?.value || ""),
+                  tallaAnillo: esPaqueteBasic(linea) ? "" : (document.getElementById('selectTallaAnilloAlumnoModal')?.value || ""),
               esContadoEfectivo,
               grupoId: grupoIdAsignado,
               grupoNombre: gObj ? gObj.nombre : ''
