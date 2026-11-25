@@ -2100,15 +2100,8 @@
 
       const metPeriodo = sumarPorMetodo(pagosPeriodo);
       const metGlobal = sumarPorMetodo(pagosUso);
-        const monto = Number(p.monto || p.montoAbonado) || 0;
-        if (esPagoEnLinea(p)) {
-          totalEnLineaGlobal += monto;
-          cantEnLineaGlobal++;
-        } else {
-          totalEfectivoGlobal += monto;
-          cantEfectivoGlobal++;
-        }
-      });
+        });
+        
       const mapaFechas = {};
       pagosPeriodo.forEach(p => {
         const f = (p.fecha || 'Sin fecha').split('T')[0];
