@@ -2697,6 +2697,70 @@
       }
     }
 
+    function toggleSeccionSaldoAlumno() {
+      const check = document.getElementById('checkCrearSaldoConAlumno');
+      const bloque = document.getElementById('bloqueSaldoEnAlumno');
+      if (!bloque || !check) return;
+      if (check.checked) {
+        bloque.classList.remove('hidden');
+      } else {
+        bloque.classList.add('hidden');
+      }
+    }
+
+    function actualizarModelosAlumnoModal() {
+      const lineaSel = document.getElementById('inputLineaAlumnoModal').value;
+      const selectModelo = document.getElementById('inputModeloAlumnoModal');
+      const inputMonto = document.getElementById('inputMontoAlumnoModal');
+      const catalogoActivo = obtenerCatalogoPreciosActivo();
+
+      selectModelo.innerHTML = '<option value="">Seleccionar Modelo...</option>';
+      if (inputMonto) inputMonto.value = '';
+
+      if (lineaSel && catalogoActivo[lineaSel]) {
+        selectModelo.disabled = false;
+        catalogoActivo[lineaSel].forEach(item => {
+          const opt = document.createElement('option');
+          opt.value = item.modelo;
+          opt.textContent = `${item.modelo} - $${item.precio.toLocaleString()}`;
+          opt.dataset.precio = item.precio;
+          selectModelo.appendChild(opt);
+        });
+      } else {
+        selectModelo.disabled = true;
+      }
+      actualizarPrecioAlumnoModal();
+    }
+
+    function actualizarPrecioAlumnoModal() {
+      const selectModelo = document.getElementById('inputModeloAlumnoModal');
+      if (!selectModelo) return;
+      const option = selectModelo.options[selectModelo.selectedIndex];
+      const inputMonto = document.getElementById('inputMontoAlumnoModal');
+      const checkContado = document.getElementById('checkContadoEfectivoAlumno');
+      const labelDescuento = document.getElementById('etiquetaMontoDescuentoAlumno');
+      const inputPrimerPago = document.getElementById('fPrimerPagoAlumno');
+
+      if (!option || !option.dataset.precio) {
+        if (inputMonto) inputMonto.value = '';
+        if (labelDescuento) labelDescuento.innerText = '';
+        return;
+      }
+
+      const precioBase = parseFloat(option.dataset.precio) || 0;
+      const esContado = checkContado && checkContado.checked;
+      const precioFinal = esContado ? Math.round(precioBase * 0.95) : precioBase;
+
+      if (labelDescuento) {
+        labelDescuento.innerText = esContado
+          ? `(Lista: $${precioBase.toLocaleString()} - 5% Contado = $${precioFinal.toLocaleString()})`
+          : '';
+      }
+
+      if (inputMonto) inputMonto.value = precioFinal;
+      if (esContado && inputPrimerPago) inputPrimerPago.value = precioFinal;
+    }
+
     function construirCamposFormulario(datos = {}) {
       const contenedor = document.getElementById('camposFormulario');
       contenedor.innerHTML = '';
@@ -2816,6 +2880,66 @@
         }
       } else if (vistaActual === 'alumnos') {
         const idSugerido = datos.id || generarNuevoIdAlumno();
+        const esNuevoAlumno = !datos.id;
+
+        let opcionesLineasHtml = '<option value="">Seleccionar...</option>';
+        Object.keys(catalogoActivo).forEach(lin => {
+          opcionesLineasHtml += `<option value="${lin}">${lin}</option>`;
+        });
+
+        const bloquePaqueteNuevoAlumno = esNuevoAlumno ? `
+          <div class="pt-4 mt-2 border-t border-slate-200">
+            <label class="flex items-center gap-2.5 cursor-pointer mb-3">
+              <input type="checkbox" id="checkCrearSaldoConAlumno" onchange="toggleSeccionSaldoAlumno()" checked class="w-4 h-4 text-blue-600 rounded">
+              <span class="text-xs font-extrabold uppercase tracking-wider text-blue-800">
+                📦 Asignar Paquete y Primer Abono de una vez
+              </span>
+            </label>
+
+            <div id="bloqueSaldoEnAlumno" class="space-y-3 p-4 bg-blue-50/40 border border-blue-200 rounded-xl">
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Línea Paquete</label>
+                  <select id="inputLineaAlumnoModal" onchange="actualizarModelosAlumnoModal()" class="w-full p-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-blue-600">
+                    ${opcionesLineasHtml}
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Modelo</label>
+                  <select id="inputModeloAlumnoModal" onchange="actualizarPrecioAlumnoModal()" disabled class="w-full p-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-blue-600">
+                    <option value="">Primero elige línea</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between">
+                <label class="flex items-center gap-2.5 cursor-pointer">
+                  <input type="checkbox" id="checkContadoEfectivoAlumno" onchange="actualizarPrecioAlumnoModal()" class="w-4 h-4 text-emerald-600 rounded">
+                  <span class="font-bold text-emerald-900 text-xs uppercase">💵 Pago de contado en efectivo (5% desc.)</span>
+                </label>
+                <span class="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">Ahorro 5%</span>
+              </div>
+
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Monto Total ($)</label>
+                  <input type="number" id="inputMontoAlumnoModal" readonly placeholder="0" class="w-full p-2.5 bg-slate-100 border border-slate-200 rounded-xl font-bold text-slate-800 text-sm outline-none">
+                  <span id="etiquetaMontoDescuentoAlumno" class="text-[10px] font-bold text-emerald-700 block mt-0.5"></span>
+                </div>
+                <div>
+                  <label class="block text-xs font-bold uppercase tracking-wider text-blue-700 mb-1">Primer Abono / Pago 1 ($)</label>
+                  <input type="number" id="fPrimerPagoAlumno" value="0" min="0" class="w-full p-2.5 bg-white border border-blue-300 rounded-xl font-mono font-bold text-blue-800 text-sm outline-none focus:border-blue-600">
+                </div>
+              </div>
+
+              <div>
+                <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Modificaciones / Observaciones</label>
+                <textarea id="fObservacionesAlumnoSaldo" rows="2" placeholder="Opcional: cambio de marco, dedicatoria, etc." class="w-full p-2.5 bg-white border border-slate-200 rounded-xl text-sm outline-none focus:border-blue-600"></textarea>
+              </div>
+            </div>
+          </div>
+        ` : '';
+
         contenedor.innerHTML = `
           <div class="grid grid-cols-3 gap-4">
             <div>
@@ -2855,6 +2979,7 @@
               </select>
             </div>
           </div>
+          ${bloquePaqueteNuevoAlumno}
         `;
       }
     }
@@ -3071,6 +3196,60 @@
             });
           } else {
             alumnos.push(datosAlumnoActualizado);
+
+            const checkCrearSaldo = document.getElementById('checkCrearSaldoConAlumno');
+            if (checkCrearSaldo && checkCrearSaldo.checked) {
+              const linea = document.getElementById('inputLineaAlumnoModal')?.value || '';
+              const modelo = document.getElementById('inputModeloAlumnoModal')?.value || '';
+              const montoSaldo = parseFloat(document.getElementById('inputMontoAlumnoModal')?.value) || 0;
+
+              if (linea && modelo && montoSaldo > 0) {
+                const esContado = document.getElementById('checkContadoEfectivoAlumno')?.checked || false;
+                const primerAbonoInput = parseFloat(document.getElementById('fPrimerPagoAlumno')?.value) || 0;
+                const primerAbono = esContado ? montoSaldo : Math.min(primerAbonoInput, montoSaldo);
+                const obsSaldo = document.getElementById('fObservacionesAlumnoSaldo')?.value.trim() || '';
+                const idCuentaNueva = 'CTA-' + Date.now();
+                const pagosIniciales = [primerAbono, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+
+                saldos.push({
+                  id: idCuentaNueva,
+                  cliente: String(idManual),
+                  alumno: nombre,
+                  paquete: `${linea} - ${modelo}`,
+                  observaciones: obsSaldo,
+                  monto: montoSaldo,
+                  pagos: pagosIniciales,
+                  entregas: {},
+                  eleccionEspecial: "",
+                  cargoExtraRegalia: 0,
+                  tipoPanoramica: "",
+                  tallaCamisa: "",
+                  tallaAnillo: "",
+                  esContadoEfectivo: esContado,
+                  grupoId: grupoIdAsignado,
+                  grupoNombre: gObj ? gObj.nombre : ''
+                });
+
+                if (primerAbono > 0) {
+                  const idPagoNuevo = `PAG-${idCuentaNueva}-C1`;
+                  pagos.push({
+                    id: idPagoNuevo,
+                    folio: idPagoNuevo,
+                    cuentaId: idCuentaNueva,
+                    alumnoId: String(idManual),
+                    alumno: nombre,
+                    nombreAlumno: nombre,
+                    concepto: esContado ? 'Pago Contado Efectivo' : 'Pago 1',
+                    monto: primerAbono,
+                    montoAbonado: primerAbono,
+                    fecha: new Date().toISOString().split('T')[0],
+                    metodo: esContado ? 'Efectivo (Contado)' : 'Efectivo / Admin',
+                    estado: 'Completado',
+                    grupoId: grupoIdAsignado
+                  });
+                }
+              }
+            }
           }
 
           actualizarDatalistAlumnos();
