@@ -999,6 +999,20 @@ async function aplicarPagoMercadoPago(paymentInfo) {
     await cuentaObj.save();
   }
 
+  const tipoMP = String(paymentInfo.payment_type_id || '').toLowerCase();
+  const metodoIdMP = String(paymentInfo.payment_method_id || '').toLowerCase();
+  let metodoExactoMP = 'Mercado Pago';
+
+  if (tipoMP.includes('card')) {
+    metodoExactoMP = 'Mercado Pago - Tarjeta';
+  } else if (tipoMP === 'bank_transfer' || metodoIdMP.includes('spei') || metodoIdMP.includes('clabe')) {
+    metodoExactoMP = 'Mercado Pago - SPEI';
+  } else if (tipoMP === 'ticket' || tipoMP === 'atm' || metodoIdMP.includes('oxxo')) {
+    metodoExactoMP = 'Mercado Pago - OXXO';
+  } else if (tipoMP === 'account_money') {
+    metodoExactoMP = 'Mercado Pago - Saldo MP';
+  }
+
   await Pago.create({
     id: folioMP,
     cuenta: cuentaObj ? cuentaObj._id : cuentaId,
@@ -1007,7 +1021,7 @@ async function aplicarPagoMercadoPago(paymentInfo) {
     concepto,
     monto,
     fecha: new Date(),
-    metodoPago: 'Mercado Pago',
+    metodoPago: metodoExactoMP,
     grupoId: cuentaObj ? cuentaObj.grupoId : null,
     notas: `Pago aprobado en Mercado Pago (#${paymentInfo.id}) | Alumno: ${nombreAlumno || 'Alumno'}`
   });

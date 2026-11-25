@@ -2073,28 +2073,33 @@
       const ingresosPeriodo = pagosPeriodo.reduce((acc, p) => acc + (Number(p.monto || p.montoAbonado) || 0), 0);
       const gastosPeriodo = egresosPeriodo.reduce((acc, e) => acc + (Number(e.monto) || 0), 0);
       const utilidadPeriodo = ingresosPeriodo - gastosPeriodo;
-      const esPagoEnLinea = (p) => {
+      const clasificarMetodo = (p) => {
         const m = String(p.metodo || p.metodoPago || '').toLowerCase();
         const id = String(p.id || p.folio || '').toUpperCase();
-        return m.includes('mercado pago') || m.includes('stripe') || m.includes('línea') || m.includes('linea') || id.startsWith('MP-');
+        const esMP = m.includes('mercado pago') || m.includes('stripe') || m.includes('línea') || m.includes('linea') || id.startsWith('MP-');
+        if (!esMP) return 'efectivo';
+        if (m.includes('spei') || m.includes('transfer')) return 'spei';
+        if (m.includes('oxxo') || m.includes('ticket')) return 'oxxo';
+        return 'tarjeta';
       };
 
-      let ingresosEfectivoPeriodo = 0, cantEfectivoPeriodo = 0;
-      let ingresosEnLineaPeriodo = 0, cantEnLineaPeriodo = 0;
-      pagosPeriodo.forEach(p => {
-        const monto = Number(p.monto || p.montoAbonado) || 0;
-        if (esPagoEnLinea(p)) {
-          ingresosEnLineaPeriodo += monto;
-          cantEnLineaPeriodo++;
-        } else {
-          ingresosEfectivoPeriodo += monto;
-          cantEfectivoPeriodo++;
-        }
-      });
+      const sumarPorMetodo = (lista) => {
+        const res = {
+          efectivo: { monto: 0, cant: 0 },
+          tarjeta: { monto: 0, cant: 0 },
+          spei: { monto: 0, cant: 0 },
+          oxxo: { monto: 0, cant: 0 }
+        };
+        lista.forEach(p => {
+          const cat = clasificarMetodo(p);
+          res[cat].monto += Number(p.monto || p.montoAbonado) || 0;
+          res[cat].cant += 1;
+        });
+        return res;
+      };
 
-      let totalEfectivoGlobal = 0, cantEfectivoGlobal = 0;
-      let totalEnLineaGlobal = 0, cantEnLineaGlobal = 0;
-      pagosUso.forEach(p => {
+      const metPeriodo = sumarPorMetodo(pagosPeriodo);
+      const metGlobal = sumarPorMetodo(pagosUso);
         const monto = Number(p.monto || p.montoAbonado) || 0;
         if (esPagoEnLinea(p)) {
           totalEnLineaGlobal += monto;
@@ -2328,20 +2333,34 @@
             </div>
           </div>
 
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
-            <div class="p-3.5 bg-amber-50/70 border border-amber-200 rounded-xl flex justify-between items-center">
-              <div>
-                <p class="text-[10px] font-bold uppercase text-amber-800">💵 Efectivo (Portal Admin)</p>
-                <p class="text-xl font-extrabold text-amber-900">$${ingresosEfectivoPeriodo.toLocaleString()}</p>
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+            <div class="p-3 bg-amber-50/70 border border-amber-200 rounded-xl">
+              <div class="flex justify-between items-center">
+                <p class="text-[10px] font-bold uppercase text-amber-800">💵 Efectivo (Admin)</p>
+                <span class="text-[10px] font-bold bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full">${metPeriodo.efectivo.cant}</span>
               </div>
-              <span class="text-xs font-bold bg-amber-100 text-amber-800 px-2.5 py-1 rounded-full">${cantEfectivoPeriodo} abonos</span>
+              <p class="text-lg font-extrabold text-amber-900 mt-1">$${metPeriodo.efectivo.monto.toLocaleString()}</p>
             </div>
-            <div class="p-3.5 bg-sky-50/80 border border-sky-200 rounded-xl flex justify-between items-center">
-              <div>
-                <p class="text-[10px] font-bold uppercase text-sky-800">💳 Tarjeta / Transferencia (Portal Alumno)</p>
-                <p class="text-xl font-extrabold text-sky-900">$${ingresosEnLineaPeriodo.toLocaleString()}</p>
+            <div class="p-3 bg-sky-50/80 border border-sky-200 rounded-xl">
+              <div class="flex justify-between items-center">
+                <p class="text-[10px] font-bold uppercase text-sky-800">💳 Tarjeta (MP)</p>
+                <span class="text-[10px] font-bold bg-sky-100 text-sky-800 px-2 py-0.5 rounded-full">${metPeriodo.tarjeta.cant}</span>
               </div>
-              <span class="text-xs font-bold bg-sky-100 text-sky-800 px-2.5 py-1 rounded-full">${cantEnLineaPeriodo} abonos</span>
+              <p class="text-lg font-extrabold text-sky-900 mt-1">$${metPeriodo.tarjeta.monto.toLocaleString()}</p>
+            </div>
+            <div class="p-3 bg-indigo-50/80 border border-indigo-200 rounded-xl">
+              <div class="flex justify-between items-center">
+                <p class="text-[10px] font-bold uppercase text-indigo-800">🏦 SPEI (MP)</p>
+                <span class="text-[10px] font-bold bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded-full">${metPeriodo.spei.cant}</span>
+              </div>
+              <p class="text-lg font-extrabold text-indigo-900 mt-1">$${metPeriodo.spei.monto.toLocaleString()}</p>
+            </div>
+            <div class="p-3 bg-orange-50/80 border border-orange-200 rounded-xl">
+              <div class="flex justify-between items-center">
+                <p class="text-[10px] font-bold uppercase text-orange-800">🏪 OXXO (MP)</p>
+                <span class="text-[10px] font-bold bg-orange-100 text-orange-800 px-2 py-0.5 rounded-full">${metPeriodo.oxxo.cant}</span>
+              </div>
+              <p class="text-lg font-extrabold text-orange-900 mt-1">$${metPeriodo.oxxo.monto.toLocaleString()}</p>
             </div>
           </div>
 
@@ -2390,13 +2409,23 @@
             </div>
             <div class="bg-white p-6 rounded-2xl border border-amber-200 shadow-sm">
               <p class="text-amber-700 text-xs font-bold uppercase tracking-wider">💵 Total Efectivo (Admin)</p>
-              <h3 class="text-3xl font-extrabold mt-3 text-amber-700">$${totalEfectivoGlobal.toLocaleString()}</h3>
-              <p class="text-xs text-slate-500 mt-1">${cantEfectivoGlobal} abonos registrados</p>
+              <h3 class="text-3xl font-extrabold mt-3 text-amber-700">$${metGlobal.efectivo.monto.toLocaleString()}</h3>
+              <p class="text-xs text-slate-500 mt-1">${metGlobal.efectivo.cant} abonos registrados</p>
             </div>
             <div class="bg-white p-6 rounded-2xl border border-sky-200 shadow-sm">
-              <p class="text-sky-700 text-xs font-bold uppercase tracking-wider">💳 Total Portal Alumno (MP)</p>
-              <h3 class="text-3xl font-extrabold mt-3 text-sky-700">$${totalEnLineaGlobal.toLocaleString()}</h3>
-              <p class="text-xs text-slate-500 mt-1">${cantEnLineaGlobal} pagos en línea</p>
+              <p class="text-sky-700 text-xs font-bold uppercase tracking-wider">💳 Total Tarjeta (MP)</p>
+              <h3 class="text-3xl font-extrabold mt-3 text-sky-700">$${metGlobal.tarjeta.monto.toLocaleString()}</h3>
+              <p class="text-xs text-slate-500 mt-1">${metGlobal.tarjeta.cant} pagos con tarjeta</p>
+            </div>
+            <div class="bg-white p-6 rounded-2xl border border-indigo-200 shadow-sm">
+              <p class="text-indigo-700 text-xs font-bold uppercase tracking-wider">🏦 Total SPEI (MP)</p>
+              <h3 class="text-3xl font-extrabold mt-3 text-indigo-700">$${metGlobal.spei.monto.toLocaleString()}</h3>
+              <p class="text-xs text-slate-500 mt-1">${metGlobal.spei.cant} transferencias SPEI</p>
+            </div>
+            <div class="bg-white p-6 rounded-2xl border border-orange-200 shadow-sm">
+              <p class="text-orange-700 text-xs font-bold uppercase tracking-wider">🏪 Total OXXO (MP)</p>
+              <h3 class="text-3xl font-extrabold mt-3 text-orange-700">$${metGlobal.oxxo.monto.toLocaleString()}</h3>
+              <p class="text-xs text-slate-500 mt-1">${metGlobal.oxxo.cant} depósitos en OXXO</p>
             </div>
           </div>
         </div>
