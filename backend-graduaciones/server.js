@@ -1758,32 +1758,59 @@ app.delete('/api/catalogo/:id', requireAuth, async (req, res) => {
 });
 
 // EXPLOSIÓN DE MATERIALES POR GRUPO (REGLA: 1 MARCO TRIPLE = 2 DIPLOMAS)
+  // EXPLOSIÓN DE MATERIALES POR GRUPO (LEE PAQUETE, 1 TRIPLE = 2 DIPLOMAS Y DESCUENTA PEDIDOS PREVIOS)
 app.post('/api/ordenes-compra/preview-grupos', requireAuth, async (req, res) => {
   try {
     const { grupos = [], proveedorId = '' } = req.body;
 
-    const filtroCuentas = grupos.length > 0
+    // 1. Resolver IDs y nombres de los grupos seleccionados (para cruzar Cuenta y OrdenCompra)
+    let idsSeleccionados = [];
+    let nombresSeleccionados = [];
+
+    if (Array.isArray(grupos) && grupos.length > 0) {
+      const objectIds = grupos
+        .filter(id => mongoose.Types.ObjectId.isValid(String(id)))
+        .map(id => new mongoose.Types.ObjectId(String(id)));
+
+      const gruposDocs = await Grupo.find({
+        $or: [
+          ...(objectIds.length > 0 ? [{ _id: { $in: objectIds } }] : []),
+          { nombre: { $in: grupos.map(String) } }
+        ]
+      }).lean();
+
+      idsSeleccionados = [
+        ...grupos.map(String),
+        ...gruposDocs.map(g => String(g._id)),
+        ...objectIds
+      ];
+      nombresSeleccionados = gruposDocs.map(g => g.nombre.trim());
+    }
+
+    const filtroCuentas = (Array.isArray(grupos) && grupos.length > 0)
       ? {
           $or: [
-            { grupoId: { $in: grupos.map(String) } },
-            { grupoNombre: { $in: grupos.map(String) } }
+            { grupoId: { $in: idsSeleccionados } },
+            ...(nombresSeleccionados.length > 0 ? [{ grupoNombre: { $in: nombresSeleccionados } }] : [])
           ]
         }
       : {};
 
     const cuentas = await Cuenta.find(filtroCuentas).lean();
 
+    // 2. Contar necesidades brutas desde los paquetes de los alumnos
     const conteo = {};
-    const sumar = (categoria, modelo, tamano, unidades = 1) => {
+    const sumar = (categoria, modelo, tamano, unidades = 1, modeloBaseFallback = '') => {
       if (!modelo || !String(modelo).trim()) return;
-      const modLimpio = String(modelo).trim();
-      const tamLimpio = String(tamano || 'ESTANDAR').trim();
+      const modLimpio = String(modelo).replace(/\s+/g, ' ').trim();
+      const tamLimpio = String(tamano || 'ESTANDAR').replace(/\s+/g, ' ').trim();
       const clave = `${categoria}|${modLimpio.toLowerCase()}|${tamLimpio.toLowerCase()}`;
 
       if (!conteo[clave]) {
         conteo[clave] = {
           categoria,
           modeloInterno: modLimpio,
+          modeloBaseFallback: String(modeloBaseFallback || modLimpio).replace(/\s+/g, ' ').trim(),
           tamanoOTalla: tamLimpio,
           cantidad: 0
         };
@@ -1792,19 +1819,29 @@ app.post('/api/ordenes-compra/preview-grupos', requireAuth, async (req, res) => 
     };
 
     for (const cta of cuentas) {
-      // 1. Marcos: cada marco triple lleva automáticamente 2 diplomas del mismo modelo
-      if (cta.tipoPanoramica && String(cta.tipoPanoramica).trim() !== '') {
-        const modeloMarco = String(cta.tipoPanoramica).trim();
-        sumar('marco', modeloMarco, 'TRIPLE 8X20', 1);
-        sumar('diploma', modeloMarco, 'DIPLOMA', 2);
+      // A) Marcos y Diplomas: extraer modelo desde "paquete" (ej: "Línea Deluxe 1... - Jirafa")
+      const paqueteRaw = String(cta.paquete || '').trim();
+      if (paqueteRaw && paqueteRaw.toLowerCase() !== 'sin paquete') {
+        const partes = paqueteRaw.split(' - ');
+        const modeloBase = partes.length > 1
+          ? partes.slice(1).join(' - ').trim()
+          : paqueteRaw;
+
+        const acabado = String(cta.tipoPanoramica || '').trim();
+        const modeloMarco = acabado ? `${modeloBase} (${acabado})` : modeloBase;
+
+        // Regla: cada marco triple lleva automáticamente 2 diplomas del mismo modelo
+        sumar('marco', modeloMarco, 'TRIPLE 8X20', 1, modeloBase);
+        sumar('diploma', modeloBase, 'DIPLOMA', 2, modeloBase);
       }
 
-      // 2. Playeras / Camisas por talla
-      if (cta.tallaCamisa && String(cta.tallaCamisa).trim() !== '' && String(cta.tallaCamisa).toLowerCase() !== 'n/a') {
-        sumar('playera', 'CAMISA / PLAYERA GRADUACION', String(cta.tallaCamisa).trim(), 1);
+      // B) Playeras / Camisas por talla
+      const tallaCam = String(cta.tallaCamisa || '').trim();
+      if (tallaCam && tallaCam.toLowerCase() !== 'n/a' && tallaCam !== '-') {
+        sumar('playera', 'CAMISA / PLAYERA GRADUACION', tallaCam, 1);
       }
 
-      // 3. Regalías especiales (Anillo de Plata 925 y/o Personalizador)
+      // C) Regalías especiales (Anillo de Plata 925 y/o Personalizador)
       const eleccion = String(cta.eleccionEspecial || '').trim();
       const tallaAnillo = String(cta.tallaAnillo || '').trim();
 
@@ -1815,45 +1852,83 @@ app.post('/api/ordenes-compra/preview-grupos', requireAuth, async (req, res) => 
         sumar('anillo', 'ANILLO DE PLATA 925', tallaAnillo || 'SIN MEDIDA', 1);
       } else if (eleccion.toLowerCase().includes('personalizador')) {
         sumar('personalizador', 'PERSONALIZADOR', 'ESTANDAR', 1);
-      } else if (eleccion !== 'Sin regalía' && tallaAnillo !== '') {
+      } else if (eleccion !== 'Sin regalía' && tallaAnillo !== '' && tallaAnillo !== '-') {
         sumar('anillo', 'ANILLO DE PLATA 925', tallaAnillo, 1);
       }
     }
 
+    // 3. Consultar órdenes previas no canceladas de los mismos grupos para restar lo ya pedido
+    const filtroOrdenesPrevias = { estatus: { $ne: 'cancelado' } };
+    if (Array.isArray(grupos) && grupos.length > 0) {
+      const criteriosGrupo = [...grupos.map(String), ...nombresSeleccionados];
+      filtroOrdenesPrevias.gruposIncluidos = { $in: criteriosGrupo };
+    }
+
+    const ordenesPrevias = await OrdenCompra.find(filtroOrdenesPrevias).lean();
+    const yaPedidoMapa = {};
+
+    for (const ord of ordenesPrevias) {
+      for (const it of (ord.items || [])) {
+        const cat = String(it.categoria || 'marco').toLowerCase();
+        const nomInt = String(it.nombreInterno || '').replace(/\s+/g, ' ').trim().toLowerCase();
+        const tam = String(it.tamanoOTalla || 'ESTANDAR').replace(/\s+/g, ' ').trim().toLowerCase();
+        const clavePrev = `${cat}|${nomInt}|${tam}`;
+
+        const cubierto = (Number(it.cantidadPedida) || 0) + (Number(it.stockUsado) || 0);
+        yaPedidoMapa[clavePrev] = (yaPedidoMapa[clavePrev] || 0) + cubierto;
+      }
+    }
+
+    // 4. Cruzar contra el Catálogo Maestro y descontar órdenes previas + stock físico
     const catalogo = await CatalogoInsumo.find({ activo: true }).lean();
 
-    const items = Object.values(conteo).map(reqItem => {
-      const match = catalogo.find(c =>
-        c.categoria === reqItem.categoria &&
-        c.modeloInterno.toLowerCase() === reqItem.modeloInterno.toLowerCase() &&
-        c.tamanoOTalla.toLowerCase() === reqItem.tamanoOTalla.toLowerCase()
-      );
+    const items = Object.values(conteo)
+      .map(reqItem => {
+        const claveExacta = `${reqItem.categoria}|${reqItem.modeloInterno.toLowerCase()}|${reqItem.tamanoOTalla.toLowerCase()}`;
+        const yaPedido = yaPedidoMapa[claveExacta] || 0;
+        const pendienteReal = Math.max(0, reqItem.cantidad - yaPedido);
 
-      const eq = proveedorId
-        ? match?.equivalencias?.find(e => String(e.proveedorId) === String(proveedorId))
-        : match?.equivalencias?.[0];
+        if (pendienteReal <= 0) return null;
 
-      const stockDisponible = match?.stockDisponible || 0;
-      const stockUsado = Math.min(stockDisponible, reqItem.cantidad);
-      const cantidadPedida = Math.max(0, reqItem.cantidad - stockUsado);
-      const costoUnitario = eq ? Number(eq.costoUnitario) : 0;
+        // Buscar primero por modelo completo (con acabado) y si no existe, por modelo base
+        const match = catalogo.find(c =>
+          c.categoria === reqItem.categoria &&
+          c.modeloInterno.toLowerCase() === reqItem.modeloInterno.toLowerCase() &&
+          c.tamanoOTalla.toLowerCase() === reqItem.tamanoOTalla.toLowerCase()
+        ) || catalogo.find(c =>
+          c.categoria === reqItem.categoria &&
+          c.modeloInterno.toLowerCase() === reqItem.modeloBaseFallback.toLowerCase() &&
+          c.tamanoOTalla.toLowerCase() === reqItem.tamanoOTalla.toLowerCase()
+        );
 
-      return {
-        insumoId: match?._id || null,
-        categoria: reqItem.categoria,
-        nombreInterno: reqItem.modeloInterno,
-        nombreProveedor: eq ? eq.nombreProveedor : reqItem.modeloInterno,
-        colorProveedor: eq ? eq.colorProveedor : (match?.colorInterno || ''),
-        sinAlias: !eq,
-        tamanoOTalla: reqItem.tamanoOTalla,
-        cantidadRequerida: reqItem.cantidad,
-        stockDisponible,
-        stockUsado,
-        cantidadPedida,
-        costoUnitario,
-        subtotal: Number((cantidadPedida * costoUnitario).toFixed(2))
-      };
-    });
+        const eq = proveedorId
+          ? match?.equivalencias?.find(e => String(e.proveedorId) === String(proveedorId))
+          : match?.equivalencias?.[0];
+
+        const stockDisponible = match?.stockDisponible || 0;
+        const stockUsado = Math.min(stockDisponible, pendienteReal);
+        const cantidadPedida = Math.max(0, pendienteReal - stockUsado);
+        const costoUnitario = eq ? Number(eq.costoUnitario) : 0;
+
+        return {
+          insumoId: match?._id || null,
+          categoria: reqItem.categoria,
+          nombreInterno: reqItem.modeloInterno,
+          nombreProveedor: eq ? eq.nombreProveedor : reqItem.modeloInterno,
+          colorProveedor: eq ? eq.colorProveedor : (match?.colorInterno || ''),
+          sinAlias: !eq,
+          tamanoOTalla: reqItem.tamanoOTalla,
+          cantidadBruta: reqItem.cantidad,
+          yaPedidoPrevio: yaPedido,
+          cantidadRequerida: pendienteReal,
+          stockDisponible,
+          stockUsado,
+          cantidadPedida,
+          costoUnitario,
+          subtotal: Number((cantidadPedida * costoUnitario).toFixed(2))
+        };
+      })
+      .filter(Boolean);
 
     res.json({
       ok: true,
