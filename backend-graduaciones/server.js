@@ -1759,11 +1759,19 @@ app.delete('/api/catalogo/:id', requireAuth, async (req, res) => {
 
 // EXPLOSIÓN DE MATERIALES POR GRUPO (REGLA: 1 MARCO TRIPLE = 2 DIPLOMAS)
   // EXPLOSIÓN DE MATERIALES POR GRUPO (LEE PAQUETE, 1 TRIPLE = 2 DIPLOMAS Y DESCUENTA PEDIDOS PREVIOS)
+// EXPLOSIÓN DE MATERIALES POR GRUPO (PAQUETES, 1 TRIPLE = 2 DIPLOMAS, PORTA RETRATO, ESCULTURA Y DESCUENTO DE PEDIDOS PREVIOS)
 app.post('/api/ordenes-compra/preview-grupos', requireAuth, async (req, res) => {
   try {
     const { grupos = [], proveedorId = '' } = req.body;
 
-    // 1. Resolver IDs y nombres de los grupos seleccionados (para cruzar Cuenta y OrdenCompra)
+    const normClave = (txt) => String(txt || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+
+    // 1. Resolver IDs y nombres de los grupos seleccionados
     let idsSeleccionados = [];
     let nombresSeleccionados = [];
 
@@ -1804,7 +1812,7 @@ app.post('/api/ordenes-compra/preview-grupos', requireAuth, async (req, res) => 
       if (!modelo || !String(modelo).trim()) return;
       const modLimpio = String(modelo).replace(/\s+/g, ' ').trim();
       const tamLimpio = String(tamano || 'ESTANDAR').replace(/\s+/g, ' ').trim();
-      const clave = `${categoria}|${modLimpio.toLowerCase()}|${tamLimpio.toLowerCase()}`;
+      const clave = `${categoria}|${normClave(modLimpio)}|${normClave(tamLimpio)}`;
 
       if (!conteo[clave]) {
         conteo[clave] = {
@@ -1819,7 +1827,6 @@ app.post('/api/ordenes-compra/preview-grupos', requireAuth, async (req, res) => 
     };
 
     for (const cta of cuentas) {
-      // A) Marcos y Diplomas: extraer modelo desde "paquete" (ej: "Línea Deluxe 1... - Jirafa")
       const paqueteRaw = String(cta.paquete || '').trim();
       if (paqueteRaw && paqueteRaw.toLowerCase() !== 'sin paquete') {
         const partes = paqueteRaw.split(' - ');
@@ -1830,34 +1837,40 @@ app.post('/api/ordenes-compra/preview-grupos', requireAuth, async (req, res) => 
         const acabado = String(cta.tipoPanoramica || '').trim();
         const modeloMarco = acabado ? `${modeloBase} (${acabado})` : modeloBase;
 
-        // Regla: cada marco triple lleva automáticamente 2 diplomas del mismo modelo
+        // A) 1 Marco Triple 8x20 + 2 Diplomas por alumno
         sumar('marco', modeloMarco, 'TRIPLE 8X20', 1, modeloBase);
         sumar('diploma', modeloBase, 'DIPLOMA', 2, modeloBase);
+
+        // B) Porta Retrato 8x10 incluido por alumno y Escultura si eligió "Con Escultura"
+        sumar('otro', 'PORTA RETRATO 8X10', '8X10', 1, 'PORTA RETRATO 8X10');
+        if (normClave(acabado).includes('escultura')) {
+          sumar('otro', 'ESCULTURA', 'ESTANDAR', 1, 'ESCULTURA');
+        }
       }
 
-      // B) Playeras / Camisas por talla
+      // C) Playeras / Camisas por talla
       const tallaCam = String(cta.tallaCamisa || '').trim();
       if (tallaCam && tallaCam.toLowerCase() !== 'n/a' && tallaCam !== '-') {
-        sumar('playera', 'CAMISA / PLAYERA GRADUACION', tallaCam, 1);
+        sumar('playera', 'CAMISA / PLAYERA GRADUACION', tallaCam, 1, 'CAMISA / PLAYERA GRADUACION');
       }
 
-      // C) Regalías especiales (Anillo de Plata 925 y/o Personalizador)
+      // D) Regalías especiales (Anillo de Plata 925 y/o Personalizador)
       const eleccion = String(cta.eleccionEspecial || '').trim();
       const tallaAnillo = String(cta.tallaAnillo || '').trim();
 
       if (eleccion === 'Ambos (Anillo + Personalizador)') {
-        sumar('anillo', 'ANILLO DE PLATA 925', tallaAnillo || 'SIN MEDIDA', 1);
-        sumar('personalizador', 'PERSONALIZADOR', 'ESTANDAR', 1);
+        sumar('anillo', 'ANILLO DE PLATA 925', tallaAnillo || 'SIN MEDIDA', 1, 'ANILLO DE PLATA 925');
+        sumar('personalizador', 'PERSONALIZADOR', 'ESTANDAR', 1, 'PERSONALIZADOR');
       } else if (eleccion === 'Anillo de Plata 925') {
-        sumar('anillo', 'ANILLO DE PLATA 925', tallaAnillo || 'SIN MEDIDA', 1);
+        sumar('anillo', 'ANILLO DE PLATA 925', tallaAnillo || 'SIN MEDIDA', 1, 'ANILLO DE PLATA 925');
       } else if (eleccion.toLowerCase().includes('personalizador')) {
-        sumar('personalizador', 'PERSONALIZADOR', 'ESTANDAR', 1);
+        sumar('personalizador', 'PERSONALIZADOR', 'ESTANDAR', 1, 'PERSONALIZADOR');
       } else if (eleccion !== 'Sin regalía' && tallaAnillo !== '' && tallaAnillo !== '-') {
-        sumar('anillo', 'ANILLO DE PLATA 925', tallaAnillo, 1);
+        sumar('anillo', 'ANILLO DE PLATA 925', tallaAnillo, 1, 'ANILLO DE PLATA 925');
       }
     }
 
-    // 3. Consultar órdenes previas no canceladas de los mismos grupos para restar lo ya pedido
+    // 3. Descontar órdenes previas no canceladas de los mismos grupos
     const filtroOrdenesPrevias = { estatus: { $ne: 'cancelado' } };
     if (Array.isArray(grupos) && grupos.length > 0) {
       const criteriosGrupo = [...grupos.map(String), ...nombresSeleccionados];
@@ -1870,36 +1883,32 @@ app.post('/api/ordenes-compra/preview-grupos', requireAuth, async (req, res) => 
     for (const ord of ordenesPrevias) {
       for (const it of (ord.items || [])) {
         const cat = String(it.categoria || 'marco').toLowerCase();
-        const nomInt = String(it.nombreInterno || '').replace(/\s+/g, ' ').trim().toLowerCase();
-        const tam = String(it.tamanoOTalla || 'ESTANDAR').replace(/\s+/g, ' ').trim().toLowerCase();
-        const clavePrev = `${cat}|${nomInt}|${tam}`;
-
+        const clavePrev = `${cat}|${normClave(it.nombreInterno)}|${normClave(it.tamanoOTalla || 'ESTANDAR')}`;
         const cubierto = (Number(it.cantidadPedida) || 0) + (Number(it.stockUsado) || 0);
         yaPedidoMapa[clavePrev] = (yaPedidoMapa[clavePrev] || 0) + cubierto;
       }
     }
 
-    // 4. Cruzar contra el Catálogo Maestro y descontar órdenes previas + stock físico
+    // 4. Cruzar contra el Catálogo Maestro
     const catalogo = await CatalogoInsumo.find({ activo: true }).lean();
 
     const items = Object.values(conteo)
       .map(reqItem => {
-        const claveExacta = `${reqItem.categoria}|${reqItem.modeloInterno.toLowerCase()}|${reqItem.tamanoOTalla.toLowerCase()}`;
+        const claveExacta = `${reqItem.categoria}|${normClave(reqItem.modeloInterno)}|${normClave(reqItem.tamanoOTalla)}`;
         const yaPedido = yaPedidoMapa[claveExacta] || 0;
         const pendienteReal = Math.max(0, reqItem.cantidad - yaPedido);
 
         if (pendienteReal <= 0) return null;
 
-        // Buscar primero por modelo completo (con acabado) y si no existe, por modelo base
-        const match = catalogo.find(c =>
-          c.categoria === reqItem.categoria &&
-          c.modeloInterno.toLowerCase() === reqItem.modeloInterno.toLowerCase() &&
-          c.tamanoOTalla.toLowerCase() === reqItem.tamanoOTalla.toLowerCase()
-        ) || catalogo.find(c =>
-          c.categoria === reqItem.categoria &&
-          c.modeloInterno.toLowerCase() === reqItem.modeloBaseFallback.toLowerCase() &&
-          c.tamanoOTalla.toLowerCase() === reqItem.tamanoOTalla.toLowerCase()
-        );
+        const modNorm = normClave(reqItem.modeloInterno);
+        const modBaseNorm = normClave(reqItem.modeloBaseFallback);
+        const tamNorm = normClave(reqItem.tamanoOTalla);
+
+        // Coincidencia exacta por modelo + tamaño, luego modelo base + tamaño, y finalmente talla genérica (ESTANDAR / SIN MEDIDA)
+        const match =
+          catalogo.find(c => c.categoria === reqItem.categoria && normClave(c.modeloInterno) === modNorm && normClave(c.tamanoOTalla) === tamNorm) ||
+          catalogo.find(c => c.categoria === reqItem.categoria && normClave(c.modeloInterno) === modBaseNorm && normClave(c.tamanoOTalla) === tamNorm) ||
+          catalogo.find(c => c.categoria === reqItem.categoria && normClave(c.modeloInterno) === modBaseNorm && ['estandar', 'sin medida'].includes(normClave(c.tamanoOTalla)));
 
         const eq = proveedorId
           ? match?.equivalencias?.find(e => String(e.proveedorId) === String(proveedorId))
