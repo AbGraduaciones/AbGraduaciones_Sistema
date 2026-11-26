@@ -113,6 +113,107 @@ const Usuario = cargarModelo(['./models/Usuario', './models/usuario', './models/
   activo: { type: Boolean, default: true }
 }, { timestamps: true }));
 
+// ==========================================
+// MODELOS: INVENTARIO, PROVEEDORES Y COMPRAS
+// ==========================================
+
+const ProveedorSchema = new mongoose.Schema({
+  nombre: { type: String, required: true, trim: true },
+  categoria: {
+    type: String,
+    enum: ['marcos', 'anillos', 'playeras', 'personalizadores', 'otros'],
+    default: 'marcos'
+  },
+  telefono: { type: String, trim: true, default: '' },
+  diasProduccionDefault: { type: Number, default: 15 },
+  notas: { type: String, default: '' },
+  activo: { type: Boolean, default: true }
+}, { timestamps: true });
+
+const Proveedor = cargarModelo(['./models/Proveedor', './models/proveedor']) || mongoose.model('Proveedor', ProveedorSchema);
+
+const EquivalenciaProveedorSchema = new mongoose.Schema({
+  proveedorId: { type: mongoose.Schema.Types.ObjectId, ref: 'Proveedor', required: true },
+  nombreProveedor: { type: String, required: true, trim: true },
+  colorProveedor: { type: String, default: '', trim: true },
+  costoUnitario: { type: Number, required: true, min: 0 },
+  diasProduccion: { type: Number, default: 15 }
+}, { _id: false });
+
+const CatalogoInsumoSchema = new mongoose.Schema({
+  categoria: {
+    type: String,
+    enum: ['marco', 'diploma', 'anillo', 'playera', 'personalizador', 'otro'],
+    required: true
+  },
+  linea: { type: String, default: '', trim: true },
+  modeloInterno: { type: String, required: true, trim: true },
+  colorInterno: { type: String, default: '', trim: true },
+  tamanoOTalla: { type: String, required: true, trim: true },
+  stockDisponible: { type: Number, default: 0, min: 0 },
+  equivalencias: [EquivalenciaProveedorSchema],
+  activo: { type: Boolean, default: true }
+}, { timestamps: true });
+
+CatalogoInsumoSchema.index({ categoria: 1, modeloInterno: 1, tamanoOTalla: 1 });
+
+const CatalogoInsumo = cargarModelo(['./models/CatalogoInsumo', './models/catalogoInsumo']) || mongoose.model('CatalogoInsumo', CatalogoInsumoSchema);
+
+const ItemOrdenSchema = new mongoose.Schema({
+  insumoId: { type: mongoose.Schema.Types.ObjectId, ref: 'CatalogoInsumo', default: null },
+  categoria: { type: String, default: 'marco' },
+  nombreInterno: { type: String, required: true },
+  nombreProveedor: { type: String, required: true },
+  colorProveedor: { type: String, default: '' },
+  tamanoOTalla: { type: String, required: true },
+  cantidadRequerida: { type: Number, required: true, min: 1 },
+  stockUsado: { type: Number, default: 0, min: 0 },
+  cantidadPedida: { type: Number, required: true, min: 1 },
+  cantidadRecibida: { type: Number, default: 0, min: 0 },
+  costoUnitario: { type: Number, required: true, min: 0 },
+  subtotal: { type: Number, required: true, min: 0 }
+});
+
+const PagoProveedorSchema = new mongoose.Schema({
+  fecha: { type: Date, default: Date.now },
+  monto: { type: Number, required: true, min: 0.01 },
+  metodo: { type: String, enum: ['transferencia', 'efectivo', 'deposito', 'tarjeta'], default: 'transferencia' },
+  referencia: { type: String, default: '' },
+  nota: { type: String, default: '' }
+});
+
+const OrdenCompraSchema = new mongoose.Schema({
+  folio: { type: String, unique: true },
+  proveedorId: { type: mongoose.Schema.Types.ObjectId, ref: 'Proveedor', required: true },
+  gruposIncluidos: [{ type: String }],
+  estatus: {
+    type: String,
+    enum: ['borrador', 'enviado', 'en_produccion', 'en_camino', 'recibido_parcial', 'recibido', 'cancelado'],
+    default: 'borrador'
+  },
+  fechaPedido: { type: Date, default: Date.now },
+  fechaPromesaEntrega: { type: Date },
+  fechaGraduacionMasProxima: { type: Date },
+  items: [ItemOrdenSchema],
+  totalOrden: { type: Number, default: 0 },
+  pagos: [PagoProveedorSchema],
+  totalPagado: { type: Number, default: 0 },
+  saldoPendiente: { type: Number, default: 0 },
+  notas: { type: String, default: '' }
+}, { timestamps: true });
+
+OrdenCompraSchema.pre('save', function (next) {
+  this.items.forEach(item => {
+    item.subtotal = Number((Number(item.cantidadPedida || 0) * Number(item.costoUnitario || 0)).toFixed(2));
+  });
+  this.totalOrden = Number(this.items.reduce((acc, it) => acc + (Number(it.subtotal) || 0), 0).toFixed(2));
+  this.totalPagado = Number(this.pagos.reduce((acc, p) => acc + (Number(p.monto) || 0), 0).toFixed(2));
+  this.saldoPendiente = Number(Math.max(0, this.totalOrden - this.totalPagado).toFixed(2));
+  next();
+});
+
+const OrdenCompra = cargarModelo(['./models/OrdenCompra', './models/ordenCompra']) || mongoose.model('OrdenCompra', OrdenCompraSchema);
+
 const requireAuth = async (req, res, next) => {
   const authHeader = req.headers.authorization;
 
@@ -1521,6 +1622,498 @@ app.get('/api/restaurar-fechas-pagos', requireAuth, requireAdmin, async (req, re
     res.status(500).json({ ok: false, error: err.message });
   }
 });
+
+// ==========================================
+// MÓDULO: PROVEEDORES, CATÁLOGO Y COMPRAS
+// ==========================================
+
+app.get('/api/proveedores', requireAuth, async (req, res) => {
+  try {
+    const proveedores = await Proveedor.find({ activo: true }).sort({ nombre: 1 }).lean();
+    res.json({ ok: true, proveedores });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: 'Error al obtener proveedores' });
+  }
+});
+
+app.post('/api/proveedores', requireAuth, async (req, res) => {
+  try {
+    const proveedor = await Proveedor.create(req.body);
+    res.status(201).json({ ok: true, proveedor });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message });
+  }
+});
+
+app.put('/api/proveedores/:id', requireAuth, async (req, res) => {
+  try {
+    const proveedor = await Proveedor.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    if (!proveedor) return res.status(404).json({ ok: false, error: 'Proveedor no encontrado' });
+    res.json({ ok: true, proveedor });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message });
+  }
+});
+
+app.delete('/api/proveedores/:id', requireAuth, async (req, res) => {
+  try {
+    await Proveedor.findByIdAndUpdate(req.params.id, { activo: false });
+    res.json({ ok: true, mensaje: 'Proveedor eliminado' });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message });
+  }
+});
+
+// CATÁLOGO MAESTRO DE INSUMOS Y ALIAS POR PROVEEDOR
+app.get('/api/catalogo', requireAuth, async (req, res) => {
+  try {
+    const filtro = { activo: true };
+    if (req.query.categoria) filtro.categoria = req.query.categoria;
+
+    const catalogo = await CatalogoInsumo.find(filtro)
+      .populate('equivalencias.proveedorId', 'nombre')
+      .sort({ categoria: 1, modeloInterno: 1 })
+      .lean();
+
+    res.json({ ok: true, catalogo });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: 'Error al consultar el catálogo' });
+  }
+});
+
+app.post('/api/catalogo', requireAuth, async (req, res) => {
+  try {
+    const insumo = await CatalogoInsumo.create(req.body);
+    res.status(201).json({ ok: true, insumo });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message });
+  }
+});
+
+app.put('/api/catalogo/:id', requireAuth, async (req, res) => {
+  try {
+    const insumo = await CatalogoInsumo.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    if (!insumo) return res.status(404).json({ ok: false, error: 'Insumo no encontrado' });
+    res.json({ ok: true, insumo });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message });
+  }
+});
+
+// Edición rápida de alias/costo para un proveedor específico (botón lápiz al vuelo)
+app.put('/api/catalogo/:id/alias', requireAuth, async (req, res) => {
+  try {
+    const { proveedorId, nombreProveedor, colorProveedor, costoUnitario, diasProduccion } = req.body;
+    const insumo = await CatalogoInsumo.findById(req.params.id);
+    if (!insumo) return res.status(404).json({ ok: false, error: 'Insumo no encontrado' });
+
+    const idx = insumo.equivalencias.findIndex(
+      e => String(e.proveedorId) === String(proveedorId)
+    );
+
+    if (idx >= 0) {
+      insumo.equivalencias[idx].nombreProveedor = nombreProveedor;
+      if (colorProveedor !== undefined) insumo.equivalencias[idx].colorProveedor = colorProveedor;
+      if (costoUnitario !== undefined) insumo.equivalencias[idx].costoUnitario = Number(costoUnitario);
+      if (diasProduccion !== undefined) insumo.equivalencias[idx].diasProduccion = Number(diasProduccion);
+    } else {
+      insumo.equivalencias.push({
+        proveedorId,
+        nombreProveedor,
+        colorProveedor: colorProveedor || '',
+        costoUnitario: costoUnitario !== undefined ? Number(costoUnitario) : 0,
+        diasProduccion: diasProduccion !== undefined ? Number(diasProduccion) : 15
+      });
+    }
+
+    await insumo.save();
+    res.json({ ok: true, insumo });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message });
+  }
+});
+
+app.patch('/api/catalogo/:id/stock', requireAuth, async (req, res) => {
+  try {
+    const { stockDisponible } = req.body;
+    const insumo = await CatalogoInsumo.findByIdAndUpdate(
+      req.params.id,
+      { stockDisponible: Math.max(0, Number(stockDisponible) || 0) },
+      { new: true }
+    );
+    if (!insumo) return res.status(404).json({ ok: false, error: 'Insumo no encontrado' });
+    res.json({ ok: true, insumo });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message });
+  }
+});
+
+app.delete('/api/catalogo/:id', requireAuth, async (req, res) => {
+  try {
+    await CatalogoInsumo.findByIdAndUpdate(req.params.id, { activo: false });
+    res.json({ ok: true, mensaje: 'Artículo eliminado del catálogo' });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message });
+  }
+});
+
+// EXPLOSIÓN DE MATERIALES POR GRUPO (REGLA: 1 MARCO TRIPLE = 2 DIPLOMAS)
+app.post('/api/ordenes-compra/preview-grupos', requireAuth, async (req, res) => {
+  try {
+    const { grupos = [], proveedorId = '' } = req.body;
+
+    const filtroCuentas = grupos.length > 0
+      ? {
+          $or: [
+            { grupoId: { $in: grupos.map(String) } },
+            { grupoNombre: { $in: grupos.map(String) } }
+          ]
+        }
+      : {};
+
+    const cuentas = await Cuenta.find(filtroCuentas).lean();
+
+    const conteo = {};
+    const sumar = (categoria, modelo, tamano, unidades = 1) => {
+      if (!modelo || !String(modelo).trim()) return;
+      const modLimpio = String(modelo).trim();
+      const tamLimpio = String(tamano || 'ESTANDAR').trim();
+      const clave = `${categoria}|${modLimpio.toLowerCase()}|${tamLimpio.toLowerCase()}`;
+
+      if (!conteo[clave]) {
+        conteo[clave] = {
+          categoria,
+          modeloInterno: modLimpio,
+          tamanoOTalla: tamLimpio,
+          cantidad: 0
+        };
+      }
+      conteo[clave].cantidad += unidades;
+    };
+
+    for (const cta of cuentas) {
+      // 1. Marcos: cada marco triple lleva automáticamente 2 diplomas del mismo modelo
+      if (cta.tipoPanoramica && String(cta.tipoPanoramica).trim() !== '') {
+        const modeloMarco = String(cta.tipoPanoramica).trim();
+        sumar('marco', modeloMarco, 'TRIPLE 8X20', 1);
+        sumar('diploma', modeloMarco, 'DIPLOMA', 2);
+      }
+
+      // 2. Playeras / Camisas por talla
+      if (cta.tallaCamisa && String(cta.tallaCamisa).trim() !== '' && String(cta.tallaCamisa).toLowerCase() !== 'n/a') {
+        sumar('playera', 'CAMISA / PLAYERA GRADUACION', String(cta.tallaCamisa).trim(), 1);
+      }
+
+      // 3. Regalías especiales (Anillo de Plata 925 y/o Personalizador)
+      const eleccion = String(cta.eleccionEspecial || '').trim();
+      const tallaAnillo = String(cta.tallaAnillo || '').trim();
+
+      if (eleccion === 'Ambos (Anillo + Personalizador)') {
+        sumar('anillo', 'ANILLO DE PLATA 925', tallaAnillo || 'SIN MEDIDA', 1);
+        sumar('personalizador', 'PERSONALIZADOR', 'ESTANDAR', 1);
+      } else if (eleccion === 'Anillo de Plata 925') {
+        sumar('anillo', 'ANILLO DE PLATA 925', tallaAnillo || 'SIN MEDIDA', 1);
+      } else if (eleccion.toLowerCase().includes('personalizador')) {
+        sumar('personalizador', 'PERSONALIZADOR', 'ESTANDAR', 1);
+      } else if (eleccion !== 'Sin regalía' && tallaAnillo !== '') {
+        sumar('anillo', 'ANILLO DE PLATA 925', tallaAnillo, 1);
+      }
+    }
+
+    const catalogo = await CatalogoInsumo.find({ activo: true }).lean();
+
+    const items = Object.values(conteo).map(reqItem => {
+      const match = catalogo.find(c =>
+        c.categoria === reqItem.categoria &&
+        c.modeloInterno.toLowerCase() === reqItem.modeloInterno.toLowerCase() &&
+        c.tamanoOTalla.toLowerCase() === reqItem.tamanoOTalla.toLowerCase()
+      );
+
+      const eq = proveedorId
+        ? match?.equivalencias?.find(e => String(e.proveedorId) === String(proveedorId))
+        : match?.equivalencias?.[0];
+
+      const stockDisponible = match?.stockDisponible || 0;
+      const stockUsado = Math.min(stockDisponible, reqItem.cantidad);
+      const cantidadPedida = Math.max(0, reqItem.cantidad - stockUsado);
+      const costoUnitario = eq ? Number(eq.costoUnitario) : 0;
+
+      return {
+        insumoId: match?._id || null,
+        categoria: reqItem.categoria,
+        nombreInterno: reqItem.modeloInterno,
+        nombreProveedor: eq ? eq.nombreProveedor : reqItem.modeloInterno,
+        colorProveedor: eq ? eq.colorProveedor : (match?.colorInterno || ''),
+        sinAlias: !eq,
+        tamanoOTalla: reqItem.tamanoOTalla,
+        cantidadRequerida: reqItem.cantidad,
+        stockDisponible,
+        stockUsado,
+        cantidadPedida,
+        costoUnitario,
+        subtotal: Number((cantidadPedida * costoUnitario).toFixed(2))
+      };
+    });
+
+    res.json({
+      ok: true,
+      totalAlumnos: cuentas.length,
+      items
+    });
+  } catch (err) {
+    console.error('Error en preview-grupos:', err.message);
+    res.status(500).json({ ok: false, error: 'Error al calcular necesidades de compra' });
+  }
+});
+
+// ÓRDENES DE COMPRA, PRODUCCIÓN Y ANTICIPOS
+app.get('/api/ordenes-compra', requireAuth, async (req, res) => {
+  try {
+    const filtro = {};
+    if (req.query.estatus) filtro.estatus = req.query.estatus;
+    if (req.query.proveedorId) filtro.proveedorId = req.query.proveedorId;
+
+    const ordenes = await OrdenCompra.find(filtro)
+      .populate('proveedorId', 'nombre telefono categoria')
+      .sort({ createdAt: -1 })
+      .lean();
+
+    res.json({ ok: true, ordenes });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: 'Error al obtener órdenes de compra' });
+  }
+});
+
+app.post('/api/ordenes-compra', requireAuth, async (req, res) => {
+  try {
+    const {
+      proveedorId,
+      gruposIncluidos = [],
+      fechaPromesaEntrega,
+      fechaGraduacionMasProxima,
+      items = [],
+      notas = ''
+    } = req.body;
+
+    if (!proveedorId || items.length === 0) {
+      return res.status(400).json({ ok: false, error: 'Selecciona un proveedor y al menos un artículo.' });
+    }
+
+    const anio = new Date().getFullYear();
+    const conteo = await OrdenCompra.countDocuments();
+    const folio = `OC-${anio}-${String(conteo + 1).padStart(3, '0')}`;
+
+    // Si algún renglón tiene guardarAlias: true, actualiza o crea el artículo en el catálogo
+    for (const item of items) {
+      if (item.guardarAlias) {
+        let insumo = item.insumoId ? await CatalogoInsumo.findById(item.insumoId) : null;
+        if (!insumo) {
+          insumo = await CatalogoInsumo.findOne({
+            categoria: item.categoria || 'marco',
+            modeloInterno: new RegExp(`^${String(item.nombreInterno || '').trim()}$`, 'i'),
+            tamanoOTalla: new RegExp(`^${String(item.tamanoOTalla || '').trim()}$`, 'i')
+          });
+        }
+
+        if (!insumo) {
+          insumo = new CatalogoInsumo({
+            categoria: item.categoria || 'marco',
+            modeloInterno: String(item.nombreInterno || item.nombreProveedor).trim(),
+            tamanoOTalla: String(item.tamanoOTalla || 'ESTANDAR').trim(),
+            equivalencias: []
+          });
+        }
+
+        const idx = insumo.equivalencias.findIndex(
+          e => String(e.proveedorId) === String(proveedorId)
+        );
+        if (idx >= 0) {
+          insumo.equivalencias[idx].nombreProveedor = item.nombreProveedor;
+          insumo.equivalencias[idx].colorProveedor = item.colorProveedor || '';
+          insumo.equivalencias[idx].costoUnitario = Number(item.costoUnitario) || 0;
+        } else {
+          insumo.equivalencias.push({
+            proveedorId,
+            nombreProveedor: item.nombreProveedor,
+            colorProveedor: item.colorProveedor || '',
+            costoUnitario: Number(item.costoUnitario) || 0
+          });
+        }
+        await insumo.save();
+        item.insumoId = insumo._id;
+      }
+
+      if (item.insumoId && Number(item.stockUsado) > 0) {
+        await CatalogoInsumo.findByIdAndUpdate(item.insumoId, {
+          $inc: { stockDisponible: -Math.abs(Number(item.stockUsado)) }
+        });
+      }
+    }
+
+    const nuevaOrden = new OrdenCompra({
+      folio,
+      proveedorId,
+      gruposIncluidos,
+      fechaPromesaEntrega: fechaPromesaEntrega ? new Date(fechaPromesaEntrega) : undefined,
+      fechaGraduacionMasProxima: fechaGraduacionMasProxima ? new Date(fechaGraduacionMasProxima) : undefined,
+      items,
+      notas
+    });
+
+    await nuevaOrden.save();
+    res.status(201).json({ ok: true, orden: nuevaOrden });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message });
+  }
+});
+
+app.patch('/api/ordenes-compra/:id/estatus', requireAuth, async (req, res) => {
+  try {
+    const { estatus, fechaPromesaEntrega, notas } = req.body;
+    const orden = await OrdenCompra.findById(req.params.id);
+    if (!orden) return res.status(404).json({ ok: false, error: 'Orden no encontrada' });
+
+    if (estatus) orden.estatus = estatus;
+    if (fechaPromesaEntrega) orden.fechaPromesaEntrega = new Date(fechaPromesaEntrega);
+    if (notas !== undefined) orden.notas = notas;
+
+    await orden.save();
+    res.json({ ok: true, orden });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message });
+  }
+});
+
+// Registrar anticipo o abono al proveedor (y sincronizar con Egresos)
+app.post('/api/ordenes-compra/:id/pagos', requireAuth, async (req, res) => {
+  try {
+    const { monto, metodo, referencia, nota, fecha, registrarEnEgresos = true } = req.body;
+    const orden = await OrdenCompra.findById(req.params.id).populate('proveedorId', 'nombre');
+    if (!orden) return res.status(404).json({ ok: false, error: 'Orden no encontrada' });
+
+    const montoNum = Number(monto) || 0;
+    if (montoNum <= 0) {
+      return res.status(400).json({ ok: false, error: 'El monto debe ser mayor a 0' });
+    }
+    if (montoNum > orden.saldoPendiente) {
+      return res.status(400).json({
+        ok: false,
+        error: `El pago ($${montoNum}) supera el saldo pendiente ($${orden.saldoPendiente})`
+      });
+    }
+
+    const fechaPago = fecha ? new Date(fecha) : new Date();
+    orden.pagos.push({
+      monto: montoNum,
+      metodo: metodo || 'transferencia',
+      referencia: referencia || '',
+      nota: nota || '',
+      fecha: fechaPago
+    });
+
+    await orden.save();
+
+    if (registrarEnEgresos) {
+      const nombreProv = orden.proveedorId?.nombre || 'Proveedor';
+      await Egreso.create({
+        concepto: `Pago Orden ${orden.folio} - ${nombreProv}${nota ? ` (${nota})` : ''}`,
+        monto: montoNum,
+        categoria: 'Proveedores',
+        fecha: fechaPago,
+        grupoNombre: (orden.gruposIncluidos || []).join(', '),
+        notas: `Ref: ${referencia || 'N/A'} | Método: ${metodo || 'transferencia'}`
+      });
+      await sincronizarMemoriaDesdeBD();
+    }
+
+    res.json({ ok: true, orden });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message });
+  }
+});
+
+// Generar PDF limpio de la Orden de Compra (con los nombres del proveedor)
+app.get('/api/ordenes-compra/:id/pdf', requireAuth, async (req, res) => {
+  try {
+    const orden = await OrdenCompra.findById(req.params.id).populate('proveedorId', 'nombre telefono').lean();
+    if (!orden) return res.status(404).send('Orden de compra no encontrada');
+
+    const doc = new PDFDocument({ margin: 40, size: 'A4' });
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="Pedido_${orden.folio}.pdf"`);
+    doc.pipe(res);
+
+    doc.fillColor('#1e3a8a').fontSize(20).text('AB GRADUACIONES', { align: 'left' });
+    doc.fillColor('#3b82f6').fontSize(11).text(`ORDEN DE PRODUCCIÓN / PEDIDO: ${orden.folio}`, { align: 'left' });
+    doc.moveDown(0.5);
+
+    doc.fillColor('#0f172a').fontSize(10);
+    doc.text(`Proveedor: ${orden.proveedorId?.nombre || 'Proveedor'}`);
+    if (orden.proveedorId?.telefono) doc.text(`Teléfono: ${orden.proveedorId.telefono}`);
+    doc.text(`Fecha de pedido: ${new Date(orden.fechaPedido).toLocaleDateString('es-MX')}`);
+    if (orden.fechaPromesaEntrega) {
+      doc.text(`Fecha requerida de entrega: ${new Date(orden.fechaPromesaEntrega).toLocaleDateString('es-MX')}`);
+    }
+    doc.moveDown();
+
+    // Encabezado de tabla
+    let y = doc.y;
+    doc.rect(40, y, 515, 22).fill('#1e3a8a');
+    doc.fillColor('#ffffff').fontSize(9);
+    doc.text('CANT.', 46, y + 7, { width: 40 });
+    doc.text('TAMAÑO / TALLA', 90, y + 7, { width: 95 });
+    doc.text('MODELO (PROVEEDOR)', 190, y + 7, { width: 155 });
+    doc.text('COLOR', 350, y + 7, { width: 85 });
+    doc.text('P. UNIT', 438, y + 7, { width: 55, align: 'right' });
+    doc.text('SUBTOTAL', 495, y + 7, { width: 55, align: 'right' });
+
+    y += 26;
+    doc.fillColor('#0f172a').fontSize(9);
+
+    for (const item of orden.items) {
+      if (y > 740) {
+        doc.addPage();
+        y = 40;
+      }
+      doc.text(String(item.cantidadPedida), 46, y, { width: 40 });
+      doc.text(String(item.tamanoOTalla || ''), 90, y, { width: 95 });
+      doc.text(String(item.nombreProveedor || ''), 190, y, { width: 155 });
+      doc.text(String(item.colorProveedor || '-'), 350, y, { width: 85 });
+      doc.text(`$${Number(item.costoUnitario || 0).toLocaleString()}`, 438, y, { width: 55, align: 'right' });
+      doc.text(`$${Number(item.subtotal || 0).toLocaleString()}`, 495, y, { width: 55, align: 'right' });
+
+      y += 22;
+      doc.moveTo(40, y - 4).lineTo(555, y - 4).strokeColor('#e2e8f0').stroke();
+    }
+
+    doc.moveDown(1.5);
+    const totalPiezas = orden.items.reduce((acc, it) => acc + (Number(it.cantidadPedida) || 0), 0);
+    doc.fillColor('#0f172a').fontSize(11).text(`Total de piezas: ${totalPiezas}`, 40);
+    doc.fontSize(12).text(`Total del pedido: $${Number(orden.totalOrden || 0).toLocaleString()} MXN`, { align: 'right' });
+    doc.fillColor('#15803d').fontSize(10).text(`Anticipo / Pagado: $${Number(orden.totalPagado || 0).toLocaleString()} MXN`, { align: 'right' });
+    doc.fillColor('#b45309').fontSize(11).text(`Saldo pendiente: $${Number(orden.saldoPendiente || 0).toLocaleString()} MXN`, { align: 'right' });
+
+    if (orden.notas) {
+      doc.moveDown();
+      doc.fillColor('#334155').fontSize(9).text(`Notas: ${orden.notas}`, 40);
+    }
+
+    doc.end();
+  } catch (err) {
+    res.status(500).send('Error al generar PDF de orden de compra');
+  }
+});
+
+app.delete('/api/ordenes-compra/:id', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    await OrdenCompra.findByIdAndDelete(req.params.id);
+    res.json({ ok: true, mensaje: 'Orden de compra eliminada' });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ==========================================
 
 app.get('/logo.png', (req, res) => {
   const posiblesRutasLogo = [
