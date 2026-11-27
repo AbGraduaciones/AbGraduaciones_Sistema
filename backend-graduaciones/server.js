@@ -203,15 +203,14 @@ const OrdenCompraSchema = new mongoose.Schema({
   notas: { type: String, default: '' }
 }, { timestamps: true });
 
-OrdenCompraSchema.pre('save', function (next) {
+OrdenCompraSchema.pre('save', function () {
   this.items.forEach(item => {
     item.subtotal = Number((Number(item.cantidadPedida || 0) * Number(item.costoUnitario || 0)).toFixed(2));
   });
   this.totalOrden = Number(this.items.reduce((acc, it) => acc + (Number(it.subtotal) || 0), 0).toFixed(2));
   this.totalPagado = Number(this.pagos.reduce((acc, p) => acc + (Number(p.monto) || 0), 0).toFixed(2));
   this.saldoPendiente = Number(Math.max(0, this.totalOrden - this.totalPagado).toFixed(2));
-  next();
-});
+  });
 
 const OrdenCompra = cargarModelo(['./models/OrdenCompra', './models/ordenCompra']) || mongoose.model('OrdenCompra', OrdenCompraSchema);
 
@@ -1759,10 +1758,11 @@ app.delete('/api/catalogo/:id', requireAuth, async (req, res) => {
     res.status(400).json({ ok: false, error: err.message });
   }
 });
-// EXPLOSIÓN DE MATERIALES POR GRUPO (CON COLOR DE MARCO, PORTA RETRATO, ESCULTURA Y DESCUENTO DE PEDIDOS PREVIOS)
+// EXPLOSIÓN DE MATERIALES POR GRUPO (SEPARADA AUTOMÁTICAMENTE POR PROVEEDOR)
 app.post('/api/ordenes-compra/preview-grupos', requireAuth, async (req, res) => {
   try {
     const { grupos = [], proveedorId = '' } = req.body;
+    const filtrarUnProveedor = proveedorId && proveedorId !== 'TODOS' && mongoose.Types.ObjectId.isValid(String(proveedorId));
 
     const normClave = (txt) => String(txt || '')
       .normalize('NFD')
@@ -1771,7 +1771,6 @@ app.post('/api/ordenes-compra/preview-grupos', requireAuth, async (req, res) => 
       .trim()
       .toLowerCase();
 
-    // 1. Resolver IDs y nombres de los grupos seleccionados
     let idsSeleccionados = [];
     let nombresSeleccionados = [];
 
@@ -1806,7 +1805,6 @@ app.post('/api/ordenes-compra/preview-grupos', requireAuth, async (req, res) => 
 
     const cuentas = await Cuenta.find(filtroCuentas).lean();
 
-    // 2. Contar necesidades brutas desde los paquetes y colores de los alumnos
     const conteo = {};
     const sumar = (categoria, modelo, tamano, unidades = 1, modeloBaseFallback = '', colorElegido = '') => {
       if (!modelo || !String(modelo).trim()) return;
@@ -1840,24 +1838,20 @@ app.post('/api/ordenes-compra/preview-grupos', requireAuth, async (req, res) => 
         const modeloMarco = acabado ? `${modeloBase} (${acabado})` : modeloBase;
         const colorMarco = String(cta.colorMarco || '').trim();
 
-        // A) 1 Marco Triple 8x20 + 2 Diplomas respetando el color elegido por línea
         sumar('marco', modeloMarco, 'TRIPLE 8X20', 1, modeloBase, colorMarco);
         sumar('diploma', modeloBase, 'DIPLOMA', 2, modeloBase, colorMarco);
 
-        // B) Porta Retrato 8x10 incluido por alumno y Escultura si eligió "Con Escultura"
         sumar('otro', 'PORTA RETRATO 8X10', '8X10', 1, 'PORTA RETRATO 8X10');
         if (normClave(acabado).includes('escultura')) {
           sumar('otro', 'ESCULTURA', 'ESTANDAR', 1, 'ESCULTURA');
         }
       }
 
-      // C) Playeras / Camisas por talla
       const tallaCam = String(cta.tallaCamisa || '').trim();
       if (tallaCam && tallaCam.toLowerCase() !== 'n/a' && tallaCam !== '-') {
         sumar('playera', 'CAMISA / PLAYERA GRADUACION', tallaCam, 1, 'CAMISA / PLAYERA GRADUACION');
       }
 
-      // D) Regalías especiales (Anillo de Plata 925 y/o Personalizador)
       const eleccion = String(cta.eleccionEspecial || '').trim();
       const tallaAnillo = String(cta.tallaAnillo || '').trim();
 
@@ -1873,7 +1867,6 @@ app.post('/api/ordenes-compra/preview-grupos', requireAuth, async (req, res) => 
       }
     }
 
-    // 3. Descontar órdenes previas no canceladas de los mismos grupos
     const filtroOrdenesPrevias = { estatus: { $ne: 'cancelado' } };
     if (Array.isArray(grupos) && grupos.length > 0) {
       const criteriosGrupo = [...grupos.map(String), ...nombresSeleccionados];
@@ -1892,7 +1885,8 @@ app.post('/api/ordenes-compra/preview-grupos', requireAuth, async (req, res) => 
       }
     }
 
-    // 4. Cruzar contra el Catálogo Maestro
+    const proveedoresBD = await Proveedor.find({ activo: true }).lean();
+    const provMapa = new Map(proveedoresBD.map(p => [String(p._id), p]));
     const catalogo = await CatalogoInsumo.find({ activo: true }).lean();
 
     const items = Object.values(conteo)
@@ -1906,9 +1900,17 @@ app.post('/api/ordenes-compra/preview-grupos', requireAuth, async (req, res) => 
           catalogo.find(c => c.categoria === reqItem.categoria && normClave(c.modeloInterno) === modBaseNorm && normClave(c.tamanoOTalla) === tamNorm) ||
           catalogo.find(c => c.categoria === reqItem.categoria && normClave(c.modeloInterno) === modBaseNorm && ['estandar', 'sin medida'].includes(normClave(c.tamanoOTalla)));
 
-        const eq = proveedorId
-          ? match?.equivalencias?.find(e => String(e.proveedorId) === String(proveedorId))
-          : match?.equivalencias?.[0];
+        let eq = null;
+        if (filtrarUnProveedor) {
+          eq = match?.equivalencias?.find(e => String(e.proveedorId) === String(proveedorId)) || null;
+          if (!eq) return null; // Si eligió un solo proveedor, mostrar únicamente lo que surte ese taller
+        } else {
+          eq = match?.equivalencias?.[0] || null;
+        }
+
+        const provObj = eq?.proveedorId ? provMapa.get(String(eq.proveedorId)) : null;
+        const provIdAsignado = provObj ? String(provObj._id) : 'SIN_PROVEEDOR';
+        const provNombreAsignado = provObj ? provObj.nombre : 'Sin proveedor asignado (Editar con ✏️)';
 
         const colorFinal = reqItem.colorElegido || (eq ? eq.colorProveedor : (match?.colorInterno || ''));
         const claveExacta = `${reqItem.categoria}|${modNorm}|${tamNorm}|${normClave(colorFinal)}`;
@@ -1924,11 +1926,15 @@ app.post('/api/ordenes-compra/preview-grupos', requireAuth, async (req, res) => 
 
         return {
           insumoId: match?._id || null,
+          proveedorId: provIdAsignado,
+          proveedorNombre: provNombreAsignado,
+          diasProduccion: provObj?.diasProduccionDefault || 15,
           categoria: reqItem.categoria,
           nombreInterno: reqItem.modeloInterno,
           nombreProveedor: eq ? eq.nombreProveedor : reqItem.modeloInterno,
           colorProveedor: colorFinal,
           sinAlias: !eq,
+          guardarAlias: false,
           tamanoOTalla: reqItem.tamanoOTalla,
           cantidadBruta: reqItem.cantidad,
           yaPedidoPrevio: yaPedido,
@@ -1982,31 +1988,51 @@ app.post('/api/ordenes-compra', requireAuth, async (req, res) => {
       notas = ''
     } = req.body;
 
-    if (!proveedorId || items.length === 0) {
-      return res.status(400).json({ ok: false, error: 'Selecciona un proveedor y al menos un artículo.' });
+    if (!proveedorId || !mongoose.Types.ObjectId.isValid(String(proveedorId))) {
+      return res.status(400).json({ ok: false, error: 'Asigna un proveedor válido a este bloque antes de guardar.' });
+    }
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ ok: false, error: 'Debe haber al menos un artículo con cantidad mayor a 0.' });
     }
 
     const anio = new Date().getFullYear();
     const conteo = await OrdenCompra.countDocuments();
-    const folio = `OC-${anio}-${String(conteo + 1).padStart(3, '0')}`;
+    const sufijo = Math.floor(10 + Math.random() * 90);
+    const folio = `OC-${anio}-${String(conteo + 1).padStart(3, '0')}-${sufijo}`;
 
-    // Si algún renglón tiene guardarAlias: true, actualiza o crea el artículo en el catálogo
-    for (const item of items) {
-      if (item.guardarAlias) {
+    const itemsLimpios = [];
+    for (const rawItem of items) {
+      const cantPed = Math.max(1, Number(rawItem.cantidadPedida) || 0);
+      const costoU = Math.max(0, Number(rawItem.costoUnitario) || 0);
+      const item = {
+        insumoId: (rawItem.insumoId && mongoose.Types.ObjectId.isValid(String(rawItem.insumoId))) ? rawItem.insumoId : null,
+        categoria: rawItem.categoria || 'marco',
+        nombreInterno: String(rawItem.nombreInterno || rawItem.nombreProveedor || 'Artículo').trim(),
+        nombreProveedor: String(rawItem.nombreProveedor || rawItem.nombreInterno || 'Artículo').trim(),
+        colorProveedor: String(rawItem.colorProveedor || '').trim(),
+        tamanoOTalla: String(rawItem.tamanoOTalla || 'ESTANDAR').trim(),
+        cantidadRequerida: Math.max(1, Number(rawItem.cantidadRequerida) || cantPed),
+        stockUsado: Math.max(0, Number(rawItem.stockUsado) || 0),
+        cantidadPedida: cantPed,
+        costoUnitario: costoU,
+        subtotal: Number((cantPed * costoU).toFixed(2))
+      };
+
+      if (rawItem.guardarAlias === true) {
         let insumo = item.insumoId ? await CatalogoInsumo.findById(item.insumoId) : null;
         if (!insumo) {
           insumo = await CatalogoInsumo.findOne({
-            categoria: item.categoria || 'marco',
-            modeloInterno: new RegExp(`^${String(item.nombreInterno || '').trim()}$`, 'i'),
-            tamanoOTalla: new RegExp(`^${String(item.tamanoOTalla || '').trim()}$`, 'i')
+            categoria: item.categoria,
+            modeloInterno: new RegExp(`^${item.nombreInterno.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+            tamanoOTalla: new RegExp(`^${item.tamanoOTalla.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i')
           });
         }
 
         if (!insumo) {
           insumo = new CatalogoInsumo({
-            categoria: item.categoria || 'marco',
-            modeloInterno: String(item.nombreInterno || item.nombreProveedor).trim(),
-            tamanoOTalla: String(item.tamanoOTalla || 'ESTANDAR').trim(),
+            categoria: item.categoria,
+            modeloInterno: item.nombreInterno,
+            tamanoOTalla: item.tamanoOTalla,
             equivalencias: []
           });
         }
@@ -2016,25 +2042,27 @@ app.post('/api/ordenes-compra', requireAuth, async (req, res) => {
         );
         if (idx >= 0) {
           insumo.equivalencias[idx].nombreProveedor = item.nombreProveedor;
-          insumo.equivalencias[idx].colorProveedor = item.colorProveedor || '';
-          insumo.equivalencias[idx].costoUnitario = Number(item.costoUnitario) || 0;
+          insumo.equivalencias[idx].colorProveedor = item.colorProveedor;
+          insumo.equivalencias[idx].costoUnitario = item.costoUnitario;
         } else {
           insumo.equivalencias.push({
             proveedorId,
             nombreProveedor: item.nombreProveedor,
-            colorProveedor: item.colorProveedor || '',
-            costoUnitario: Number(item.costoUnitario) || 0
+            colorProveedor: item.colorProveedor,
+            costoUnitario: item.costoUnitario
           });
         }
         await insumo.save();
         item.insumoId = insumo._id;
       }
 
-      if (item.insumoId && Number(item.stockUsado) > 0) {
+      if (item.insumoId && item.stockUsado > 0) {
         await CatalogoInsumo.findByIdAndUpdate(item.insumoId, {
-          $inc: { stockDisponible: -Math.abs(Number(item.stockUsado)) }
+          $inc: { stockDisponible: -Math.abs(item.stockUsado) }
         });
       }
+
+      itemsLimpios.push(item);
     }
 
     const nuevaOrden = new OrdenCompra({
@@ -2043,14 +2071,15 @@ app.post('/api/ordenes-compra', requireAuth, async (req, res) => {
       gruposIncluidos,
       fechaPromesaEntrega: fechaPromesaEntrega ? new Date(fechaPromesaEntrega) : undefined,
       fechaGraduacionMasProxima: fechaGraduacionMasProxima ? new Date(fechaGraduacionMasProxima) : undefined,
-      items,
+      items: itemsLimpios,
       notas
     });
 
     await nuevaOrden.save();
     res.status(201).json({ ok: true, orden: nuevaOrden });
   } catch (err) {
-    res.status(400).json({ ok: false, error: err.message });
+    console.error('Error al guardar orden de compra:', err);
+    res.status(400).json({ ok: false, error: err.message || 'Error al guardar orden de compra' });
   }
 });
 
@@ -2071,7 +2100,6 @@ app.patch('/api/ordenes-compra/:id/estatus', requireAuth, async (req, res) => {
   }
 });
 
-// Registrar anticipo o abono al proveedor (y sincronizar con Egresos)
 app.post('/api/ordenes-compra/:id/pagos', requireAuth, async (req, res) => {
   try {
     const { monto, metodo, referencia, nota, fecha, registrarEnEgresos = true } = req.body;
@@ -2119,15 +2147,18 @@ app.post('/api/ordenes-compra/:id/pagos', requireAuth, async (req, res) => {
   }
 });
 
-// Generar PDF limpio de la Orden de Compra (con los nombres del proveedor)
+// Generar PDF limpio de la Orden de Compra por Proveedor
 app.get('/api/ordenes-compra/:id/pdf', requireAuth, async (req, res) => {
   try {
     const orden = await OrdenCompra.findById(req.params.id).populate('proveedorId', 'nombre telefono').lean();
     if (!orden) return res.status(404).send('Orden de compra no encontrada');
 
+    const provSlug = String(orden.proveedorId?.nombre || 'Proveedor').replace(/[^a-zA-Z0-9_-]+/g, '_');
+    const disp = req.query.download === '1' ? 'attachment' : 'inline';
+
     const doc = new PDFDocument({ margin: 40, size: 'A4' });
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `inline; filename="Pedido_${orden.folio}.pdf"`);
+    res.setHeader('Content-Disposition', `${disp}; filename="Pedido_${orden.folio}_${provSlug}.pdf"`);
     doc.pipe(res);
 
     doc.fillColor('#1e3a8a').fontSize(20).text('AB GRADUACIONES', { align: 'left' });
@@ -2137,13 +2168,15 @@ app.get('/api/ordenes-compra/:id/pdf', requireAuth, async (req, res) => {
     doc.fillColor('#0f172a').fontSize(10);
     doc.text(`Proveedor: ${orden.proveedorId?.nombre || 'Proveedor'}`);
     if (orden.proveedorId?.telefono) doc.text(`Teléfono: ${orden.proveedorId.telefono}`);
+    if (Array.isArray(orden.gruposIncluidos) && orden.gruposIncluidos.length > 0) {
+      doc.text(`Grupo(s): ${orden.gruposIncluidos.join(', ')}`);
+    }
     doc.text(`Fecha de pedido: ${new Date(orden.fechaPedido).toLocaleDateString('es-MX')}`);
     if (orden.fechaPromesaEntrega) {
       doc.text(`Fecha requerida de entrega: ${new Date(orden.fechaPromesaEntrega).toLocaleDateString('es-MX')}`);
     }
     doc.moveDown();
 
-    // Encabezado de tabla
     let y = doc.y;
     doc.rect(40, y, 515, 22).fill('#1e3a8a');
     doc.fillColor('#ffffff').fontSize(9);

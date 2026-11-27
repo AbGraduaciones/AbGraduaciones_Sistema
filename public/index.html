@@ -267,7 +267,7 @@
         <div class="mc-card">
           <div class="mc-grid" style="margin-bottom:14px;">
             <div>
-              <label class="mc-label">Proveedor destino *</label>
+              <label class="mc-label">Proveedor a calcular</label>
               <select id="mc-sel-proveedor" class="mc-select" onchange="mcAlCambiarProveedor()"></select>
             </div>
             <div>
@@ -298,44 +298,18 @@
           </div>
         </div>
 
-        <div id="mc-preview-contenedor" class="mc-card" style="display:none;">
-          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:12px;">
-            <h3 style="margin:0; font-size:1.1rem; font-weight:800; color:#1e3a8a;">Vista Previa del Pedido al Proveedor</h3>
-            <span style="font-size:.82rem; color:#64748b;">Usa ✏️ para cambiar el nombre como lo conoce tu proveedor antes de generar el PDF.</span>
-          </div>
-
-          <div class="mc-table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Categoría / Tu Sistema</th>
-                  <th>Nombre para Proveedor (PDF)</th>
-                  <th>Color Prov.</th>
-                  <th>Tamaño / Talla</th>
-                  <th>Req.</th>
-                  <th>Stock Disp.</th>
-                  <th>Usar Stock</th>
-                  <th>A Pedir</th>
-                  <th>Costo Unit.</th>
-                  <th>Subtotal</th>
-                  <th>Acciones</th>
-                </tr>
-              </thead>
-              <tbody id="mc-tbody-preview"></tbody>
-            </table>
-          </div>
-
-          <div style="display:flex; flex-wrap:wrap; justify-content:space-between; align-items:flex-end; gap:16px; margin-top:16px;">
-            <div style="flex:1; min-width:260px;">
-              <label class="mc-label">Notas para la orden / taller</label>
-              <input type="text" id="mc-notas-orden" class="mc-input" placeholder="Ej. Entregar empacado por grupo, urgente...">
+        <div id="mc-preview-contenedor" style="display:none;">
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:14px; padding:12px 16px; background:#eff6ff; border:1px solid #bfdbfe; border-radius:12px;">
+            <div>
+              <strong style="color:#1e3a8a; font-size:.95rem;">📋 Listas separadas automáticamente por proveedor</strong>
+              <p style="margin:2px 0 0; font-size:.82rem; color:#475569;">Cada tarjeta corresponde a un taller distinto. Guarda cada orden y su PDF se descargará listo para enviarlo.</p>
             </div>
             <div style="text-align:right;">
-              <div style="font-size:.9rem; color:#475569;">Total piezas a pedir: <strong id="mc-total-piezas">0</strong></div>
-              <div style="font-size:1.35rem; font-weight:900; color:#1e3a8a; margin:4px 0 10px;">Total Orden: $<span id="mc-total-orden">0</span> MXN</div>
-              <button type="button" class="mc-btn mc-btn-success" onclick="mcGuardarOrdenCompra()">✅ Confirmar y Guardar Orden de Compra</button>
+              <span style="font-size:.85rem; color:#475569;">Total general piezas: <strong id="mc-total-piezas">0</strong></span><br>
+              <span style="font-size:1.05rem; font-weight:800; color:#1e3a8a;">Total General: $<span id="mc-total-orden">0</span> MXN</span>
             </div>
           </div>
+          <div id="mc-listas-por-proveedor" style="display:grid; gap:18px;"></div>
         </div>
       </div>
 
@@ -451,6 +425,10 @@
           <p id="mc-alias-subtitulo" style="font-size:.84rem; color:#475569; margin-bottom:14px;"></p>
           <input type="hidden" id="mc-alias-idx">
           <div style="display:grid; gap:12px;">
+            <div>
+              <label class="mc-label">Proveedor / Taller asignado *</label>
+              <select id="mc-alias-prov" class="mc-select"></select>
+            </div>
             <div>
               <label class="mc-label">Nombre como lo conoce tu proveedor (aparecerá en el PDF) *</label>
               <input type="text" id="mc-alias-nombre" class="mc-input">
@@ -5738,13 +5716,13 @@
 
     // =========================================================
     // LÓGICA DEL MÓDULO: PROVEEDORES, ALIAS Y ÓRDENES DE COMPRA
-    // =========================================================
     const mcState = {
       proveedores: [],
       grupos: [],
       catalogo: [],
       ordenes: [],
-      previewItems: []
+      previewItems: [],
+      ordenesGuardadasProv: {}
     };
 
     function mcEsc(txt) {
@@ -5785,14 +5763,19 @@
         const data = await res.json();
         mcState.proveedores = data.proveedores || [];
 
-        const opciones = mcState.proveedores.length
-          ? mcState.proveedores.map(p => `<option value="${p._id}" data-dias="${p.diasProduccionDefault || 15}">${mcEsc(p.nombre)} (${mcEsc(p.categoria)})</option>`).join('')
-          : '<option value="">-- Crea primero un proveedor --</option>';
+        const opcionesProv = mcState.proveedores.map(p =>
+          `<option value="${p._id}" data-dias="${p.diasProduccionDefault || 15}">${mcEsc(p.nombre)} (${mcEsc(p.categoria)})</option>`
+        ).join('');
 
         const sel = document.getElementById('mc-sel-proveedor');
         const selIns = document.getElementById('mc-ins-prov');
-        if (sel) sel.innerHTML = opciones;
-        if (selIns) selIns.innerHTML = '<option value="">-- Seleccionar --</option>' + opciones;
+        const selAlias = document.getElementById('mc-alias-prov');
+
+        if (sel) {
+          sel.innerHTML = '<option value="TODOS" data-dias="15">✨ Todos los proveedores (Separar automáticamente)</option>' + opcionesProv;
+        }
+        if (selIns) selIns.innerHTML = '<option value="">-- Seleccionar --</option>' + opcionesProv;
+        if (selAlias) selAlias.innerHTML = '<option value="SIN_PROVEEDOR">-- Seleccionar proveedor --</option>' + opcionesProv;
         mcAlCambiarProveedor();
       } catch (e) {
         console.error('Error cargando proveedores:', e);
@@ -5849,12 +5832,7 @@
     }
 
     async function mcCalcularNecesidades() {
-      const proveedorId = document.getElementById('mc-sel-proveedor')?.value;
-      if (!proveedorId) {
-        alert('Primero selecciona o registra un proveedor.');
-        return;
-      }
-
+      const proveedorId = document.getElementById('mc-sel-proveedor')?.value || 'TODOS';
       const chks = Array.from(document.querySelectorAll('#mod-compras .mc-chk-grupo:checked'));
       const gruposSel = chks.map(c => c.value);
 
@@ -5867,9 +5845,10 @@
         const data = await res.json();
         if (!data.ok) return alert(data.error || 'Error al calcular');
 
+        mcState.ordenesGuardadasProv = {};
         mcState.previewItems = (data.items || []).map(it => ({
           ...it,
-          guardarAlias: Boolean(it.sinAlias)
+          guardarAlias: false
         }));
 
         document.getElementById('mc-resumen-alumnos').textContent = `👥 ${data.totalAlumnos} alumnos analizados`;
@@ -5881,51 +5860,126 @@
     }
 
     function mcRenderPreview() {
-      const tbody = document.getElementById('mc-tbody-preview');
-      if (!tbody) return;
+      const contenedor = document.getElementById('mc-listas-por-proveedor');
+      if (!contenedor) return;
 
       if (!mcState.previewItems.length) {
-        tbody.innerHTML = '<tr><td colspan="11" style="text-align:center; padding:20px; color:#64748b;">No se encontraron artículos en los grupos seleccionados. Puedes agregar un renglón manual.</td></tr>';
+        contenedor.innerHTML = '<div class="mc-card" style="text-align:center; padding:24px; color:#64748b;">No hay artículos pendientes por pedir en los grupos seleccionados.</div>';
         mcRecalcularTotalesPreview();
         return;
       }
 
-      tbody.innerHTML = mcState.previewItems.map((it, idx) => `
-        <tr>
-          <td>
-            <span class="mc-badge mc-badge-info">${mcEsc(it.categoria)}</span>
-            <div style="font-weight:700; margin-top:3px;">${mcEsc(it.nombreInterno)}</div>
-          </td>
-          <td>
-            <div style="font-weight:800; color:#1e3a8a;">${mcEsc(it.nombreProveedor)}</div>
-            ${it.sinAlias
-              ? '<span class="mc-badge mc-badge-warn">Sin alias proveedor</span>'
-              : '<span class="mc-badge mc-badge-ok">Alias vinculado</span>'}
-          </td>
-          <td>${mcEsc(it.colorProveedor || '-')}</td>
-          <td><strong>${mcEsc(it.tamanoOTalla)}</strong></td>
-          <td>${it.cantidadRequerida}</td>
-          <td>${it.stockDisponible}</td>
-          <td>
-            <input type="number" class="mc-input" style="width:70px; padding:5px;" min="0" max="${it.stockDisponible}"
-              value="${it.stockUsado}" onchange="mcActualizarFila(${idx}, 'stockUsado', this.value)">
-          </td>
-          <td>
-            <input type="number" class="mc-input" style="width:75px; padding:5px; font-weight:700;" min="0"
-              value="${it.cantidadPedida}" onchange="mcActualizarFila(${idx}, 'cantidadPedida', this.value)">
-          </td>
-          <td>
-            <input type="number" class="mc-input" style="width:95px; padding:5px;" min="0" step="0.01"
-              value="${it.costoUnitario}" onchange="mcActualizarFila(${idx}, 'costoUnitario', this.value)">
-          </td>
-          <td style="font-weight:700;">$${mcFmt(it.subtotal)}</td>
-          <td style="white-space:nowrap;">
-            <button type="button" class="mc-btn mc-btn-outline mc-btn-sm" title="Editar nombre para proveedor" onclick="mcAbrirModalAlias(${idx})">✏️</button>
-            <button type="button" class="mc-btn mc-btn-outline mc-btn-sm" style="color:#b91c1c; border-color:#fecaca;" title="Quitar fila" onclick="mcQuitarFila(${idx})">✕</button>
-          </td>
-        </tr>
-      `).join('');
+      // Agrupar renglones por proveedorId
+      const gruposProv = new Map();
+      mcState.previewItems.forEach((it, idx) => {
+        const pKey = String(it.proveedorId || 'SIN_PROVEEDOR');
+        if (!gruposProv.has(pKey)) {
+          gruposProv.set(pKey, {
+            proveedorId: pKey,
+            proveedorNombre: it.proveedorNombre || 'Sin proveedor asignado',
+            filas: []
+          });
+        }
+        gruposProv.get(pKey).filas.push({ it, idx });
+      });
 
+      let htmlTarjetas = '';
+      gruposProv.forEach(grupo => {
+        const pKey = grupo.proveedorId;
+        const esValido = pKey !== 'SIN_PROVEEDOR';
+        const yaGuardada = mcState.ordenesGuardadasProv[pKey];
+        const piezasProv = grupo.filas.reduce((acc, f) => acc + (Number(f.it.cantidadPedida) || 0), 0);
+        const totalProv = grupo.filas.reduce((acc, f) => acc + (Number(f.it.subtotal) || 0), 0);
+
+        const filasHtml = grupo.filas.map(({ it, idx }) => `
+          <tr>
+            <td>
+              <span class="mc-badge mc-badge-info">${mcEsc(it.categoria)}</span>
+              <div style="font-weight:700; margin-top:3px;">${mcEsc(it.nombreInterno)}</div>
+            </td>
+            <td>
+              <div style="font-weight:800; color:#1e3a8a;">${mcEsc(it.nombreProveedor)}</div>
+              ${it.sinAlias
+                ? '<span class="mc-badge mc-badge-warn">Sin alias proveedor</span>'
+                : '<span class="mc-badge mc-badge-ok">Alias vinculado</span>'}
+            </td>
+            <td>${mcEsc(it.colorProveedor || '-')}</td>
+            <td><strong>${mcEsc(it.tamanoOTalla)}</strong></td>
+            <td>${it.cantidadRequerida}</td>
+            <td>${it.stockDisponible}</td>
+            <td>
+              <input type="number" class="mc-input" style="width:68px; padding:5px;" min="0" max="${it.stockDisponible}"
+                value="${it.stockUsado}" onchange="mcActualizarFila(${idx}, 'stockUsado', this.value)">
+            </td>
+            <td>
+              <input type="number" class="mc-input" style="width:72px; padding:5px; font-weight:700;" min="0"
+                value="${it.cantidadPedida}" onchange="mcActualizarFila(${idx}, 'cantidadPedida', this.value)">
+            </td>
+            <td>
+              <input type="number" class="mc-input" style="width:90px; padding:5px;" min="0" step="0.01"
+                value="${it.costoUnitario}" onchange="mcActualizarFila(${idx}, 'costoUnitario', this.value)">
+            </td>
+            <td style="font-weight:700;">$${mcFmt(it.subtotal)}</td>
+            <td style="white-space:nowrap;">
+              <button type="button" class="mc-btn mc-btn-outline mc-btn-sm" title="Editar proveedor, nombre o precio" onclick="mcAbrirModalAlias(${idx})">✏️</button>
+              <button type="button" class="mc-btn mc-btn-outline mc-btn-sm" style="color:#b91c1c; border-color:#fecaca;" title="Quitar fila" onclick="mcQuitarFila(${idx})">✕</button>
+            </td>
+          </tr>
+        `).join('');
+
+        htmlTarjetas += `
+          <div class="mc-card" style="border-left: 5px solid ${esValido ? '#1e3a8a' : '#d97706'};">
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:12px;">
+              <div>
+                <span class="mc-badge ${esValido ? 'mc-badge-info' : 'mc-badge-warn'}">PROVEEDOR / TALLER</span>
+                <h3 style="margin:4px 0 0; font-size:1.15rem; font-weight:800; color:#0f172a;">🏭 ${mcEsc(grupo.proveedorNombre)}</h3>
+              </div>
+              <div style="text-align:right;">
+                <span style="font-size:.85rem; color:#475569;">Piezas: <strong>${piezasProv}</strong></span>
+                <div style="font-size:1.25rem; font-weight:900; color:#1e3a8a;">Total: $${mcFmt(totalProv)} MXN</div>
+              </div>
+            </div>
+
+            <div class="mc-table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Categoría / Tu Sistema</th>
+                    <th>Nombre para Proveedor (PDF)</th>
+                    <th>Color Prov.</th>
+                    <th>Tamaño / Talla</th>
+                    <th>Req.</th>
+                    <th>Stock Disp.</th>
+                    <th>Usar Stock</th>
+                    <th>A Pedir</th>
+                    <th>Costo Unit.</th>
+                    <th>Subtotal</th>
+                    <th>Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>${filasHtml}</tbody>
+              </table>
+            </div>
+
+            <div style="display:flex; flex-wrap:wrap; justify-content:space-between; align-items:flex-end; gap:14px; margin-top:14px;">
+              <div style="flex:1; min-width:240px;">
+                <label class="mc-label">Notas para ${mcEsc(grupo.proveedorNombre)}</label>
+                <input type="text" id="mc-notas-${pKey}" class="mc-input" placeholder="Ej. Entregar empacado por grupo, urgente...">
+              </div>
+              <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+                ${yaGuardada
+                  ? `<span class="mc-badge mc-badge-ok" style="padding:8px 12px; font-size:.82rem;">✅ Guardada (${mcEsc(yaGuardada.folio)})</span>
+                     <button type="button" class="mc-btn mc-btn-primary" onclick="mcDescargarPdfOrden('${yaGuardada._id}', '${yaGuardada.folio}', '${mcEsc(grupo.proveedorNombre)}')">📥 Descargar PDF</button>`
+                  : (esValido
+                      ? `<button type="button" id="mc-btn-guardar-${pKey}" class="mc-btn mc-btn-success" onclick="mcGuardarOrdenProveedor('${pKey}')">✅ Guardar Orden y Descargar PDF</button>`
+                      : `<span style="font-size:.82rem; color:#b45309; font-weight:700;">Usa ✏️ en cada fila para elegir proveedor antes de guardar</span>`)}
+              </div>
+            </div>
+          </div>
+        `;
+      });
+
+      contenedor.innerHTML = htmlTarjetas;
       mcRecalcularTotalesPreview();
     }
 
@@ -5952,15 +6006,18 @@
     }
 
     function mcAgregarFilaManual() {
+      const primerProv = mcState.proveedores[0];
       document.getElementById('mc-preview-contenedor').style.display = 'block';
       mcState.previewItems.push({
         insumoId: null,
+        proveedorId: primerProv ? String(primerProv._id) : 'SIN_PROVEEDOR',
+        proveedorNombre: primerProv ? primerProv.nombre : 'Sin proveedor asignado',
         categoria: 'marco',
         nombreInterno: 'Artículo adicional',
         nombreProveedor: 'NUEVO MODELO PROVEEDOR',
         colorProveedor: '',
         sinAlias: true,
-        guardarAlias: true,
+        guardarAlias: false,
         tamanoOTalla: 'TRIPLE 8X20',
         cantidadRequerida: 1,
         stockDisponible: 0,
@@ -5984,11 +6041,13 @@
       const it = mcState.previewItems[idx];
       if (!it) return;
       document.getElementById('mc-alias-idx').value = idx;
+      const selAlias = document.getElementById('mc-alias-prov');
+      if (selAlias) selAlias.value = it.proveedorId || 'SIN_PROVEEDOR';
       document.getElementById('mc-alias-subtitulo').textContent = `En tu sistema aparece como: "${it.nombreInterno}" (${it.tamanoOTalla})`;
       document.getElementById('mc-alias-nombre').value = it.nombreProveedor;
       document.getElementById('mc-alias-color').value = it.colorProveedor || '';
       document.getElementById('mc-alias-costo').value = it.costoUnitario || 0;
-      document.getElementById('mc-alias-guardar-permanente').checked = true;
+      document.getElementById('mc-alias-guardar-permanente').checked = false;
       document.getElementById('mc-modal-alias').style.display = 'flex';
     }
 
@@ -5998,6 +6057,13 @@
       if (!it) return;
       const nuevoNombre = document.getElementById('mc-alias-nombre').value.trim();
       if (!nuevoNombre) return alert('Escribe el nombre para el proveedor.');
+
+      const selAlias = document.getElementById('mc-alias-prov');
+      if (selAlias && selAlias.value && selAlias.value !== 'SIN_PROVEEDOR') {
+        it.proveedorId = selAlias.value;
+        const pObj = mcState.proveedores.find(p => String(p._id) === String(selAlias.value));
+        it.proveedorNombre = pObj ? pObj.nombre : selAlias.selectedOptions[0].textContent;
+      }
 
       it.nombreProveedor = nuevoNombre;
       it.colorProveedor = document.getElementById('mc-alias-color').value.trim();
@@ -6010,23 +6076,55 @@
       mcRenderPreview();
     }
 
-    async function mcGuardarOrdenCompra() {
-      const proveedorId = document.getElementById('mc-sel-proveedor')?.value;
-      if (!proveedorId) return alert('Selecciona un proveedor.');
+    async function mcDescargarPdfOrden(ordenId, folio, proveedorNombre) {
+      try {
+        const res = await fetch(`/api/ordenes-compra/${ordenId}/pdf?download=1`);
+        if (!res.ok) throw new Error('No se pudo generar el PDF');
+        const blob = await res.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        const provLimpio = String(proveedorNombre || 'Proveedor').replace(/[^a-zA-Z0-9_-]+/g, '_');
+        a.href = url;
+        a.download = `Pedido_${folio}_${provLimpio}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => window.URL.revokeObjectURL(url), 4000);
+      } catch (e) {
+        alert('Error descargando PDF: ' + e.message);
+      }
+    }
 
-      const itemsValidos = mcState.previewItems.filter(it => Number(it.cantidadPedida) > 0);
-      if (!itemsValidos.length) return alert('Debe haber al menos un artículo con cantidad a pedir mayor a 0.');
+    async function mcGuardarOrdenProveedor(proveedorId) {
+      if (!proveedorId || proveedorId === 'SIN_PROVEEDOR') {
+        return alert('Asigna un proveedor válido antes de guardar.');
+      }
+
+      const itemsProv = mcState.previewItems.filter(
+        it => String(it.proveedorId) === String(proveedorId) && Number(it.cantidadPedida) > 0
+      );
+      if (!itemsProv.length) {
+        return alert('Debe haber al menos un artículo con cantidad a pedir mayor a 0.');
+      }
+
+      const btn = document.getElementById(`mc-btn-guardar-${proveedorId}`);
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = '⏳ Guardando y generando PDF...';
+      }
 
       const chks = Array.from(document.querySelectorAll('#mod-compras .mc-chk-grupo:checked'));
       const gruposIncluidos = chks.length ? chks.map(c => c.dataset.nombre) : ['Todos los grupos'];
+      const notasProv = document.getElementById(`mc-notas-${proveedorId}`)?.value || '';
+      const provNombre = itemsProv[0]?.proveedorNombre || 'Proveedor';
 
       const payload = {
         proveedorId,
         gruposIncluidos,
         fechaPromesaEntrega: document.getElementById('mc-fecha-promesa')?.value || null,
         fechaGraduacionMasProxima: document.getElementById('mc-fecha-graduacion')?.value || null,
-        items: itemsValidos,
-        notas: document.getElementById('mc-notas-orden')?.value || ''
+        items: itemsProv,
+        notas: notasProv
       };
 
       try {
@@ -6036,14 +6134,24 @@
           body: JSON.stringify(payload)
         });
         const data = await res.json();
-        if (!data.ok) return alert(data.error || 'No se pudo guardar la orden');
+        if (!data.ok) {
+          if (btn) {
+            btn.disabled = false;
+            btn.textContent = '✅ Guardar Orden y Descargar PDF';
+          }
+          return alert(data.error || 'No se pudo guardar la orden');
+        }
 
-        alert(`✅ Orden ${data.orden.folio} creada exitosamente.`);
-        mcState.previewItems = [];
-        document.getElementById('mc-preview-contenedor').style.display = 'none';
-        mcCambiarTab('ordenes');
+        mcState.ordenesGuardadasProv[proveedorId] = data.orden;
+        mcRenderPreview();
+        await mcCargarOrdenes();
+        await mcDescargarPdfOrden(data.orden._id, data.orden.folio, provNombre);
       } catch (e) {
-        alert('Error al guardar la orden de compra.');
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = '✅ Guardar Orden y Descargar PDF';
+        }
+        alert('Error de conexión al guardar la orden: ' + e.message);
       }
     }
 
@@ -6073,10 +6181,11 @@
         tbody.innerHTML = mcState.ordenes.map(o => {
           const fechaEnt = o.fechaPromesaEntrega ? new Date(o.fechaPromesaEntrega).toLocaleDateString('es-MX') : 'Sin fecha';
           const vencida = o.fechaPromesaEntrega && new Date(o.fechaPromesaEntrega) < new Date() && o.estatus !== 'recibido';
+          const provNom = o.proveedorId?.nombre || 'Proveedor';
           return `
             <tr>
               <td><strong>${mcEsc(o.folio)}</strong></td>
-              <td>${mcEsc(o.proveedorId?.nombre || 'Proveedor')}</td>
+              <td>${mcEsc(provNom)}</td>
               <td style="max-width:160px; font-size:.8rem;">${mcEsc((o.gruposIncluidos || []).join(', '))}</td>
               <td>
                 ${fechaEnt}
@@ -6091,7 +6200,7 @@
               <td style="color:#15803d; font-weight:700;">$${mcFmt(o.totalPagado)}</td>
               <td style="color:#b45309; font-weight:700;">$${mcFmt(o.saldoPendiente)}</td>
               <td style="white-space:nowrap;">
-                <button type="button" class="mc-btn mc-btn-outline mc-btn-sm" onclick="window.open('/api/ordenes-compra/${o._id}/pdf', '_blank')">📄 PDF</button>
+                <button type="button" class="mc-btn mc-btn-outline mc-btn-sm" onclick="mcDescargarPdfOrden('${o._id}', '${mcEsc(o.folio)}', '${mcEsc(provNom)}')">📄 PDF</button>
                 ${o.saldoPendiente > 0
                   ? `<button type="button" class="mc-btn mc-btn-success mc-btn-sm" onclick="mcAbrirModalPago('${o._id}', '${mcEsc(o.folio)}', ${o.saldoPendiente})">💵 Abonar</button>`
                   : '<span class="mc-badge mc-badge-ok">Liquidada</span>'}
