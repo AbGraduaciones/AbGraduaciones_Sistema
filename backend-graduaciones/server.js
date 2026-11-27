@@ -64,6 +64,7 @@ const Cuenta = cargarModelo(['./models/Cuenta', './models/cuenta', './models/Cue
   cliente: mongoose.Schema.Types.Mixed,
   alumno: String,
   paquete: String,
+  colorMarco: { type: String, default: '' },
   observaciones: { type: String, default: '' },
   monto: Number,
   saldo: Number,
@@ -403,6 +404,7 @@ async function sincronizarMemoriaDesdeBD() {
         cliente: cta.cliente ? String(cta.cliente) : '',
         alumno: (cta.alumno || '').trim(),
         paquete: cta.paquete,
+        colorMarco: cta.colorMarco || '',
         observaciones: cta.observaciones || '',
         monto: montoTotal,
         saldo: saldoFinal,
@@ -564,6 +566,7 @@ app.post('/api/datos', async (req, res) => {
               cliente: s.cliente || (cuentaExistente ? cuentaExistente.cliente : '1001'),
               alumno: (s.alumno || '').trim(),
               paquete: s.paquete,
+              colorMarco: s.colorMarco !== undefined ? s.colorMarco : (cuentaExistente ? cuentaExistente.colorMarco : ''),
               observaciones: s.observaciones !== undefined ? s.observaciones : (cuentaExistente ? cuentaExistente.observaciones : ''),
               monto: montoTotal,
               saldo: saldoFinal,
@@ -1756,10 +1759,7 @@ app.delete('/api/catalogo/:id', requireAuth, async (req, res) => {
     res.status(400).json({ ok: false, error: err.message });
   }
 });
-
-// EXPLOSIÓN DE MATERIALES POR GRUPO (REGLA: 1 MARCO TRIPLE = 2 DIPLOMAS)
-  // EXPLOSIÓN DE MATERIALES POR GRUPO (LEE PAQUETE, 1 TRIPLE = 2 DIPLOMAS Y DESCUENTA PEDIDOS PREVIOS)
-// EXPLOSIÓN DE MATERIALES POR GRUPO (PAQUETES, 1 TRIPLE = 2 DIPLOMAS, PORTA RETRATO, ESCULTURA Y DESCUENTO DE PEDIDOS PREVIOS)
+// EXPLOSIÓN DE MATERIALES POR GRUPO (CON COLOR DE MARCO, PORTA RETRATO, ESCULTURA Y DESCUENTO DE PEDIDOS PREVIOS)
 app.post('/api/ordenes-compra/preview-grupos', requireAuth, async (req, res) => {
   try {
     const { grupos = [], proveedorId = '' } = req.body;
@@ -1806,13 +1806,14 @@ app.post('/api/ordenes-compra/preview-grupos', requireAuth, async (req, res) => 
 
     const cuentas = await Cuenta.find(filtroCuentas).lean();
 
-    // 2. Contar necesidades brutas desde los paquetes de los alumnos
+    // 2. Contar necesidades brutas desde los paquetes y colores de los alumnos
     const conteo = {};
-    const sumar = (categoria, modelo, tamano, unidades = 1, modeloBaseFallback = '') => {
+    const sumar = (categoria, modelo, tamano, unidades = 1, modeloBaseFallback = '', colorElegido = '') => {
       if (!modelo || !String(modelo).trim()) return;
       const modLimpio = String(modelo).replace(/\s+/g, ' ').trim();
       const tamLimpio = String(tamano || 'ESTANDAR').replace(/\s+/g, ' ').trim();
-      const clave = `${categoria}|${normClave(modLimpio)}|${normClave(tamLimpio)}`;
+      const colLimpio = String(colorElegido || '').replace(/\s+/g, ' ').trim();
+      const clave = `${categoria}|${normClave(modLimpio)}|${normClave(tamLimpio)}|${normClave(colLimpio)}`;
 
       if (!conteo[clave]) {
         conteo[clave] = {
@@ -1820,6 +1821,7 @@ app.post('/api/ordenes-compra/preview-grupos', requireAuth, async (req, res) => 
           modeloInterno: modLimpio,
           modeloBaseFallback: String(modeloBaseFallback || modLimpio).replace(/\s+/g, ' ').trim(),
           tamanoOTalla: tamLimpio,
+          colorElegido: colLimpio,
           cantidad: 0
         };
       }
@@ -1836,10 +1838,11 @@ app.post('/api/ordenes-compra/preview-grupos', requireAuth, async (req, res) => 
 
         const acabado = String(cta.tipoPanoramica || '').trim();
         const modeloMarco = acabado ? `${modeloBase} (${acabado})` : modeloBase;
+        const colorMarco = String(cta.colorMarco || '').trim();
 
-        // A) 1 Marco Triple 8x20 + 2 Diplomas por alumno
-        sumar('marco', modeloMarco, 'TRIPLE 8X20', 1, modeloBase);
-        sumar('diploma', modeloBase, 'DIPLOMA', 2, modeloBase);
+        // A) 1 Marco Triple 8x20 + 2 Diplomas respetando el color elegido por línea
+        sumar('marco', modeloMarco, 'TRIPLE 8X20', 1, modeloBase, colorMarco);
+        sumar('diploma', modeloBase, 'DIPLOMA', 2, modeloBase, colorMarco);
 
         // B) Porta Retrato 8x10 incluido por alumno y Escultura si eligió "Con Escultura"
         sumar('otro', 'PORTA RETRATO 8X10', '8X10', 1, 'PORTA RETRATO 8X10');
@@ -1883,7 +1886,7 @@ app.post('/api/ordenes-compra/preview-grupos', requireAuth, async (req, res) => 
     for (const ord of ordenesPrevias) {
       for (const it of (ord.items || [])) {
         const cat = String(it.categoria || 'marco').toLowerCase();
-        const clavePrev = `${cat}|${normClave(it.nombreInterno)}|${normClave(it.tamanoOTalla || 'ESTANDAR')}`;
+        const clavePrev = `${cat}|${normClave(it.nombreInterno)}|${normClave(it.tamanoOTalla || 'ESTANDAR')}|${normClave(it.colorProveedor || '')}`;
         const cubierto = (Number(it.cantidadPedida) || 0) + (Number(it.stockUsado) || 0);
         yaPedidoMapa[clavePrev] = (yaPedidoMapa[clavePrev] || 0) + cubierto;
       }
@@ -1894,17 +1897,10 @@ app.post('/api/ordenes-compra/preview-grupos', requireAuth, async (req, res) => 
 
     const items = Object.values(conteo)
       .map(reqItem => {
-        const claveExacta = `${reqItem.categoria}|${normClave(reqItem.modeloInterno)}|${normClave(reqItem.tamanoOTalla)}`;
-        const yaPedido = yaPedidoMapa[claveExacta] || 0;
-        const pendienteReal = Math.max(0, reqItem.cantidad - yaPedido);
-
-        if (pendienteReal <= 0) return null;
-
         const modNorm = normClave(reqItem.modeloInterno);
         const modBaseNorm = normClave(reqItem.modeloBaseFallback);
         const tamNorm = normClave(reqItem.tamanoOTalla);
 
-        // Coincidencia exacta por modelo + tamaño, luego modelo base + tamaño, y finalmente talla genérica (ESTANDAR / SIN MEDIDA)
         const match =
           catalogo.find(c => c.categoria === reqItem.categoria && normClave(c.modeloInterno) === modNorm && normClave(c.tamanoOTalla) === tamNorm) ||
           catalogo.find(c => c.categoria === reqItem.categoria && normClave(c.modeloInterno) === modBaseNorm && normClave(c.tamanoOTalla) === tamNorm) ||
@@ -1913,6 +1909,13 @@ app.post('/api/ordenes-compra/preview-grupos', requireAuth, async (req, res) => 
         const eq = proveedorId
           ? match?.equivalencias?.find(e => String(e.proveedorId) === String(proveedorId))
           : match?.equivalencias?.[0];
+
+        const colorFinal = reqItem.colorElegido || (eq ? eq.colorProveedor : (match?.colorInterno || ''));
+        const claveExacta = `${reqItem.categoria}|${modNorm}|${tamNorm}|${normClave(colorFinal)}`;
+        const yaPedido = yaPedidoMapa[claveExacta] || 0;
+        const pendienteReal = Math.max(0, reqItem.cantidad - yaPedido);
+
+        if (pendienteReal <= 0) return null;
 
         const stockDisponible = match?.stockDisponible || 0;
         const stockUsado = Math.min(stockDisponible, pendienteReal);
@@ -1924,7 +1927,7 @@ app.post('/api/ordenes-compra/preview-grupos', requireAuth, async (req, res) => 
           categoria: reqItem.categoria,
           nombreInterno: reqItem.modeloInterno,
           nombreProveedor: eq ? eq.nombreProveedor : reqItem.modeloInterno,
-          colorProveedor: eq ? eq.colorProveedor : (match?.colorInterno || ''),
+          colorProveedor: colorFinal,
           sinAlias: !eq,
           tamanoOTalla: reqItem.tamanoOTalla,
           cantidadBruta: reqItem.cantidad,
